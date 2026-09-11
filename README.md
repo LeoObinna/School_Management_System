@@ -732,61 +732,71 @@ Jobs must be safe to retry.
 Three environments:
 
 ``` text
-LOCAL -> STAGING (.dev) -> PRODUCTION
+CODESPACE (dev) -> STAGING (.dev) -> PRODUCTION
 ```
 
-Local uses native macOS development where possible. Staging has separate
-PostgreSQL, Redis, R2 and secrets. Production is completely separate.
+Development happens in **GitHub Codespaces** — a cloud-hosted Linux
+container with PHP 8.4, Composer, Node 24, PostgreSQL 16 and Redis 7
+pre-installed via `.devcontainer/`. The developer's Mac is a thin client:
+it only needs TRAE CN, a browser, and optionally Git.
+
+Staging and production run on managed infrastructure behind Cloudflare,
+with separate PostgreSQL, Redis, R2 buckets and secrets.
 
 Never share production credentials with staging. Never use real student
-data in staging.
+data in staging. See `docs/CODESPACES.md` for setup details.
 
-## 30. Developer Mac constraints
+## 30. Developer machine
 
-Primary development machine:
+The primary development machine is a 2017 Intel MacBook (macOS 13,
+8 GB RAM). It serves as a **thin client** only — it runs TRAE CN and a
+browser to connect to GitHub Codespaces. No local PHP, Composer,
+PostgreSQL, Redis, Docker or Homebrew is required.
+
+If a developer has a more powerful machine, they may optionally run the
+devcontainer locally via VS Code / Docker. This is a convenience, not a
+requirement.
+
+What the Mac needs:
 
 ``` text
-2017 MacBook
-macOS 13
-Intel Core i5, 3.1 GHz dual-core
-8 GB 2133 MHz LPDDR3
+TRAE CN (IDE)
+A modern browser
+Git (optional — Codespaces has Git built in)
+GitHub account with Codespaces access
 ```
 
-Prefer native tooling. Do not require Docker Desktop initially. Avoid
-Kubernetes and unnecessary background services. Redis can be started
-only when required if memory is constrained.
+## 31. Codespaces setup (replaces local setup)
 
-Recommended local tools:
+Open the repository in a GitHub Codespace. The `.devcontainer/`
+configuration automatically installs:
 
 ``` text
-Git
-Homebrew
-PHP 8.4+
+PHP 8.4 + Laravel-required extensions
 Composer
-Node.js LTS
-npm
-PostgreSQL
-Redis
-TRAE CN
-GitHub CLI (optional)
+Node.js 24 + npm
+PostgreSQL 16 (service container)
+Redis 7 (service container)
+GitHub CLI
 ```
 
-Git is version control; Homebrew is the package manager.
+To create a Codespace:
 
-## 31. Local setup order
+``` text
+GitHub.com → Repo → Code → Codespaces → Create codespace on main
+```
+
+Or via CLI:
 
 ``` bash
-git --version
-brew --version
-brew install php
-brew install composer
-brew install node
-brew install postgresql
-brew install redis
-brew install gh
+gh codespace create --repo <owner>/<repo> --branch main
 ```
 
-Verify:
+The devcontainer `postCreate` script installs npm dependencies,
+runs type-check and tests for the frontend, and (once scaffolded) runs
+`composer install` and migrations for the backend.
+
+Verify inside the Codespace:
 
 ``` bash
 php -v
@@ -794,13 +804,13 @@ composer --version
 node -v
 npm -v
 psql --version
-redis-server --version
+redis-cli ping
 git --version
 gh --version
 ```
 
-Do not continue to application development until the required local
-services work.
+Do not continue to application development until the Codespace is running
+and the required services are healthy.
 
 ## 32. Repository
 
@@ -932,10 +942,10 @@ audit_logs
 
 ### Phase 0 --- Infrastructure
 
-GitHub, local tools, Vue skeleton, Laravel API skeleton, PostgreSQL,
-Redis, CI, Cloudflare/R2 integration points and staging plan.
+GitHub Codespaces, devcontainer, Vue skeleton, Laravel API skeleton,
+PostgreSQL, Redis, CI, Cloudflare/R2 integration points and staging plan.
 
-Acceptance: Vue, Laravel API, PostgreSQL, Redis, Git and CI all work.
+Acceptance: Codespace runs, Vue, Laravel API, PostgreSQL, Redis, Git and CI all work.
 
 ### Phase 1 --- Foundation
 
@@ -1042,12 +1052,12 @@ Read README.md and PROJECT_RULES.md completely before making changes.
 Do not build the entire system.
 We are starting Phase 0.
 
-Inspect the repository, installed versions, OS/tooling, Git state and existing frontend/backend state.
+Inspect the repository, Codespace state, devcontainer, installed versions, Git state and existing frontend/backend state.
 
 Prepare the foundation for:
 Vue 3, TypeScript, Vite, Tailwind CSS, Pinia, Vue Router,
 Laravel 12 API, PHP 8.4+, PostgreSQL, Redis, Laravel Sanctum,
-GitHub CI and Cloudflare/R2 integration points.
+GitHub Codespaces, CI and Cloudflare/R2 integration points.
 
 Do not create business modules yet. Do not create students, teachers, finance, attendance, exams or admissions yet.
 
@@ -1105,13 +1115,14 @@ configuration, deployment and rollback procedures.
 ``` text
 Frontend       Vue 3 + TypeScript + Vite
 Backend        Laravel 12 API
-Database       PostgreSQL
-Cache/Queues   Redis
+Database       PostgreSQL 16
+Cache/Queues   Redis 7
 Storage        Cloudflare R2
 Edge           Cloudflare
 Source control GitHub
 IDE            TRAE CN
-Local          2017 Intel MacBook, macOS 13, 8 GB RAM
+Dev env        GitHub Codespaces (.devcontainer/)
+Mac            thin client only (TRAE CN + browser)
 Staging        dedicated .dev hostname
 Production     separate environment/domain
 Website        deferred

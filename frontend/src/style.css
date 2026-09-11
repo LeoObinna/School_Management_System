@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+
+/*
+ * SMS design system foundation (Tailwind v4 CSS-first theme).
+ * Calm, neutral, Apple-inspired palette with a single brand accent.
+ * Semantic tokens are consumed by reusable components — do not scatter
+ * arbitrary color values across pages.
+ */
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dce7ff;
+  --color-brand-200: #c0d4ff;
+  --color-brand-300: #94b6ff;
+  --color-brand-400: #618dff;
+  --color-brand-500: #3d66f6;
+  --color-brand-600: #2a49eb;
+  --color-brand-700: #2338d4;
+  --color-brand-800: #2330ab;
+  --color-brand-900: #223187;
+
+  --color-surface: #ffffff;
+  --color-surface-muted: #f6f7f9;
+  --color-content: #0f172a;
+  --color-content-muted: #5b6474;
+
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-surface-muted text-content font-sans antialiased;
+  }
+
+  /* Visible keyboard focus for accessibility. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+}
