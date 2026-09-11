@@ -3,11 +3,17 @@ set -euo pipefail
 
 echo "=== SMS Devcontainer Post-Create ==="
 
-# Ensure workspace ownership
-sudo chown -R vscode:vscode /workspace 2>/dev/null || true
+# Start services
+sudo service postgresql start || true
+sudo service redis-server start || true
+
+# Create sms database if it doesn't exist
+sudo -u postgres createdb sms 2>/dev/null || echo "Database 'sms' already exists or using default."
+# Create sms role with password for app connection
+sudo -u postgres psql -c "CREATE USER sms WITH PASSWORD 'sms_secret' SUPERUSER;" 2>/dev/null || sudo -u postgres psql -c "ALTER USER sms WITH PASSWORD 'sms_secret' SUPERUSER;" 2>/dev/null || true
 
 # --- Frontend ---
-cd /workspace/frontend
+cd /workspaces/School_Management_System/frontend
 if [ -f package.json ]; then
     echo "--- Installing frontend dependencies ---"
     npm install
@@ -20,10 +26,10 @@ else
 fi
 
 # --- Backend ---
-cd /workspace
+cd /workspaces/School_Management_System
 if [ -f backend/composer.json ]; then
     echo "--- Installing backend dependencies ---"
-    cd /workspace/backend
+    cd /workspaces/School_Management_System/backend
     composer install --no-interaction --prefer-dist
     if [ ! -f .env ]; then
         cp .env.example .env
@@ -34,3 +40,6 @@ if [ -f backend/composer.json ]; then
 fi
 
 echo "=== Post-Create Complete ==="
+echo "Services: PostgreSQL on :5432, Redis on :6379"
+echo "Frontend: cd frontend && npm run dev (port 5173)"
+echo "Backend:  cd backend && php artisan serve (port 8000) [when scaffolded]"
