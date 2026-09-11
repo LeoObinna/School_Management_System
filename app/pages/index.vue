@@ -57,6 +57,60 @@ async function onLogout() {
         </div>
       </section>
 
+      <section
+        v-if="
+          auth.can('academic_sessions.view') ||
+          auth.can('classes.view') ||
+          auth.can('subjects.view') ||
+          auth.can('teacher_assignments.manage')
+        "
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Academics</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <NuxtLink
+            v-if="auth.can('academic_sessions.view')"
+            to="/academics/sessions"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Sessions &amp; terms</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Academic calendar and current term
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('classes.view')"
+            to="/academics/classes"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Classes &amp; sections</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Class structure, sections and offered subjects
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('subjects.view')"
+            to="/academics/subjects"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Subjects</p>
+            <p class="mt-1 text-sm text-gray-500">
+              School subject catalogue
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('teacher_assignments.manage')"
+            to="/academics/assignments"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Teacher assignments</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Teacher subjects and class allocations
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">System Health</h3>
         <HealthStatus />

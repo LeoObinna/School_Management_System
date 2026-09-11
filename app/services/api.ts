@@ -52,4 +52,8 @@ export const api = {
     apiFetch<T>(path, { ...options, method: 'GET' }),
   post: <T>(path: string, body?: unknown, options?: FetchOptions) =>
     apiFetch<T>(path, { ...options, method: 'POST', body: body as FetchOptions['body'] }),
+  put: <T>(path: string, body?: unknown, options?: FetchOptions) =>
+    apiFetch<T>(path, { ...options, method: 'PUT', body: body as FetchOptions['body'] }),
+  del: <T>(path: string, options?: FetchOptions) =>
+    apiFetch<T>(path, { ...options, method: 'DELETE' }),
 }

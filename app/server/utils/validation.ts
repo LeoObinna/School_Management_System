@@ -7,7 +7,7 @@
 import { createError } from 'h3'
 import type { z } from 'zod'
 
-export function parseBody<T extends z.ZodTypeAny>(
+export function parseInput<T extends z.ZodTypeAny>(
   schema: T,
   input: unknown,
 ): z.infer<T> {
@@ -26,4 +26,20 @@ export function parseBody<T extends z.ZodTypeAny>(
     })
   }
   return result.data
+}
+
+/** Validates and types a request body against a zod schema. */
+export function parseBody<T extends z.ZodTypeAny>(
+  schema: T,
+  input: unknown,
+): z.infer<T> {
+  return parseInput(schema, input)
+}
+
+/** Validates and types coerced query-string params against a zod schema. */
+export function parseQueryData<T extends z.ZodTypeAny>(
+  schema: T,
+  input: unknown,
+): z.infer<T> {
+  return parseInput(schema, input)
 }

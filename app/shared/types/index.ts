@@ -101,6 +101,114 @@ export interface Paginated<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Academic foundation (README §13, Phase 3)
+// ---------------------------------------------------------------------------
+
+export interface AcademicSession {
+  id: string
+  name: string
+  slug: string
+  startDate: string | null
+  endDate: string | null
+  isCurrent: boolean
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Term {
+  id: string
+  sessionId: string
+  name: string
+  slug: string
+  sequence: number
+  startDate: string | null
+  endDate: string | null
+  isCurrent: boolean
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SchoolClass {
+  id: string
+  name: string
+  slug: string
+  level: string | null
+  sequence: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Section {
+  id: string
+  classId: string
+  name: string
+  slug: string
+  capacity: number | null
+  room: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Subject {
+  id: string
+  name: string
+  slug: string
+  code: string | null
+  description: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ClassSubject {
+  classId: string
+  subjectId: string
+  isCompulsory: boolean
+  maxScore: number | null
+  createdAt: string
+}
+
+// Class-subject row joined with the subject catalog.
+export interface ClassSubjectDetail extends ClassSubject {
+  subject: Subject
+}
+
+export interface TeacherSubject {
+  teacherId: string
+  subjectId: string
+  createdAt: string
+}
+
+export interface TeacherSubjectDetail extends TeacherSubject {
+  subject: Subject
+}
+
+export interface TeacherClassAssignment {
+  id: string
+  teacherId: string
+  classId: string
+  sectionId: string | null
+  subjectId: string
+  sessionId: string
+  isPrimaryTeacher: boolean
+  createdAt: string
+}
+
+// Assignment row joined with the related display names.
+export interface TeacherClassAssignmentDetail
+  extends TeacherClassAssignment {
+  teacherName: string
+  className: string
+  sectionName: string | null
+  subjectName: string
+  sessionName: string
+}
+
+// ---------------------------------------------------------------------------
 // Result workflow (README §18)
 // ---------------------------------------------------------------------------
 

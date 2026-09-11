@@ -1,5 +1,5 @@
 /**
- * Idempotent database seeder (README §41 Phase 1).
+ * Idempotent database seeder (README §41 Phases 1 + 3).
  *
  * Seeds, all as clearly fake demo data:
  *   - permissions + roles + role_permissions (catalog)
@@ -7,12 +7,15 @@
  *   - school settings defaults
  *   - one current academic session, three terms
  *   - starter classes, sections, subjects and class-subject links
+ *   - fake teacher profiles, teacher-subject links and teacher class
+ *     assignments for the current session (Phase 3)
  *
  * Run via `npm run db:seed` (uses database/seed.ts). Safe to re-run:
  * every row upserts on its natural unique key and join rows use
- * ON CONFLICT DO NOTHING.
+ * ON CONFLICT DO NOTHING (assignments pre-check because their unique
+ * index includes a nullable section).
  */
-import { sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import {
   users,
@@ -27,6 +30,9 @@ import {
   sections,
   subjects,
   classSubjects,
+  teachers,
+  teacherSubjects,
+  teacherClassAssignments,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -72,6 +78,48 @@ const DEMO_SUBJECTS = [
   { name: 'Basic Science', slug: 'basic-science', code: 'BSC' },
   { name: 'Social Studies', slug: 'social-studies', code: 'SST' },
   { name: 'Information Technology', slug: 'information-technology', code: 'ICT' },
+]
+
+// Fake teacher profiles (Phase 3 assignment support; People CRUD is
+// Phase 4). The first row links to the demo teacher login.
+const DEMO_TEACHERS = [
+  {
+    staffNumber: 'T001',
+    firstName: 'Ada',
+    lastName: 'Obi',
+    email: 'ada.obi@victoriouschildren.school',
+    gender: 'female' as const,
+    qualification: 'B.Ed. Primary Education',
+    specialization: 'English Studies',
+    demoUserEmail: 'teacher@victoriouschildren.school',
+  },
+  {
+    staffNumber: 'T002',
+    firstName: 'Bello',
+    lastName: 'Musa',
+    email: 'bello.musa@victoriouschildren.school',
+    gender: 'male' as const,
+    qualification: 'B.Sc. Mathematics',
+    specialization: 'Mathematics',
+  },
+  {
+    staffNumber: 'T003',
+    firstName: 'Grace',
+    lastName: 'Eze',
+    email: 'grace.eze@victoriouschildren.school',
+    gender: 'female' as const,
+    qualification: 'B.Sc. Computer Science',
+    specialization: 'Information Technology',
+  },
+  {
+    staffNumber: 'T004',
+    firstName: 'John',
+    lastName: 'Adewale',
+    email: 'john.adewale@victoriouschildren.school',
+    gender: 'male' as const,
+    qualification: 'B.Sc. Integrated Science',
+    specialization: 'Basic Science',
+  },
 ]
 
 export async function seedDatabase(db: DB): Promise<void> {
@@ -250,6 +298,115 @@ export async function seedDatabase(db: DB): Promise<void> {
         .insert(classSubjects)
         .values({ classId: klass.id, subjectId: subject.id, isCompulsory: true })
         .onConflictDoNothing()
+    }
+  }
+
+  // --- Teachers, subject links and class assignments (Phase 3) ----------
+  const teacherRows: { id: string; staffNumber: string }[] = []
+  for (const teacher of DEMO_TEACHERS) {
+    let userId: string | null = null
+    if (teacher.demoUserEmail) {
+      const [demoUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, teacher.demoUserEmail))
+        .limit(1)
+      userId = demoUser?.id ?? null
+    }
+    const [row] = await db
+      .insert(teachers)
+      .values({
+        userId,
+        staffNumber: teacher.staffNumber,
+        firstName: teacher.firstName,
+        lastName: teacher.lastName,
+        email: teacher.email,
+        gender: teacher.gender,
+        qualification: teacher.qualification,
+        specialization: teacher.specialization,
+        hiredAt: '2026-08-01',
+        isActive: true,
+      })
+      .onConflictDoUpdate({
+        target: teachers.staffNumber,
+        set: { userId, email: teacher.email, updatedAt: new Date() },
+      })
+      .returning({ id: teachers.id, staffNumber: teachers.staffNumber })
+    if (row) {
+      teacherRows.push(row)
+    }
+  }
+
+  if (teacherRows.length > 0 && subjectRows.length > 0) {
+    // Subject index plan against DEMO_SUBJECTS order above.
+    const capabilityPlan: Record<string, number[]> = {
+      T001: [0, 1, 2, 3, 4],
+      T002: [1],
+      T003: [4],
+      T004: [2, 3],
+    }
+    for (const teacher of teacherRows) {
+      for (const idx of capabilityPlan[teacher.staffNumber] ?? []) {
+        const subject = subjectRows[idx]
+        if (!subject) {
+          continue
+        }
+        await db
+          .insert(teacherSubjects)
+          .values({ teacherId: teacher.id, subjectId: subject.id })
+          .onConflictDoNothing()
+      }
+    }
+  }
+
+  if (
+    teacherRows.length > 0 &&
+    classRows.length > 0 &&
+    subjectRows.length > 0 &&
+    session
+  ) {
+    const byStaff = (staffNumber: string) =>
+      teacherRows.find((t) => t.staffNumber === staffNumber)
+    const byClassSlug = (slug: string) =>
+      classRows.find((c) => c.slug === slug)
+    const assignmentPlan = [
+      { staff: 'T001', klass: 'primary-1', subject: 0 },
+      { staff: 'T002', klass: 'jss-1', subject: 1 },
+      { staff: 'T003', klass: 'jss-1', subject: 4 },
+      { staff: 'T004', klass: 'sss-1', subject: 2 },
+    ]
+    for (const item of assignmentPlan) {
+      const teacher = byStaff(item.staff)
+      const klass = byClassSlug(item.klass)
+      const subject = subjectRows[item.subject]
+      if (!teacher || !klass || !subject) {
+        continue
+      }
+      // Pre-check: the assignment unique index includes a nullable
+      // section, so ON CONFLICT cannot target it directly.
+      const [existing] = await db
+        .select({ marker: sql`1` })
+        .from(teacherClassAssignments)
+        .where(
+          and(
+            eq(teacherClassAssignments.teacherId, teacher.id),
+            eq(teacherClassAssignments.classId, klass.id),
+            eq(teacherClassAssignments.subjectId, subject.id),
+            eq(teacherClassAssignments.sessionId, session.id),
+            isNull(teacherClassAssignments.sectionId),
+          ),
+        )
+        .limit(1)
+      if (existing) {
+        continue
+      }
+      await db.insert(teacherClassAssignments).values({
+        teacherId: teacher.id,
+        classId: klass.id,
+        subjectId: subject.id,
+        sessionId: session.id,
+        isPrimaryTeacher: item.staff === 'T001',
+      })
     }
   }
 }

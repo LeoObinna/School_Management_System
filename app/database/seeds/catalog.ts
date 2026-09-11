@@ -194,6 +194,8 @@ const TEACHER_PERMISSIONS: PermissionSlug[] = [
   'students.view',
   'parents.view',
   'teachers.view',
+  'academic_sessions.view',
+  'terms.view',
   'classes.view',
   'sections.view',
   'subjects.view',

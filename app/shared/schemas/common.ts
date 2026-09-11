@@ -33,6 +33,18 @@ export const phoneSchema = z
   .optional()
   .or(z.literal(''))
 
+// Boolean from a query string: "true"/"1" -> true, "false"/"0" -> false.
+// z.coerce.boolean() cannot be used here because Boolean("false") === true.
+export const booleanParamSchema = z.preprocess((v) => {
+  if (v === undefined || v === '') {
+    return undefined
+  }
+  if (typeof v === 'boolean') {
+    return v
+  }
+  return String(v).toLowerCase() === 'true' || v === '1'
+}, z.boolean().optional())
+
 // Standard list/pagination query params.
 export const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
