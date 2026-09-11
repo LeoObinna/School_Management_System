@@ -14,6 +14,7 @@ import {
   timestamp,
   uuid,
   date,
+  boolean,
   uniqueIndex,
   index,
   primaryKey,
@@ -87,7 +88,7 @@ export const parents = pgTable(
     occupation: varchar('occupation', { length: 150 }),
     address: text('address'),
     photoUrl: text('photo_url'),
-    isActive: varchar('is_active', { length: 20 }).default('active').notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -124,7 +125,7 @@ export const teachers = pgTable(
     address: text('address'),
     photoUrl: text('photo_url'),
     hiredAt: date('hired_at'),
-    isActive: varchar('is_active', { length: 20 }).default('active').notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -155,7 +156,7 @@ export const staffProfiles = pgTable('staff_profiles', {
   phone: varchar('phone', { length: 50 }),
   gender: genderEnum('gender'),
   hiredAt: date('hired_at'),
-  isActive: varchar('is_active', { length: 20 }).default('active').notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -178,10 +179,8 @@ export const studentParents = pgTable(
       .notNull()
       .references(() => parents.id, { onDelete: 'cascade' }),
     relationship: varchar('relationship', { length: 50 }).notNull(), // father/mother/guardian/etc.
-    isPrimary: varchar('is_primary', { length: 20 }).default('false').notNull(),
-    isEmergencyContact: varchar('is_emergency_contact', {
-      length: 20,
-    }).default('false').notNull(),
+    isPrimary: boolean('is_primary').default(false).notNull(),
+    isEmergencyContact: boolean('is_emergency_contact').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),

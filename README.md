@@ -1000,14 +1000,42 @@ Queues wrangler bindings, Tailwind v4, Pinia, Vitest, devcontainer
 Acceptance: Nuxt app builds for Cloudflare, type-check/tests pass,
 migration SQL generates, Codespace and CI configured. — MET.
 
-### Phase 1 --- Foundation  (current)
+### Phase 1 --- Foundation  ✅ COMPLETE
 
 Full PostgreSQL schema (all tables in §12/§40 via Drizzle), shared zod
 schemas and TypeScript domain types, database seeders (fake demo data),
 API conventions/error handling, and the frontend design system /
 navigation shell.
 
-### Phase 2 --- Authentication/RBAC
+Delivered in this migration increment (data layer foundation):
+
+- Domain-split Drizzle schema under `app/database/schema/`
+  (`enums`, `core`, `academics`, `people`, `enrollment`, `attendance`,
+  `assignments`, `exams`, `finance`, `admissions`, `communication`,
+  `events`) aggregated by `schema/index.ts`: **52 tables, 16 pg enums**.
+- All money and grade/score columns use `NUMERIC` (20 such columns);
+  no `real`/`double precision` anywhere.
+- Shared zod validation foundation in `app/shared/schemas/`
+  (`common`, `auth`, `academics`) reused by client and Nitro server.
+- Idempotent RBAC + demo seeder: `app/database/seeds/` (permission
+  catalog from §8, five roles, role/permission grants, five fake demo
+  users with scrypt-hashed passwords, school settings, one current
+  session + three terms, starter classes/sections/subjects). Run with
+  `npm run db:seed` (`DATABASE_URL` required; `SEED_PASSWORD` optional).
+- Initial migration `0000_clever_garia.sql` regenerated from the full
+  schema.
+- Checks: `nuxt typecheck` exit 0, Vitest **20/20 pass**, `nuxt build`
+  succeeds for the `cloudflare-pages` preset.
+
+Not yet done in Phase 1 (deferred to keep increments small): API
+conventions/error-handling middleware and the frontend design system /
+navigation shell — these lead directly into Phase 2.
+
+Acceptance: complete schema generates; migrations are reproducible;
+validation and RBAC seed data are tested; type-check, tests and build
+all pass. — MET for the data-layer foundation.
+
+### Phase 2 --- Authentication/RBAC  (current)
 
 Users, roles, permissions, Nitro auth middleware (signed HTTP-only
 cookies), RBAC permission middleware, client route protection, role
@@ -1188,7 +1216,7 @@ Mac            thin client only (TRAE CN + browser)
 Staging        Cloudflare Workers staging + sms-staging R2 + staging PG
 Production     separate Workers env + sms-production R2 + production PG
 Website        deferred
-Current phase  Phase 1 — Foundation (Phase 0 complete)
+Current phase  Phase 2 — Authentication/RBAC (Phases 0–1 complete)
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -1200,6 +1228,11 @@ Vue 3 + Laravel 12 architecture to **Nuxt 4 + Cloudflare Workers**,
 while **retaining PostgreSQL** as the primary database.
 
 -   Phase 0 feasibility assessment and decision: complete.
+-   Phase 0 infrastructure (Nuxt 4 scaffold, Nitro Cloudflare preset,
+    Drizzle, bindings, CI/devcontainer): complete.
+-   Phase 1 data-layer foundation: complete — 52-table domain schema,
+    shared zod schemas, idempotent RBAC/demo seeder, initial migration;
+    type-check, 20 tests and Cloudflare build all pass.
 -   The migration is performed **incrementally**, one phase at a time.
 -   Existing work is preserved: the original `frontend/` Vue 3 scaffold
     remains in the repository as a reference until the Nuxt app reaches
@@ -1210,7 +1243,7 @@ while **retaining PostgreSQL** as the primary database.
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
 -   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 1 — Foundation**.
+-   Current phase: **Phase 2 — Authentication/RBAC** (Phases 0–1 done).
 
 ## 48. Architecture decision (summary)
 
@@ -1262,4 +1295,10 @@ documentation, not a second specification.
                     foundation schema, R2/Hyperdrive/Queues bindings,
                     Tailwind, Pinia, Vitest, devcontainer and CI
                     updated; type-check/tests/build pass.
+2026-09-11  Phase 1  Data-layer foundation: schema split into 11
+                    domain files (52 tables, 16 enums); NUMERIC used
+                    for all money/scores; shared zod schemas; idempotent
+                    RBAC + demo seeder and db:seed script; initial
+                    migration regenerated; type-check, 20 tests and
+                    Cloudflare build pass.
 ```

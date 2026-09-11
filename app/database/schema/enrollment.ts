@@ -14,7 +14,8 @@ import {
   timestamp,
   uuid,
   time,
-  integer,
+  date,
+  boolean,
   uniqueIndex,
   index,
   primaryKey,
@@ -73,8 +74,8 @@ export const teacherClassAssignments = pgTable(
     sessionId: uuid('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    isPrimaryTeacher: varchar('is_primary_teacher', { length: 20 })
-      .default('false')
+    isPrimaryTeacher: boolean('is_primary_teacher')
+      .default(false)
       .notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
@@ -116,7 +117,7 @@ export const studentEnrollments = pgTable(
       onDelete: 'restrict',
     }),
     rollNumber: varchar('roll_number', { length: 50 }),
-    enrollmentDate: varchar('enrollment_date', { length: 20 }).notNull(), // ISO date string
+    enrollmentDate: date('enrollment_date').notNull(),
     status: enrollmentStatusEnum('status').default('active').notNull(),
     notes: varchar('notes', { length: 500 }),
     createdAt: timestamp('created_at', { withTimezone: true })
