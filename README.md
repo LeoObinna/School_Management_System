@@ -755,6 +755,23 @@ container with Node 24, PostgreSQL 16 and wrangler pre-installed via
 and migration work; no Redis is required (Cloudflare Queues replace it).
 The developer's Mac is a thin client.
 
+Local app configuration is read from `app/.env` (copy
+`app/.env.example`; never commit real values). Required variables:
+
+``` text
+DATABASE_URL            PostgreSQL connection string
+                        (local default: postgresql://sms:sms_secret@localhost:5432/sms)
+SESSION_SECRET          secret used to sign session cookies
+R2_ACCOUNT_ID           Cloudflare R2 account id (dev only)
+R2_ACCESS_KEY_ID        R2 access key id (dev only)
+R2_SECRET_ACCESS_KEY    R2 secret access key (dev only)
+R2_BUCKET              target R2 bucket (e.g. sms-staging)
+NUXT_PUBLIC_API_BASE_URL  public API base (default /api/v1)
+```
+
+In Codespaces and CI, supply sensitive values as Codespace/GitHub
+secrets rather than a committed `.env`.
+
 ### Remote / managed services
 
 -   Staging and production PostgreSQL run on a managed provider
@@ -837,6 +854,26 @@ gh --version
 
 Do not continue to application development until the Codespace is running
 and the required services are healthy.
+
+Nuxt application commands (run from `app/`):
+
+``` bash
+npm install --legacy-peer-deps   # install (legacy-peer-deps is required)
+npm run dev                      # Nuxt dev server on http://localhost:3000
+npm run type-check               # vue-tsc / strict TypeScript
+npm run test                     # Vitest
+npm run build                    # Cloudflare Pages build -> dist/
+npx wrangler pages dev dist      # preview the Pages/Workers build locally
+
+npm run db:generate              # generate a SQL migration from schema changes
+npm run db:migrate               # apply migrations to DATABASE_URL
+npm run db:push                  # push schema directly (dev only)
+npm run db:seed                  # seed idempotent RBAC + fake demo data
+npm run db:studio                # Drizzle Studio
+```
+
+`db:migrate` and `db:seed` require `DATABASE_URL`; `db:seed` optionally
+honours `SEED_PASSWORD` for the demo users.
 
 ## 32. Repository
 
@@ -1301,4 +1338,9 @@ documentation, not a second specification.
                     RBAC + demo seeder and db:seed script; initial
                     migration regenerated; type-check, 20 tests and
                     Cloudflare build pass.
+2026-09-11  Docs     Single-README consolidation: app/README.md content
+                    reconciled here (env vars in §29, Nuxt/db commands
+                    in §31; stack/structure/decisions already covered)
+                    and deleted; boilerplate frontend/README.md deleted.
+                    This README is now the only README in the repo.
 ```
