@@ -47,6 +47,9 @@ export default defineNuxtConfig({
     // Server-only secrets (not exposed to client)
     databaseUrl: process.env.DATABASE_URL || '',
     sessionSecret: process.env.SESSION_SECRET || 'change-me-in-production',
+    // Dev-only: surface password-reset tokens from the API until the
+    // Queues-backed mailer exists (Phase 10). NEVER enable in staging/prod.
+    exposeResetTokens: process.env.EXPOSE_RESET_TOKENS === 'true',
     r2: {
       accountId: process.env.R2_ACCOUNT_ID || '',
       accessKeyId: process.env.R2_ACCESS_KEY_ID || '',

@@ -755,23 +755,6 @@ container with Node 24, PostgreSQL 16 and wrangler pre-installed via
 and migration work; no Redis is required (Cloudflare Queues replace it).
 The developer's Mac is a thin client.
 
-Local app configuration is read from `app/.env` (copy
-`app/.env.example`; never commit real values). Required variables:
-
-``` text
-DATABASE_URL            PostgreSQL connection string
-                        (local default: postgresql://sms:sms_secret@localhost:5432/sms)
-SESSION_SECRET          secret used to sign session cookies
-R2_ACCOUNT_ID           Cloudflare R2 account id (dev only)
-R2_ACCESS_KEY_ID        R2 access key id (dev only)
-R2_SECRET_ACCESS_KEY    R2 secret access key (dev only)
-R2_BUCKET              target R2 bucket (e.g. sms-staging)
-NUXT_PUBLIC_API_BASE_URL  public API base (default /api/v1)
-```
-
-In Codespaces and CI, supply sensitive values as Codespace/GitHub
-secrets rather than a committed `.env`.
-
 ### Remote / managed services
 
 -   Staging and production PostgreSQL run on a managed provider
@@ -854,26 +837,6 @@ gh --version
 
 Do not continue to application development until the Codespace is running
 and the required services are healthy.
-
-Nuxt application commands (run from `app/`):
-
-``` bash
-npm install --legacy-peer-deps   # install (legacy-peer-deps is required)
-npm run dev                      # Nuxt dev server on http://localhost:3000
-npm run type-check               # vue-tsc / strict TypeScript
-npm run test                     # Vitest
-npm run build                    # Cloudflare Pages build -> dist/
-npx wrangler pages dev dist      # preview the Pages/Workers build locally
-
-npm run db:generate              # generate a SQL migration from schema changes
-npm run db:migrate               # apply migrations to DATABASE_URL
-npm run db:push                  # push schema directly (dev only)
-npm run db:seed                  # seed idempotent RBAC + fake demo data
-npm run db:studio                # Drizzle Studio
-```
-
-`db:migrate` and `db:seed` require `DATABASE_URL`; `db:seed` optionally
-honours `SEED_PASSWORD` for the demo users.
 
 ## 32. Repository
 
@@ -1056,7 +1019,8 @@ Delivered in this migration increment (data layer foundation):
   (`common`, `auth`, `academics`) reused by client and Nitro server.
 - Idempotent RBAC + demo seeder: `app/database/seeds/` (permission
   catalog from §8, five roles, role/permission grants, five fake demo
-  users with scrypt-hashed passwords, school settings, one current
+  users with PBKDF2-hashed passwords (the Web Crypto hashing util was
+  added in Phase 2; the seeder was re-pointed to it), school settings, one current
   session + three terms, starter classes/sections/subjects). Run with
   `npm run db:seed` (`DATABASE_URL` required; `SEED_PASSWORD` optional).
 - Initial migration `0000_clever_garia.sql` regenerated from the full
@@ -1072,13 +1036,79 @@ Acceptance: complete schema generates; migrations are reproducible;
 validation and RBAC seed data are tested; type-check, tests and build
 all pass. — MET for the data-layer foundation.
 
-### Phase 2 --- Authentication/RBAC  (current)
+### Phase 2 --- Authentication/RBAC  ✅ COMPLETE
 
 Users, roles, permissions, Nitro auth middleware (signed HTTP-only
 cookies), RBAC permission middleware, client route protection, role
 dashboards and audit foundation.
 
-### Phase 3 --- Academic foundation
+Delivered in this increment:
+
+-   **Password hashing** with the Web Crypto API
+    (`app/server/utils/auth/password.ts`): PBKDF2-HMAC-SHA-512,
+    210,000 iterations, 16-byte salt, 64-byte key. Stored as
+    `pbkdf2$sha512$<iter>$<salt>$<hash>`. Chosen over argon2/bcrypt so
+    the same code runs natively on both Cloudflare Workers and Node
+    without native bindings. Includes a password fingerprint used to
+    invalidate reset tokens after a password change. The demo seeder
+    now uses this util (its old scrypt hashes are upgraded on upsert).
+-   **Signed, purpose-bound tokens** (`tokens.ts`): HMAC-SHA-256
+    session tokens (7-day TTL, 30 days when "remember me") and
+    1-hour password-reset tokens, formatted
+    `<payloadB64url>.<sigB64url>` and verified constant-time. Sessions
+    are cookie-only (no server-side session/KV store yet).
+-   **Secure cookies** (`cookies.ts`): `sms_session` is HTTP-only,
+    `Secure`, `SameSite=Lax`, `path=/`; a non-HTTP-only `sms_csrf`
+    cookie supports the double-submit CSRF check.
+-   **Auth context + RBAC** (`context.ts`, `permissions.ts`,
+    `rbac.ts`): on every request the session is verified and the
+    user's roles/permissions are aggregated in one SQL query.
+    `requireUser` (401), `requireRole` and `requirePermission(slug)`
+    (403) guard server routes; `super_admin` has wildcard access.
+    Client route guards in `app/middleware/auth.global.ts` are UX only
+    --- the server guards are authoritative.
+-   **CSRF middleware** (`middleware/00.auth.ts`): authenticated
+    state-changing `/api/` requests (non-GET/HEAD/OPTIONS) must send a
+    valid `x-csrf-token` header matching the session-derived CSRF
+    token. Safe methods and unauthenticated requests are exempt.
+-   **Endpoints** under `/api/v1/auth`: `login`, `logout`, `me`,
+    `forgot-password`, `reset-password`. Login uses a sliding-window
+    rate limiter (10 attempts / 5 min per IP+email) with a
+    `Retry-After` header, returns one generic error for unknown email
+    or wrong password, and stamps `lastLoginAt`.
+-   **Audit logging** (`utils/audit.ts`): login success/failure,
+    logout and password reset are written to `audit_logs` (best
+    effort) with sensitive fields stripped and the client IP recorded.
+-   **Client**: `app/services/api.ts` (sends cookies, attaches the
+    CSRF header automatically), Pinia `useAuthStore` with a `can()`
+    permission getter, a global route guard, a login page and a
+    protected dashboard that demonstrates role/permission rendering.
+-   Validation failures return a uniform `422` with a field-level
+    `data.errors` map (shared zod schemas).
+-   Checks: `nuxt typecheck` exit 0, Vitest **46/46 pass** (7 files),
+    `nuxt build` succeeds for the `cloudflare-pages` preset.
+
+Known limitations (deferred by design):
+
+-   The login limiter is in-memory and therefore per Worker isolate;
+    a shared KV/Durable Object limiter and WAF rules come with
+    hardening (Phase 12/13).
+-   No server-side session revocation yet (stateless signed cookies);
+    logout clears the cookie. A revocation list (KV/DB) is a later
+    hardening item.
+-   Forgot-password returns the reset token only when the server-only
+    `EXPOSE_RESET_TOKENS` flag is true (local dev); real email delivery
+    is deferred to Phase 10 (Queues/communication).
+-   Endpoint-level HTTP integration tests are not included (no live
+    PostgreSQL on the Mac); the crypto, token, RBAC and throttle logic
+    is covered by pure unit tests. Parent/child row-level data
+    isolation is enforced alongside the modules that own that data.
+
+Acceptance: auth works end-to-end, RBAC is enforced server-side,
+type-check/tests/build all pass. --- MET (pending live verification in
+Codespaces with PostgreSQL).
+
+### Phase 3 --- Academic foundation  (current)
 
 Sessions, terms, classes, sections, subjects, class subjects and teacher
 assignments.
@@ -1253,7 +1283,7 @@ Mac            thin client only (TRAE CN + browser)
 Staging        Cloudflare Workers staging + sms-staging R2 + staging PG
 Production     separate Workers env + sms-production R2 + production PG
 Website        deferred
-Current phase  Phase 2 — Authentication/RBAC (Phases 0–1 complete)
+Current phase  Phase 3 — Academic foundation (Phases 0–2 complete)
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -1270,6 +1300,13 @@ while **retaining PostgreSQL** as the primary database.
 -   Phase 1 data-layer foundation: complete — 52-table domain schema,
     shared zod schemas, idempotent RBAC/demo seeder, initial migration;
     type-check, 20 tests and Cloudflare build all pass.
+-   Phase 2 authentication/RBAC: complete — Web Crypto PBKDF2 password
+    hashing, HMAC-signed cookie sessions, double-submit CSRF
+    protection, server-side `requireUser`/`requireRole`/
+    `requirePermission` guards, login/logout/me/forgot/reset endpoints,
+    login throttling, audit logging and a protected client
+    (api service, Pinia auth store, route guard, login + dashboard);
+    type-check, 46 tests and Cloudflare build all pass.
 -   The migration is performed **incrementally**, one phase at a time.
 -   Existing work is preserved: the original `frontend/` Vue 3 scaffold
     remains in the repository as a reference until the Nuxt app reaches
@@ -1280,7 +1317,7 @@ while **retaining PostgreSQL** as the primary database.
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
 -   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 2 — Authentication/RBAC** (Phases 0–1 done).
+-   Current phase: **Phase 3 — Academic foundation** (Phases 0–2 done).
 
 ## 48. Architecture decision (summary)
 
@@ -1338,9 +1375,15 @@ documentation, not a second specification.
                     RBAC + demo seeder and db:seed script; initial
                     migration regenerated; type-check, 20 tests and
                     Cloudflare build pass.
-2026-09-11  Docs     Single-README consolidation: app/README.md content
-                    reconciled here (env vars in §29, Nuxt/db commands
-                    in §31; stack/structure/decisions already covered)
-                    and deleted; boilerplate frontend/README.md deleted.
-                    This README is now the only README in the repo.
+2026-09-11  Phase 2  Authentication/RBAC: Web Crypto PBKDF2-HMAC-SHA-512
+                    password hashing (seeder re-pointed to it); HMAC
+                    signed session + reset tokens in HTTP-only Secure
+                    SameSite=Lax cookies; double-submit CSRF middleware;
+                    per-request auth context with requireUser/requireRole/
+                    requirePermission guards; login/logout/me/forgot/
+                    reset endpoints with sliding-window login throttle
+                    and audit logging; client api service, Pinia auth
+                    store, global route guard, login page and protected
+                    dashboard; type-check, 46 tests and Cloudflare build
+                    pass.
 ```

@@ -12,7 +12,6 @@
  * every row upserts on its natural unique key and join rows use
  * ON CONFLICT DO NOTHING.
  */
-import { scryptSync, randomBytes } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import {
@@ -30,18 +29,12 @@ import {
   classSubjects,
 } from '../schema'
 import type { Schema } from '../schema'
+import { hashPassword } from '../../server/utils/auth/password'
 import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from './catalog'
 
 export type DB = PostgresJsDatabase<Schema>
 
 const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'password123'
-
-/** scrypt hash formatted as scrypt$<saltHex>$<hashHex>. */
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('hex')
-  const hash = scryptSync(password, salt, 64).toString('hex')
-  return `scrypt$${salt}$${hash}`
-}
 
 interface DemoUser {
   name: string
@@ -130,19 +123,26 @@ export async function seedDatabase(db: DB): Promise<void> {
   }
 
   // --- Demo users + role assignment -------------------------------------
+  const demoPasswordHash = await hashPassword(DEMO_PASSWORD)
   for (const demo of DEMO_USERS) {
     const [user] = await db
       .insert(users)
       .values({
         name: demo.name,
         email: demo.email,
-        password: hashPassword(DEMO_PASSWORD),
+        password: demoPasswordHash,
         isActive: true,
         emailVerifiedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: users.email,
-        set: { name: demo.name, updatedAt: new Date() },
+        // Demo only: keep credentials working across re-seeds (also
+        // upgrades older scrypt hashes to the current PBKDF2 format).
+        set: {
+          name: demo.name,
+          password: demoPasswordHash,
+          updatedAt: new Date(),
+        },
       })
       .returning({ id: users.id })
 
@@ -170,10 +170,10 @@ export async function seedDatabase(db: DB): Promise<void> {
   const [session] = await db
     .insert(academicSessions)
     .values({
-      name: '2025/2026',
-      slug: '2025-2026',
-      startDate: '2025-09-01',
-      endDate: '2026-07-31',
+      name: '2026/2027',
+      slug: '2026-2027',
+      startDate: '2026-09-01',
+      endDate: '2027-07-31',
       isCurrent: true,
       isActive: true,
     })
@@ -185,9 +185,9 @@ export async function seedDatabase(db: DB): Promise<void> {
 
   if (session) {
     const termDefs = [
-      { name: 'First Term', slug: 'first-term', sequence: 1, start: '2025-09-08', end: '2025-12-12' },
-      { name: 'Second Term', slug: 'second-term', sequence: 2, start: '2026-01-06', end: '2026-04-03' },
-      { name: 'Third Term', slug: 'third-term', sequence: 3, start: '2026-04-20', end: '2026-07-24' },
+      { name: 'First Term', slug: 'first-term', sequence: 1, start: '2026-09-08', end: '2026-12-11' },
+      { name: 'Second Term', slug: 'second-term', sequence: 2, start: '2027-01-05', end: '2027-04-02' },
+      { name: 'Third Term', slug: 'third-term', sequence: 3, start: '2027-04-19', end: '2027-07-23' },
     ]
     for (const [i, term] of termDefs.entries()) {
       await db

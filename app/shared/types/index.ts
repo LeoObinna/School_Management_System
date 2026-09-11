@@ -45,6 +45,31 @@ export interface Role {
   updatedAt: string
 }
 
+// Authenticated user as returned by the API — never includes password.
+export interface AuthUser {
+  id: string
+  name: string
+  email: string
+  phone?: string | null
+  avatarUrl?: string | null
+  isActive: boolean
+}
+
+// GET /api/v1/auth/me
+export interface AuthSessionResponse {
+  user: AuthUser
+  roles: RoleSlug[]
+  permissions: string[]
+  csrfToken: string
+}
+
+// POST /api/v1/auth/login
+export type LoginResponse = AuthSessionResponse
+
+export interface MessageResponse {
+  message: string
+}
+
 export interface Permission {
   id: string
   name: string
