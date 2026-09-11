@@ -1,0 +1,43 @@
+{
+  "name": "sms-app",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "type-check": "nuxt typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^0.10.1",
+    "drizzle-orm": "^0.39.0",
+    "nuxt": "^4.5.2",
+    "pinia": "^3.0.4",
+    "postgres": "^3.4.5",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@nuxt/test-utils": "^3.17.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@vue/test-utils": "^2.5.0",
+    "drizzle-kit": "^0.30.0",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.0",
+    "vue-tsc": "^3.3.11",
+    "wrangler": "^4.10.0"
+  }
+}

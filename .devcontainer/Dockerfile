@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
-# PostgreSQL 16 + Redis 7 as services inside the container
+# PostgreSQL 16 for local development.
+# (Redis is no longer needed — Cloudflare Queues replace it in production.)
 RUN sudo apt-get update && sudo apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -15,6 +16,5 @@ https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
     && sudo apt-get update \
     && sudo apt-get install -y --no-install-recommends \
        postgresql-16 \
-       redis-server \
     && sudo apt-get clean \
     && sudo rm -rf /var/lib/apt/lists/*

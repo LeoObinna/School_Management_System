@@ -2,47 +2,54 @@
 
 ## Victorious Children School --- School Management System (SMS)
 
-### Vue 3 + TypeScript + Vite + Laravel 12 API + PostgreSQL + Redis + Cloudflare R2
+### Nuxt 4 + TypeScript + Vue 3 + Nitro + Cloudflare Workers + PostgreSQL + Cloudflare R2
 
 > **MASTER SOURCE OF TRUTH.** Build the authenticated SMS first. Build
 > the public school website later.
+>
+> This README is the single authoritative project specification. The
+> supporting documents `ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`,
+> `ARCHITECTURE_DECISION_RECORD.md`, and `MIGRATION_PLAN.md` record the
+> reasoning and migration history; they do not override this README.
 
 ## 1. Final architecture
 
 This project uses the following approved stack:
 
--   Frontend: Vue 3, TypeScript, Vite, Vue Router, Pinia, Tailwind CSS.
--   Backend: Laravel 12, PHP 8.4+, REST API, Laravel Sanctum, Eloquent.
--   Database: PostgreSQL.
--   Cache/queues: Redis.
--   Files: Cloudflare R2 through S3-compatible storage.
--   Edge/security: Cloudflare DNS, TLS, WAF, rate limiting where
-    appropriate.
+-   Frontend + server: Nuxt 4 (Vue 3, TypeScript, Nitro server routes).
+-   Database: PostgreSQL (source of truth; never D1 for primary data).
+-   ORM: Drizzle ORM (type-safe PostgreSQL).
+-   Validation: zod schemas shared between client and server.
+-   Compute: Cloudflare Workers (Nitro `cloudflare-pages` preset).
+-   Files: Cloudflare R2 through Worker bindings / S3-compatible access.
+-   Background jobs: Cloudflare Queues; scheduled tasks: Cron Triggers.
+-   Database pooling: Cloudflare Hyperdrive (Workers to PostgreSQL).
+-   Edge/security: Cloudflare DNS, TLS, WAF, rate limiting.
 -   Source control: Git + GitHub.
 -   AI IDE: TRAE CN.
--   Testing: Vitest, Laravel/Pest or PHPUnit, Playwright for critical
-    E2E.
--   Production: Linux VPS or managed Laravel/PHP server behind
-    Cloudflare.
+-   Testing: Vitest, @vue/test-utils, Playwright (future E2E).
+-   Production: Cloudflare Workers + managed PostgreSQL (Neon/Supabase)
+    behind Cloudflare.
 
 Architecture:
 
 ``` text
-Cloudflare
+Cloudflare (DNS, TLS, WAF, CDN)
    |
    v
-Vue 3 + TypeScript + Vite
-   | HTTPS/JSON
-   v
-Laravel 12 API + Sanctum + RBAC
+Nuxt 4 — Vue 3 + TypeScript (pages/components)
    |
-   +---- PostgreSQL (source of truth)
-   +---- Redis (cache/queues)
+   v
+Nitro server routes /api/v1 (auth, RBAC, validation, domain logic)
+   |
+   +---- PostgreSQL (source of truth, via Hyperdrive)
    +---- Cloudflare R2 (objects/files)
+   +---- Cloudflare Queues (background jobs)
 ```
 
-Do not introduce React/Next.js, D1, another primary database, or a
-second backend framework without explicit approval.
+Do not introduce React/Next.js, Laravel, D1 as a primary database,
+MySQL/MongoDB, or a second backend framework without an explicitly
+approved Architecture Decision Record.
 
 ## 2. Product boundary
 
@@ -155,27 +162,26 @@ Create `PROJECT_RULES.md` at repository root. It must include:
 
 ``` text
 Mission: production-ready School Management System.
-Frontend: Vue 3 + TypeScript + Vite.
-Backend: Laravel 12 API.
+Frontend + backend: Nuxt 4 + TypeScript (Vue 3 + Nitro).
 Database: PostgreSQL.
-Cache/queues: Redis.
-Storage: Cloudflare R2.
+Object storage: Cloudflare R2.
+Compute: Cloudflare Workers. Background jobs: Cloudflare Queues.
 
 Use Vue 3 Composition API and <script setup lang="ts">.
-Use strict TypeScript.
+Use strict TypeScript across client and server.
 Use reusable components.
-Use Form Requests for non-trivial validation.
-Use Policies/Gates for authorization.
-Use Services/Actions for multi-step domain workflows.
+Use zod schemas for validation (shared in shared/schemas/).
+Use Nitro server middleware for authentication and RBAC.
+Use server/services/ for multi-step domain workflows.
 Use database transactions for multi-write operations.
-Use PostgreSQL as the source of truth.
+Use PostgreSQL as the source of truth — never D1 for primary data.
 Use R2 for objects, PostgreSQL for file metadata.
-Keep controllers thin.
+Keep server routes thin; domain logic lives in server/services/.
 Never hard-code secrets or school policy.
 Never trust client authorization claims.
 Preserve historical records.
 Add tests for critical behavior and authorization boundaries.
-Run tests, type checks, lint and build before completing a phase.
+Run type-check, tests, lint and build before completing a phase.
 Document architectural deviations.
 ```
 
@@ -292,50 +298,50 @@ Mobile requirements:
 
 Use reusable Vue components rather than page-specific duplication.
 
-## 10. Frontend structure
+## 10. Application structure (client)
 
 ``` text
-frontend/
-├── src/
-│   ├── components/{ui,forms,tables,charts,navigation,feedback}
-│   ├── composables/
-│   ├── layouts/
-│   ├── pages/{auth,admin,teacher,student,parent}
-│   ├── router/
-│   ├── stores/
-│   ├── services/
-│   ├── types/
-│   ├── utils/
-│   └── main.ts
-├── tests/
-└── ...
+app/
+├── app.vue
+├── pages/              # file-based routing (auth/admin/teacher/student/parent)
+├── components/         # {ui,forms,tables,charts,navigation,feedback}
+├── layouts/
+├── composables/
+├── middleware/         # client route guards (UX only)
+├── plugins/
+├── stores/             # Pinia
+├── assets/
+└── public/
 ```
 
-Use a centralized API client; do not scatter raw HTTP calls throughout
-components. Use Pinia for genuinely shared state, not every API
-response.
+Use a centralized API access layer (`$fetch` wrappers / composables);
+do not scatter raw HTTP calls throughout components. Use Pinia for
+genuinely shared state, not every API response.
 
-## 11. Backend structure
+## 11. Server / API structure (Nitro)
 
 ``` text
-backend/
-├── app/
-│   ├── Actions/
-│   ├── Enums/
-│   ├── Http/{Controllers/Api,Requests,Resources}
-│   ├── Models/
-│   ├── Policies/
-│   ├── Services/
-│   ├── Jobs/
-│   ├── Notifications/
-│   └── ...
-├── database/{factories,migrations,seeders}
-├── routes/{api.php,web.php}
-└── tests/{Feature,Unit}
+server/
+├── api/v1/             # server routes (thin: validate, authorize, respond)
+├── middleware/         # auth session + RBAC enforcement
+├── services/           # multi-step domain workflows
+├── repositories/       # Drizzle data access
+├── plugins/
+└── utils/
+
+shared/
+├── types/              # types shared by client and server
+└── schemas/            # zod validation schemas
+
+database/
+├── schema/             # Drizzle table definitions
+├── migrations/         # generated SQL migrations
+└── seeds/
 ```
 
-Keep controllers thin. Use Eloquent relationships, API Resources, Form
-Requests, Policies and transactions.
+Keep server routes thin. Use Drizzle relationships, zod validation,
+server middleware authorization and database transactions. Client route
+guards are UX only; server middleware is authoritative.
 
 ## 12. Database model
 
@@ -659,27 +665,30 @@ Never expose internal SQL/errors.
 
 ## 25. Authentication/security
 
-Use Laravel Sanctum. Support login, logout, password reset, session
-security, optional email verification, throttling, strong password rules
-and 2FA-ready architecture.
+Use Nitro server middleware with signed, HTTP-only, Secure, SameSite
+session cookies. Support login, logout, password reset, session
+security, optional email verification, throttling, strong password
+rules and 2FA-ready architecture. (Sessions may use cookie-only signed
+state or Cloudflare KV server-side sessions if revocation requires it.)
 
 Security requirements:
 
 -   HTTPS
--   CSRF/session protections as appropriate
--   password hashing
--   server-side authorization
--   validation
--   XSS/SQL-injection protections through framework-safe patterns
--   rate limiting
+-   CSRF protection for state-changing cookie-authenticated requests
+-   password hashing (argon2/bcrypt via Web Crypto or a vetted library)
+-   server-side authorization (Nitro middleware, never UI-only checks)
+-   validation (zod on every server route)
+-   XSS/SQL-injection protections through Vue auto-escaping and Drizzle
+    parameterized queries
+-   rate limiting (Cloudflare WAF plus server-side limits)
 -   secure cookies
 -   private files
 -   least-privilege database accounts
 -   audit logging
 -   safe error responses
--   secret management
+-   secret management (Codespace/GitHub/Cloudflare secrets)
 
-Frontend route guards are UX only; backend policies are authoritative.
+Frontend route guards are UX only; server middleware is authoritative.
 
 ## 26. Audit logs
 
@@ -709,7 +718,8 @@ assignments, events, announcements and invoice/payment/receipt actions.
 
 ## 28. Queues and scheduler
 
-Use Redis-backed queues for:
+Use Cloudflare Queues for work that must not block a request or that
+exceeds Worker CPU limits:
 
 ``` text
 GenerateReportCard
@@ -723,35 +733,55 @@ GenerateExport
 ProcessImage
 ```
 
-Scheduler may handle fee reminders, attendance reminders, scheduled
-announcements, admission expiration, report jobs, cleanup and backups.
-Jobs must be safe to retry.
+Cloudflare Cron Triggers handle scheduled work: fee reminders,
+attendance reminders, scheduled announcements, admission expiration,
+report jobs and cleanup. Jobs must be safe to retry and idempotent.
+Critical database writes remain transactional and are never deferred
+to a queue.
 
 ## 29. Environment strategy
 
 Three environments:
 
 ``` text
-CODESPACE (dev) -> STAGING (.dev) -> PRODUCTION
+CODESPACE (dev) -> STAGING -> PRODUCTION
 ```
 
+### Local development (Codespace)
+
 Development happens in **GitHub Codespaces** — a cloud-hosted Linux
-container with PHP 8.4, Composer, Node 24, PostgreSQL 16 and Redis 7
-pre-installed via `.devcontainer/`. The developer's Mac is a thin client:
-it only needs TRAE CN, a browser, and optionally Git.
+container with Node 24, PostgreSQL 16 and wrangler pre-installed via
+`.devcontainer/`. The devcontainer runs a local PostgreSQL for schema
+and migration work; no Redis is required (Cloudflare Queues replace it).
+The developer's Mac is a thin client.
 
-Staging and production run on managed infrastructure behind Cloudflare,
-with separate PostgreSQL, Redis, R2 buckets and secrets.
+### Remote / managed services
 
-Never share production credentials with staging. Never use real student
-data in staging. See `docs/CODESPACES.md` for setup details.
+-   Staging and production PostgreSQL run on a managed provider
+    (Neon/Supabase), reached from Workers via Cloudflare Hyperdrive.
+-   R2 objects, Queues and the Worker runtime are Cloudflare-managed.
+-   No PHP, Composer, Redis server, or long-lived application server is
+    required anywhere.
+
+### Staging
+
+Cloudflare Pages/Workers staging deployment, separate `sms-staging` R2
+bucket, separate managed PostgreSQL database and separate secrets.
+
+### Production
+
+Cloudflare Workers production deployment, `sms-production` R2 bucket,
+separate production PostgreSQL, Full (strict) TLS and WAF. Never share
+production credentials with staging. Never use real student data in
+staging. See `docs/CODESPACES.md` for setup details.
 
 ## 30. Developer machine
 
 The primary development machine is a 2017 Intel MacBook (macOS 13,
 8 GB RAM). It serves as a **thin client** only — it runs TRAE CN and a
 browser to connect to GitHub Codespaces. No local PHP, Composer,
-PostgreSQL, Redis, Docker or Homebrew is required.
+Redis, Docker or Homebrew is required. Node 24 is sufficient if the
+Nuxt dev server is ever run locally; PostgreSQL can be remote.
 
 If a developer has a more powerful machine, they may optionally run the
 devcontainer locally via VS Code / Docker. This is a convenience, not a
@@ -766,17 +796,15 @@ Git (optional — Codespaces has Git built in)
 GitHub account with Codespaces access
 ```
 
-## 31. Codespaces setup (replaces local setup)
+## 31. Codespaces setup
 
 Open the repository in a GitHub Codespace. The `.devcontainer/`
 configuration automatically installs:
 
 ``` text
-PHP 8.4 + Laravel-required extensions
-Composer
 Node.js 24 + npm
-PostgreSQL 16 (service container)
-Redis 7 (service container)
+PostgreSQL 16 (local dev database)
+wrangler (Cloudflare CLI)
 GitHub CLI
 ```
 
@@ -792,19 +820,17 @@ Or via CLI:
 gh codespace create --repo <owner>/<repo> --branch main
 ```
 
-The devcontainer `postCreate` script installs npm dependencies,
-runs type-check and tests for the frontend, and (once scaffolded) runs
-`composer install` and migrations for the backend.
+The devcontainer `postCreate` script creates the local `sms` database,
+installs app dependencies (`npm install --legacy-peer-deps`), runs
+`nuxt prepare`, type-check and tests.
 
 Verify inside the Codespace:
 
 ``` bash
-php -v
-composer --version
 node -v
 npm -v
+npx wrangler --version
 psql --version
-redis-cli ping
 git --version
 gh --version
 ```
@@ -814,23 +840,26 @@ and the required services are healthy.
 
 ## 32. Repository
 
-Recommended monorepo:
+Monorepo:
 
 ``` text
-vcs-school-management-system/
-├── README.md
+School_Management_System/
+├── README.md                  # master source of truth
 ├── PROJECT_RULES.md
+├── ARCHITECTURE_FEASIBILITY_ASSESSMENT.md
+├── ARCHITECTURE_DECISION_RECORD.md
+├── MIGRATION_PLAN.md
 ├── .env.example
 ├── .gitignore
-├── frontend/
-├── backend/
+├── app/                       # Nuxt 4 application (client + Nitro server)
+├── frontend/                  # original Vue 3 scaffold (preserved reference)
 ├── docs/
-├── scripts/
 └── .github/workflows/
 ```
 
-If TRAE proposes another structure, it must explain why and preserve the
-approved architectural separation.
+The original `frontend/` Vue 3 scaffold is preserved until the Nuxt app
+reaches feature parity. Deletion requires an explicit approved
+checkpoint.
 
 ## 33. Git/GitHub
 
@@ -859,34 +888,35 @@ docs: update R2 deployment instructions
 
 ## 34. CI/CD
 
-CI should run:
+CI (`.github/workflows/ci.yml`, single job in `app/`) runs:
 
 ``` text
 checkout
-PHP/Composer setup
-Node/npm setup
-backend tests
-frontend tests
-TypeScript checks
-lint/format checks
-frontend production build
+Node 24/npm setup
+PostgreSQL 16 service
+npm ci --legacy-peer-deps
+nuxt prepare
+nuxt typecheck (strict TypeScript)
+vitest (unit/component/server tests)
+nuxt build (Cloudflare Pages output)
 ```
 
-Deployment should happen only after successful checks and controlled
-release procedures.
+Deployment to Cloudflare happens only after successful checks and
+controlled release procedures (`wrangler pages deploy`), using GitHub
+repository secrets. Never deploy without passing tests.
 
 ## 35. Testing
 
-Backend tests must cover authentication, authorization, parent-child
-isolation, teacher scope, student isolation, attendance uniqueness,
-timetable conflicts, result workflow, grade calculations, finance,
-payments, admissions, file access and audit logging.
+Server tests (Vitest) must cover authentication, authorization,
+parent-child isolation, teacher scope, student isolation, attendance
+uniqueness, timetable conflicts, result workflow, grade calculations,
+finance, payments, admissions, file access and audit logging.
 
-Frontend tests cover components, forms, validation, stores, route guards
+Client tests cover components, forms, validation, stores, route guards
 and API error states.
 
-E2E tests cover login, student creation, parent linking, teacher
-assignment, attendance, assignments, results,
+E2E tests (Playwright, future) cover login, student creation, parent
+linking, teacher assignment, attendance, assignments, results,
 invoices/payments/receipts, admissions and report cards.
 
 ## 36. Seed data
@@ -911,10 +941,29 @@ private data in URLs unnecessarily.
 
 ## 39. Cloudflare
 
-Configure DNS, HTTPS, Full (strict) TLS, WAF, rate limiting where
-appropriate and safe caching only for public/static content. Do not
-cache private authenticated responses. Do not expose PostgreSQL/Redis
-ports publicly. Cloudflare does not replace application authorization.
+Approved Cloudflare services and their purpose:
+
+``` text
+Workers     — Nuxt/Nitro application runtime (SSR + API)
+R2          — object storage (files, photos, documents, receipts)
+Hyperdrive  — PostgreSQL connection pooling from Workers
+Queues      — background jobs (reports, emails, notifications, images)
+Cron Triggers — scheduled tasks
+DNS         — domain management
+TLS         — HTTPS at the edge (Full strict)
+WAF         — managed and custom firewall rules
+Rate Limiting — edge-level throttling (e.g. /api/v1/auth/login)
+```
+
+KV is permitted only for non-authoritative caching or server-side
+sessions if required; the relational database remains the source of
+truth. Durable Objects are permitted only where strong-consistency
+coordination is demonstrated (e.g. a timetable booking lock). **D1 is
+not used for primary data.**
+
+Configure safe caching only for public/static content. Do not cache
+private authenticated responses. Do not expose PostgreSQL ports
+publicly. Cloudflare does not replace application authorization.
 
 ## 40. Migration order
 
@@ -940,21 +989,28 @@ audit_logs
 
 ## 41. Development phases
 
-### Phase 0 --- Infrastructure
+### Phase 0 --- Infrastructure & architecture migration  ✅ COMPLETE
 
-GitHub Codespaces, devcontainer, Vue skeleton, Laravel API skeleton,
-PostgreSQL, Redis, CI, Cloudflare/R2 integration points and staging plan.
+Nuxt 4 scaffold (`app/`), Cloudflare Pages/Workers Nitro preset,
+Drizzle ORM, PostgreSQL connection, foundation schema (users, roles,
+permissions, join tables, school settings, audit logs), R2/Hyperdrive/
+Queues wrangler bindings, Tailwind v4, Pinia, Vitest, devcontainer
+(Node 24 + PostgreSQL 16), single-job CI.
 
-Acceptance: Codespace runs, Vue, Laravel API, PostgreSQL, Redis, Git and CI all work.
+Acceptance: Nuxt app builds for Cloudflare, type-check/tests pass,
+migration SQL generates, Codespace and CI configured. — MET.
 
-### Phase 1 --- Foundation
+### Phase 1 --- Foundation  (current)
 
-API conventions, error handling, logging, database foundation, frontend
-design system and navigation shell.
+Full PostgreSQL schema (all tables in §12/§40 via Drizzle), shared zod
+schemas and TypeScript domain types, database seeders (fake demo data),
+API conventions/error handling, and the frontend design system /
+navigation shell.
 
 ### Phase 2 --- Authentication/RBAC
 
-Users, roles, permissions, Sanctum, policies, route protection, role
+Users, roles, permissions, Nitro auth middleware (signed HTTP-only
+cookies), RBAC permission middleware, client route protection, role
 dashboards and audit foundation.
 
 ### Phase 3 --- Academic foundation
@@ -1005,8 +1061,8 @@ performance, accessibility and staging review.
 
 ### Phase 13 --- Production readiness
 
-Server, Cloudflare, TLS, PostgreSQL, Redis, R2, queues, scheduler,
-backups, monitoring, deployment and rollback.
+Cloudflare Workers, TLS/WAF, managed PostgreSQL, Hyperdrive, R2, Queues,
+Cron Triggers, backups, monitoring, deployment and rollback.
 
 ### Phase 14 --- Public website
 
@@ -1029,21 +1085,24 @@ Create a concise implementation plan.
 Implement only this phase.
 
 For completion:
-- add/update migrations
-- enforce validation
-- enforce authorization
+- add/update Drizzle migrations
+- enforce zod validation
+- enforce server-side authorization
 - add tests
 - update API documentation
 - update technical documentation
-- run backend tests
-- run frontend tests
-- run TypeScript checks
-- run build checks
+- run vitest
+- run nuxt typecheck
+- run nuxt build
 
-Finally report files changed, database changes, API changes, frontend changes, tests, known issues and the next recommended step.
+Finally report files changed, database changes, API changes, client changes, tests, known issues and the next recommended step.
 ```
 
 ## 43. First TRAE prompt
+
+> Historical record of the original Phase 0 prompt under the former
+> planned stack. Superseded by the approved Nuxt 4 architecture (§1);
+> retained for history. Use the §42 phase prompt for current work.
 
 ``` text
 You are working on the Victorious Children School School Management System.
@@ -1093,15 +1152,15 @@ configuration, deployment and rollback procedures.
 ## 45. Final rules
 
 1.  SMS first; public website later.
-2.  Vue 3 + TypeScript + Vite is the approved frontend.
-3.  Laravel 12 is the approved backend/API.
-4.  PostgreSQL is the primary database.
-5.  Redis is cache/queue infrastructure, not the source of truth.
+2.  Nuxt 4 + Vue 3 + TypeScript is the approved application stack.
+3.  Nitro server routes (Cloudflare Workers) are the approved backend/API.
+4.  PostgreSQL is the primary database (never D1 for primary data).
+5.  Cloudflare Queues handle background jobs; the DB is the source of truth.
 6.  Cloudflare R2 is object storage.
-7.  Cloudflare is the edge/security layer.
+7.  Cloudflare is the compute, edge and security layer.
 8.  GitHub is source control.
 9.  TRAE is the development environment, not the production runtime.
-10. Authorization is server-side.
+10. Authorization is server-side (Nitro middleware).
 11. Historical academic data is preserved.
 12. School policies, grading and fees are configurable.
 13. Tests are part of feature completion.
@@ -1113,19 +1172,94 @@ configuration, deployment and rollback procedures.
 ## 46. Current approved status
 
 ``` text
-Frontend       Vue 3 + TypeScript + Vite
-Backend        Laravel 12 API
-Database       PostgreSQL 16
-Cache/Queues   Redis 7
+Application    Nuxt 4 (Vue 3 + TypeScript) + Nitro server routes
+Runtime        Cloudflare Workers (cloudflare-pages preset)
+Database       PostgreSQL 16 (managed in staging/prod; Hyperdrive)
+ORM            Drizzle
+Validation     zod (shared schemas)
+Background     Cloudflare Queues + Cron Triggers
 Storage        Cloudflare R2
-Edge           Cloudflare
+Edge           Cloudflare DNS / TLS / WAF / rate limiting
 Source control GitHub
+CI             GitHub Actions (single Nuxt job)
 IDE            TRAE CN
-Dev env        GitHub Codespaces (.devcontainer/)
+Dev env        GitHub Codespaces (.devcontainer/: Node 24 + PostgreSQL)
 Mac            thin client only (TRAE CN + browser)
-Staging        dedicated .dev hostname
-Production     separate environment/domain
+Staging        Cloudflare Workers staging + sms-staging R2 + staging PG
+Production     separate Workers env + sms-production R2 + production PG
 Website        deferred
+Current phase  Phase 1 — Foundation (Phase 0 complete)
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
+
+## 47. Architecture migration status
+
+The project has **approved the migration** from the previously planned
+Vue 3 + Laravel 12 architecture to **Nuxt 4 + Cloudflare Workers**,
+while **retaining PostgreSQL** as the primary database.
+
+-   Phase 0 feasibility assessment and decision: complete.
+-   The migration is performed **incrementally**, one phase at a time.
+-   Existing work is preserved: the original `frontend/` Vue 3 scaffold
+    remains in the repository as a reference until the Nuxt app reaches
+    feature parity. No destructive migration is authorized.
+-   No production system exists yet, so there is no production data at
+    risk; the original Laravel backend was never scaffolded.
+-   PostgreSQL remains primary. It must never be silently replaced by
+    D1. Historical academic records and durable, auditable financial
+    records remain mandatory.
+-   The public school website remains deferred until the SMS is stable.
+-   Current phase: **Phase 1 — Foundation**.
+
+## 48. Architecture decision (summary)
+
+**Previous direction:** Vue 3 + Vite frontend, Laravel 12 API,
+PostgreSQL, Redis, Cloudflare R2/edge.
+
+**Approved direction:** Nuxt 4 + TypeScript + Vue 3 + Nitro on
+Cloudflare Workers, PostgreSQL (via Hyperdrive), R2, Queues.
+
+**Reason (evidence-based; full detail in the assessment document):**
+single TypeScript stack for client and server; reduced infrastructure
+and operational overhead (no PHP/Redis servers); native Cloudflare
+compute, scaling and generous free tier; good fit for the 2017 MacBook
+via Codespaces; PostgreSQL retained for relational, financial and
+reporting correctness; the backend had not yet been built, so the move
+was low-risk. Weighted score: Nuxt option 8.75 vs Laravel option 7.60.
+
+## 49. Documentation hierarchy
+
+1.  **Primary source of truth:** this `README.md`.
+2.  **Supporting decision records** (history and rationale; they do not
+    override this README):
+    -   `ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`
+    -   `ARCHITECTURE_DECISION_RECORD.md`
+    -   `MIGRATION_PLAN.md`
+3.  Operational docs live in `docs/`; hard rules live in
+    `PROJECT_RULES.md`.
+
+A future significant architecture change requires updating this README
+and creating/updating an Architecture Decision Record — never a
+competing README.
+
+## 50. Migration plan reference
+
+Migration is incremental and sequential (see `MIGRATION_PLAN.md` for
+full detail). Existing work must be preserved; each phase must pass its
+tests and quality gate before the next begins; destructive changes
+require explicit approval. The migration plan is supporting
+documentation, not a second specification.
+
+## 51. Change log
+
+``` text
+2026-09-11  Phase 0  Architecture feasibility + decision: approved
+                    migration from planned Vue/Laravel to Nuxt 4 +
+                    Cloudflare Workers; PostgreSQL retained.
+2026-09-11  Phase 0  Infrastructure: Nuxt 4 app scaffolded (app/),
+                    Cloudflare Pages preset, Drizzle + PostgreSQL
+                    foundation schema, R2/Hyperdrive/Queues bindings,
+                    Tailwind, Pinia, Vitest, devcontainer and CI
+                    updated; type-check/tests/build pass.
+```
