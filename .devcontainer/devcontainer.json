@@ -3,6 +3,16 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "features": {
+    "ghcr.io/devcontainers/features/php:1": {
+      "version": "8.4",
+      "extensions": "mbstring xml curl zip pgsql sqlite3 bcmath intl gd opcache redis"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
   "forwardPorts": [5173, 8000, 5432, 6379],
   "portsAttributes": {
     "5173": { "label": "Vite Dev Server" },
@@ -28,7 +38,6 @@
       "settings": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "php.validate.executablePath": "/usr/bin/php",
         "intelephense.environment.phpVersion": "8.4",
         "tailwindCSS.includeLanguages": {
           "vue": "html"

@@ -7,10 +7,16 @@ echo "=== SMS Devcontainer Post-Create ==="
 sudo service postgresql start || true
 sudo service redis-server start || true
 
-# Create sms database if it doesn't exist
-sudo -u postgres createdb sms 2>/dev/null || echo "Database 'sms' already exists or using default."
-# Create sms role with password for app connection
-sudo -u postgres psql -c "CREATE USER sms WITH PASSWORD 'sms_secret' SUPERUSER;" 2>/dev/null || sudo -u postgres psql -c "ALTER USER sms WITH PASSWORD 'sms_secret' SUPERUSER;" 2>/dev/null || true
+# Create sms database and role
+sudo -u postgres psql -c "CREATE USER sms WITH PASSWORD 'sms_secret' SUPERUSER;" 2>/dev/null \
+  || sudo -u postgres psql -c "ALTER USER sms WITH PASSWORD 'sms_secret' SUPERUSER;" 2>/dev/null || true
+sudo -u postgres createdb -O sms sms 2>/dev/null || echo "Database 'sms' already exists."
+
+# Install Composer
+if ! command -v composer &>/dev/null; then
+    echo "--- Installing Composer ---"
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+fi
 
 # --- Frontend ---
 cd /workspaces/School_Management_System/frontend
@@ -22,12 +28,12 @@ if [ -f package.json ]; then
     echo "--- Frontend test ---"
     npm run test || echo "WARNING: tests failed"
 else
-    echo "No frontend/package.json found — skipping frontend setup."
+    echo "No frontend/package.json — skipping frontend setup."
 fi
 
 # --- Backend ---
 cd /workspaces/School_Management_System
-if [ -f backend/composer.json ]; then
+if [ -d backend ] && [ -f backend/composer.json ]; then
     echo "--- Installing backend dependencies ---"
     cd /workspaces/School_Management_System/backend
     composer install --no-interaction --prefer-dist
@@ -35,11 +41,11 @@ if [ -f backend/composer.json ]; then
         cp .env.example .env
         php artisan key:generate --force
     fi
-    echo "--- Running migrations ---"
-    php artisan migrate:fresh --seed --force || echo "WARNING: migrations failed (db may not be ready)"
+    php artisan migrate:fresh --seed --force || echo "WARNING: migrations failed"
 fi
 
 echo "=== Post-Create Complete ==="
 echo "Services: PostgreSQL on :5432, Redis on :6379"
 echo "Frontend: cd frontend && npm run dev (port 5173)"
 echo "Backend:  cd backend && php artisan serve (port 8000) [when scaffolded]"
+
