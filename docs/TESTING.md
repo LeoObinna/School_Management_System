@@ -47,30 +47,27 @@ Must cover:
 - Grade calculation accuracy
 - Finance (invoice → payment → receipt, money precision)
 - Admissions workflow
-- File access authorization (R2 presigned URLs)
+- File access authorization (private R2 objects streamed via authorized API)
 - Audit logging of sensitive operations
 
-## CI pipeline
+## Local quality gate (replaces CI)
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+There is no CI pipeline. Run the full gate locally from `app/` before
+every deploy (and ideally before every commit):
 
-**Frontend job:**
-1. Checkout
-2. Setup Node 24
-3. `npm ci`
-4. `npm run type-check`
-5. `npm run test`
-6. `npm run build`
+``` text
+npm run test         # Vitest (jsdom; no running database required)
+npm run type-check   # nuxt typecheck (strict TypeScript)
+npm run build        # cloudflare-module Worker build
+```
 
-**Backend job (when `backend/composer.json` exists):**
-1. Checkout
-2. Setup PHP 8.4 + extensions
-3. PostgreSQL 16 service (health-checked)
-4. Redis 7 service (health-checked)
-5. `composer install`
-6. `php artisan key:generate`
-7. `php artisan migrate`
-8. `vendor/bin/pest --coverage --min=50` (or phpunit fallback)
+Deployment is then manual:
+
+``` text
+npm run deploy:staging      # or deploy:production
+```
+
+GitHub is source control only — a push never builds or deploys.
 
 ## E2E (future)
 

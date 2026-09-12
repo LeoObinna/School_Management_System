@@ -1,43 +1,75 @@
-# Cloudflare Workers / Pages configuration for the SMS Nuxt app.
-# Deploy with: wrangler pages deploy dist --project-name=sms
-# (After `npm run build` with the cloudflare-pages Nitro preset.)
+# ===========================================================================
+# SMS — Cloudflare Workers deployment configuration.
+#
+# Deployment model: MANUAL Wrangler deploys from the local machine only.
+# There is NO GitHub/GitLab integration, NO Workers Builds, NO CI deploy.
+# GitHub is used for source control/version history alone.
+#
+#   npm run build                 # Nitro preset cloudflare-module
+#   npx wrangler dev              # local Worker emulation (binds below)
+#   npm run deploy:staging        # build + wrangler deploy -e staging
+#   npm run deploy:production     # build + wrangler deploy -e production
+#
+# The previous Cloudflare Pages config is preserved in wrangler.pages.toml
+# for reference/rollback and is not loaded by Wrangler.
+# ===========================================================================
 
 name = "sms"
+main = ".output/server/index.mjs"
 compatibility_date = "2025-07-15"
+compatibility_flags = ["nodejs_compat"]
 
-# Pages project (Nitro cloudflare-pages preset outputs to .output/public)
-pages_build_output_dir = ".output/public"
+# --- Workers Static Assets (Nuxt/Nitro build output) -----------------------
+[assets]
+directory = ".output/public"
+binding = "ASSETS"
 
-# Environment variables are injected at runtime via Cloudflare Pages
-# environment variables (or `--var` for local dev). Do NOT put secrets here.
-
-# --- Bindings ---
-# R2 bucket for file storage (photos, documents, assignments, receipts, etc.)
+# --- Local development (`wrangler dev`, via `npm run cf:dev`) ---------------
+# Hyperdrive is emulated locally through the
+# CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE environment
+# variable (the npm script wires it from DATABASE_URL). No deployable
+# hyperdrive binding is declared at the top level because deployable
+# bindings require a real Hyperdrive id.
+#
+# R2 is emulated on local disk by `wrangler dev`; the bucket name below is
+# only used to name the local simulation, nothing is written remotely.
 [[r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "sms-staging"
 
-# Hyperdrive for PostgreSQL connection pooling from Workers
-# Create with: wrangler hyperdrive create sms-pg --connection-string="$DATABASE_URL"
-[[hyperdrive]]
+# ===========================================================================
+# Staging — deployed Worker name: sms-staging
+# Provision once:
+#   wrangler hyperdrive create sms-pg-staging --connection-string="$STAGING_DB_URL"
+#   wrangler r2 bucket create sms-staging
+#   wrangler secret put SESSION_SECRET -e staging
+# ===========================================================================
+[env.staging]
+
+[[env.staging.hyperdrive]]
 binding = "HYPERDRIVE"
-id = "replace-with-hyperdrive-id"
+id = "REPLACE_WITH_STAGING_HYPERDRIVE_ID"
 
-# Cloudflare Queues for background jobs (reports, emails, notifications)
-[[queues.producers]]
-binding = "QUEUE"
-queue = "sms-jobs"
+[[env.staging.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "sms-staging"
 
-# --- Dev ---
-# Local dev with `npx wrangler pages dev .output/public`
-[env.dev.vars]
-DATABASE_URL = "postgresql://sms:sms_secret@localhost:5432/sms"
-R2_BUCKET = "sms-staging"
-
-# --- Production (separate environment) ---
+# ===========================================================================
+# Production — deployed Worker name: sms-production
+# Provision once:
+#   wrangler hyperdrive create sms-pg-production --connection-string="$PROD_DB_URL"
+#   wrangler r2 bucket create sms-production
+#   wrangler secret put SESSION_SECRET -e production
+# ===========================================================================
 [env.production]
-name = "sms-production"
 
-[env.production.r2_buckets]
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID"
+
+[[env.production.r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "sms-production"
+
+# Queues (producer + consumer) are intentionally absent until Phase 10.
+# Cron Triggers / Durable Objects will be added here when their phases land.

@@ -44,13 +44,14 @@
 
 | Environment | Method                                |
 |-------------|---------------------------------------|
-| Codespace   | GitHub Codespace Secrets (auto-injected) |
-| CI          | GitHub repository secrets             |
-| Staging     | Managed secret store / .env (server)  |
-| Production  | Managed secret store / .env (server)  |
+| Local dev   | gitignored `app/.env` only            |
+| Staging     | `wrangler secret put -e staging` (or dashboard) |
+| Production  | `wrangler secret put -e production` (or dashboard) |
 
-`.env.example` is the only env file that may be committed. `.gitignore`
-blocks `.env` and all credential files (`*.pem`, `*.key`, `*.crt`).
+There is no Codespace and no CI secret store. `.env.example` is the only
+env file that may be committed; `.gitignore` blocks `.env`, `.dev.vars`
+and credential files (`*.pem`, `*.key`, `*.crt`). Secrets are never
+placed in `wrangler.toml`.
 
 ## Audit logging
 

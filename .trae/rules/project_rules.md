@@ -1,13 +1,17 @@
-# TRAE Project Rules — Cloud-First Development
+# TRAE Project Rules — Local Development + Cloudflare Workers
 
 ## Environment
 
-This project uses **GitHub Codespaces** for development. The local Mac
-(2017 Intel MacBook, macOS 13, 8GB RAM) is a thin client — it runs only
-TRAE CN, a browser, and optionally Git.
+Development runs **locally** on the Mac (Node 24 + npm). There is no
+Codespace, devcontainer, Docker, Redis, PHP, or Composer. PostgreSQL is
+reached via a local or remote dev connection string (`DATABASE_URL` in
+the gitignored `app/.env`).
 
-All development infrastructure (PHP, Composer, Node, PostgreSQL, Redis)
-runs inside the Codespace via `.devcontainer/`. See `docs/CODESPACES.md`.
+All Cloudflare deployments are **manual Wrangler deploys from the local
+terminal** (`npm run deploy:staging` / `npm run deploy:production` from
+`app/`). GitHub is source control/version history only — never configure
+GitHub Actions deployment, Cloudflare Pages Git integration, or Workers
+Builds.
 
 ## TRAE Operating Rules
 
@@ -30,57 +34,57 @@ Before every change TRAE must:
 -   rewrite the project unnecessarily
 -   bypass authorization
 -   hard-code school policies, fees or grading rules
--   hard-code secrets — use Codespace Secrets or GitHub Secrets
--   commit `.env` or credentials
+-   hard-code secrets — use local `.env` (gitignored) or
+    `wrangler secret put -e <env>`
+-   commit `.env`, `.dev.vars` or credentials
 -   use real student data in fixtures/staging
 -   expose private files publicly
 -   trust client-supplied roles, permissions or payment status
 -   delete historical academic records merely because a student leaves
 -   introduce duplicate models/routes/migrations
 -   build the public website before the SMS foundation is stable
--   require local PHP/Composer/PostgreSQL/Redis on the Mac — all
-    development happens in Codespaces
--   commit `.devcontainer/post-create.sh` with real secrets
+-   require PHP/Composer/Redis/Docker/Codespaces — development is local
+    Node 24 + a reachable PostgreSQL
+-   configure GitHub Actions deploys, Pages Git integration, or Workers
+    Builds — all deploys are manual `wrangler deploy` from the Mac
+-   run database migrations through Hyperdrive — use the direct
+    PostgreSQL URL with `npm run db:migrate`
 
-## Commands (inside Codespace)
+## Commands (local machine, from `app/`)
 
 ```bash
-# Frontend
-cd /workspace/frontend
-npm install
-npm run dev          # Vite dev server on :5173
+npm install          # install dependencies
+npm run dev          # Nuxt dev server (Node; DATABASE_URL)
+npm run cf:dev       # build + wrangler dev (Workers emulation + bindings)
 npm run test         # Vitest
-npm run type-check   # vue-tsc
-npm run build        # production build
-
-# Backend (when scaffolded)
-cd /workspace/backend
-composer install
-php artisan serve    # Laravel API on :8000
-php artisan test     # Pest/PHPUnit
-php artisan tinker
-php artisan migrate
-php artisan db:seed
+npm run type-check   # nuxt typecheck
+npm run build        # cloudflare-module Worker build
+npm run db:migrate   # Drizzle migrations against direct DATABASE_URL
+npm run db:seed      # seed fake demo data (never real student data)
+npm run deploy:staging     # build + wrangler deploy -e staging
+npm run deploy:production  # build + wrangler deploy -e production
 ```
 
 ## Architecture
 
-- Frontend: Vue 3 + TypeScript + Vite + Pinia + Tailwind
-- Backend: Laravel 12 API + Sanctum
-- Database: PostgreSQL 16 (in Codespace via docker-compose)
-- Cache/queues: Redis 7 (in Codespace via docker-compose)
-- Storage: Cloudflare R2
-- Edge: Cloudflare DNS, TLS, WAF
-- Source control: GitHub
-- CI: `.github/workflows/ci.yml`
-- Dev container: `.devcontainer/`
+- Frontend + API: Nuxt 4 (Vue 3 + TypeScript) + Nitro server routes
+- Runtime: Cloudflare Workers + Static Assets (cloudflare-module preset)
+- Database: PostgreSQL (dev local/remote; staging/prod managed;
+  Hyperdrive binding in Workers; Drizzle ORM; NUMERIC for money)
+- Storage: Cloudflare R2 via R2_BUCKET binding (metadata in PostgreSQL)
+- Background: Cloudflare Queues + Cron Triggers (from Phase 10)
+- Edge: Cloudflare DNS, TLS, WAF, rate limiting
+- Source control: GitHub (version history only; no Git-driven deploys)
+- Deployment: manual Wrangler from the local Mac (named envs in
+  `app/wrangler.toml`: staging, production)
 
 ## Secrets
 
 Never commit secrets. Use:
 
-1.  **Codespace Secrets** (GitHub Settings → Codespaces → Secrets) for
-    dev credentials (R2 keys, API tokens). These are injected as
-    environment variables automatically.
-2.  **GitHub repository secrets** for CI/CD.
+1.  **Local dev:** `app/.env` (gitignored), copied from
+    `app/.env.example`.
+2.  **Staging/production:** `wrangler secret put <NAME> -e staging|production`
+    (or the Cloudflare dashboard). Never place secrets in
+    `wrangler.toml`.
 3.  `.env.example` files are the only env files that may be committed.

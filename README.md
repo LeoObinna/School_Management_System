@@ -20,7 +20,8 @@ This project uses the following approved stack:
 -   Database: PostgreSQL (source of truth; never D1 for primary data).
 -   ORM: Drizzle ORM (type-safe PostgreSQL).
 -   Validation: zod schemas shared between client and server.
--   Compute: Cloudflare Workers (Nitro `cloudflare-pages` preset).
+-   Compute: Cloudflare Workers + Workers Static Assets (Nitro
+    `cloudflare-module` preset, deployed manually with Wrangler).
 -   Files: Cloudflare R2 through Worker bindings / S3-compatible access.
 -   Background jobs: Cloudflare Queues; scheduled tasks: Cron Triggers.
 -   Database pooling: Cloudflare Hyperdrive (Workers to PostgreSQL).
@@ -686,7 +687,7 @@ Security requirements:
 -   least-privilege database accounts
 -   audit logging
 -   safe error responses
--   secret management (Codespace/GitHub/Cloudflare secrets)
+-   secret management (gitignored local `.env`; `wrangler secret put`)
 
 Frontend route guards are UX only; server middleware is authoritative.
 
@@ -744,99 +745,105 @@ to a queue.
 Three environments:
 
 ``` text
-CODESPACE (dev) -> STAGING -> PRODUCTION
+LOCAL DEV (Mac + DATABASE_URL) -> STAGING -> PRODUCTION
 ```
 
-### Local development (Codespace)
+### Local development
 
-Development happens in **GitHub Codespaces** — a cloud-hosted Linux
-container with Node 24, PostgreSQL 16 and wrangler pre-installed via
-`.devcontainer/`. The devcontainer runs a local PostgreSQL for schema
-and migration work; no Redis is required (Cloudflare Queues replace it).
-The developer's Mac is a thin client.
+Development runs on the local machine with Node 24 and npm from `app/`.
+PostgreSQL is a local or remote dev database reached via
+`DATABASE_URL` in the gitignored `app/.env`. No Docker, Kubernetes,
+Redis, Codespace, PHP, Composer or Laravel tooling is required;
+background jobs will use Cloudflare Queues (Phase 10).
+
+``` text
+npm install
+npm run dev       # Nuxt dev server (Node runtime)
+npm run cf:dev    # build + wrangler dev (Workers + binding emulation)
+```
 
 ### Remote / managed services
 
 -   Staging and production PostgreSQL run on a managed provider
-    (Neon/Supabase), reached from Workers via Cloudflare Hyperdrive.
+    (Neon/Supabase), reached from Workers via separate Cloudflare
+    Hyperdrive configs.
 -   R2 objects, Queues and the Worker runtime are Cloudflare-managed.
 -   No PHP, Composer, Redis server, or long-lived application server is
     required anywhere.
 
 ### Staging
 
-Cloudflare Pages/Workers staging deployment, separate `sms-staging` R2
-bucket, separate managed PostgreSQL database and separate secrets.
+Worker `sms-staging` (Wrangler named environment `staging`), separate
+`sms-staging` R2 bucket, separate staging Hyperdrive config and managed
+PostgreSQL database, and separate secrets.
 
 ### Production
 
-Cloudflare Workers production deployment, `sms-production` R2 bucket,
-separate production PostgreSQL, Full (strict) TLS and WAF. Never share
-production credentials with staging. Never use real student data in
-staging. See `docs/CODESPACES.md` for setup details.
+Worker `sms-production` (Wrangler named environment `production`),
+`sms-production` R2 bucket, separate production Hyperdrive config and
+PostgreSQL, Full (strict) TLS and WAF. Never share production
+credentials with staging. Never use real student data in staging.
+
+Environments are deployed only by manual Wrangler commands from the
+local machine (see §39); there is no Git-based automatic deployment.
 
 ## 30. Developer machine
 
-The primary development machine is a 2017 Intel MacBook (macOS 13,
-8 GB RAM). It serves as a **thin client** only — it runs TRAE CN and a
-browser to connect to GitHub Codespaces. No local PHP, Composer,
-Redis, Docker or Homebrew is required. Node 24 is sufficient if the
-Nuxt dev server is ever run locally; PostgreSQL can be remote.
+The development machine (the current setup: 2017 Intel MacBook,
+macOS 13, 8 GB RAM) runs the full toolchain locally. No PHP, Composer,
+Redis, Docker, Kubernetes, Laravel Herd, or Codespace is required.
 
-If a developer has a more powerful machine, they may optionally run the
-devcontainer locally via VS Code / Docker. This is a convenience, not a
-requirement.
-
-What the Mac needs:
+What the machine needs:
 
 ``` text
 TRAE CN (IDE)
+Node.js 24 + npm 11 (verified: Node v24.11.1 / npm 11.6.2)
+Git
 A modern browser
-Git (optional — Codespaces has Git built in)
-GitHub account with Codespaces access
+A reachable PostgreSQL for database work (local install or remote
+dev database such as Neon; connection details in app/.env)
 ```
 
-## 31. Codespaces setup
-
-Open the repository in a GitHub Codespace. The `.devcontainer/`
-configuration automatically installs:
-
-``` text
-Node.js 24 + npm
-PostgreSQL 16 (local dev database)
-wrangler (Cloudflare CLI)
-GitHub CLI
-```
-
-To create a Codespace:
-
-``` text
-GitHub.com → Repo → Code → Codespaces → Create codespace on main
-```
-
-Or via CLI:
+## 31. Local setup
 
 ``` bash
-gh codespace create --repo <owner>/<repo> --branch main
+# 1. Install dependencies (from app/)
+cd app
+npm install
+
+# 2. Create your local environment file (never committed)
+cp .env.example .env
+#    edit .env: set DATABASE_URL to your dev PostgreSQL and a random
+#    SESSION_SECRET (openssl rand -base64 48)
+
+# 3. Prepare the database (direct connection, not Hyperdrive)
+npm run db:migrate
+npm run db:seed        # fake demo data only
+
+# 4. Authenticate Wrangler once (opens the browser)
+npx wrangler login
+npx wrangler whoami
 ```
 
-The devcontainer `postCreate` script creates the local `sms` database,
-installs app dependencies (`npm install --legacy-peer-deps`), runs
-`nuxt prepare`, type-check and tests.
-
-Verify inside the Codespace:
+Verify:
 
 ``` bash
-node -v
-npm -v
+node -v                # expect v24.x
+npm -v                 # expect 11.x
 npx wrangler --version
-psql --version
 git --version
-gh --version
 ```
 
-Do not continue to application development until the Codespace is running
-and the required services are healthy.
+Run the app:
+
+``` text
+npm run dev       # http://localhost:3000 (Node runtime, DATABASE_URL)
+npm run cf:dev    # Workers runtime emulation with R2/Hyperdrive bindings
+```
+
+Do not start feature work until these checks pass. The quality gate
+before every deploy is `npm run test`, `npm run type-check` and
+`npm run build` (see §34).
 
 ## 32. Repository
 
@@ -886,24 +893,27 @@ refactor: move result calculation into service
 docs: update R2 deployment instructions
 ```
 
-## 34. CI/CD
+## 34. Quality gates and deployment
 
-CI (`.github/workflows/ci.yml`, single job in `app/`) runs:
+There is **no CI/CD deployment pipeline**: no GitHub Actions deploy, no
+Cloudflare Pages Git integration, no Workers Builds, and no automatic
+staging/production deployment on push or pull request. GitHub is used
+strictly for source control and version history.
+
+Before every release the developer runs the quality gate locally in
+`app/`:
 
 ``` text
-checkout
-Node 24/npm setup
-PostgreSQL 16 service
-npm ci --legacy-peer-deps
-nuxt prepare
-nuxt typecheck (strict TypeScript)
-vitest (unit/component/server tests)
-nuxt build (Cloudflare Pages output)
+npm run test         # vitest (unit/component/server tests)
+npm run type-check   # nuxt typecheck (strict TypeScript)
+npm run build        # Nitro cloudflare-module Worker build
 ```
 
-Deployment to Cloudflare happens only after successful checks and
-controlled release procedures (`wrangler pages deploy`), using GitHub
-repository secrets. Never deploy without passing tests.
+Releases are then initiated **manually** from the local machine with
+Wrangler (`npm run deploy:staging` / `npm run deploy:production`; see
+§39). Never deploy without passing the local checks, and never run
+migrations through Hyperdrive — apply them against the direct managed
+PostgreSQL URL first (`npm run db:migrate`).
 
 ## 35. Testing
 
@@ -964,6 +974,100 @@ not used for primary data.**
 Configure safe caching only for public/static content. Do not cache
 private authenticated responses. Do not expose PostgreSQL ports
 publicly. Cloudflare does not replace application authorization.
+
+### Deployment model — manual Wrangler to Workers
+
+The Nuxt app builds with Nitro's `cloudflare-module` preset to
+`.output/server/index.mjs` (the Worker) plus `.output/public` (Workers
+Static Assets). `app/wrangler.toml` declares `main`, the `[assets]`
+binding (`ASSETS`), and named environments `staging` and `production`,
+each with its own Hyperdrive id and R2 bucket. Bindings reach the app
+through `event.context.cloudflare.env`; the database client is
+initialised from `env.HYPERDRIVE.connectionString` per isolate
+(`server/plugins/cloudflare.ts` + `server/utils/db.ts`), and R2 is used
+exclusively via the `R2_BUCKET` binding (no S3 key/secret in the
+Worker).
+
+``` text
+Local Mac ── git push ──► GitHub (version history only; never deploys)
+Local Mac ── wrangler ──► Cloudflare Workers (staging / production)
+```
+
+One-time provisioning (resources are not created by deploys):
+
+``` text
+wrangler hyperdrive create sms-pg-staging    --connection-string="$STAGING_DIRECT_PG_URL"
+wrangler hyperdrive create sms-pg-production --connection-string="$PROD_DIRECT_PG_URL"
+wrangler r2 bucket create sms-staging
+wrangler r2 bucket create sms-production
+wrangler secret put SESSION_SECRET -e staging
+wrangler secret put SESSION_SECRET -e production
+```
+
+Put the returned Hyperdrive ids into `app/wrangler.toml` (replacing the
+`REPLACE_WITH_*` placeholders).
+
+Daily commands, run from `app/`:
+
+``` text
+npm run dev                # Nuxt dev server (Node; DATABASE_URL, no bindings)
+npm run cf:dev             # build + wrangler dev (full Worker emulation;
+                           # local Hyperdrive via CLOUDFLARE_HYPERDRIVE_
+                           # LOCAL_CONNECTION_STRING_HYPERDRIVE, R2 on disk)
+npm run deploy:staging     # build + wrangler deploy -e staging
+npm run deploy:production  # build + wrangler deploy -e production
+```
+
+Release order: local quality gate (§34) → `npm run db:migrate` against
+the environment's direct PostgreSQL URL → manual Wrangler deploy.
+`SESSION_SECRET` must remain stable across deploys;
+`EXPOSE_RESET_TOKENS` must never be enabled outside local development.
+
+The original Cloudflare Pages configuration is preserved in
+`app/wrangler.pages.toml` for reference/rollback; it is not loaded by
+Wrangler. Queues, Queue consumers and Cron Triggers are intentionally
+absent until Phase 10.
+
+### Observability
+
+No extra monitoring products are required. Use Wrangler and the
+Cloudflare dashboard (Workers & Pages → select `sms-staging` /
+`sms-production`):
+
+``` text
+# Live request/console/error log stream for an environment (Ctrl-C to exit)
+npx wrangler tail sms-staging
+npx wrangler tail sms-production
+
+# Recent deployments with version ids and upload timestamps
+npx wrangler deployments list -e staging
+npx wrangler deployments list -e production
+```
+
+The dashboard shows per-deployment request volume, CPU time, errors and
+the currently active version id. The application emits no secrets to
+logs; audit events go to the PostgreSQL `audit_logs` table, not to
+Worker logs.
+
+### Manual rollback (code only — never destructive to the database)
+
+Each `wrangler deploy` creates an immutable Worker version. Rolling back
+re-points traffic at a previous version and does not touch PostgreSQL,
+R2 objects, or migrations:
+
+``` text
+# 1. Find the known-good version id
+npx wrangler deployments list -e staging
+
+# 2. Roll traffic back to it
+npx wrangler rollback -e staging      # prompts for confirmation
+npx wrangler rollback -e production
+```
+
+Rollback applies to Worker code and configuration only. Database
+migrations are not reversed automatically — migrations are kept forward-
+compatible with the previously deployed Worker, and data changes must be
+handled with explicit, approved forward migrations.
 
 ## 40. Migration order
 
@@ -1258,11 +1362,70 @@ required.
   row-scoped to "own timetable/own children" (consistent with prior
   phases; row-level scoping is Phase 12 hardening).
 
-### Phase 6 --- Assignments/resources  (current)
+### Phase 6 --- Assignments/resources  ✅ COMPLETE
 
 Assignments, submissions, grading, resources and R2 integration.
 
-### Phase 7 --- Exams/results
+**Delivered**
+
+- Shared zod schemas and TypeScript types for assignments, attachments,
+  submissions and learning resources
+  (`app/shared/schemas/assignments.ts`, `app/shared/types/index.ts`).
+- Storage layer (`server/utils/storage.ts`) over the `R2_BUCKET`
+  Worker binding: safe object keys (`assignments/attachments/…`,
+  `assignments/submissions/…`, `resources/…`), private authorized
+  download streaming, metadata/byte cleanup on delete; pure,
+  unit-tested upload validation (`server/utils/uploads.ts`): size caps
+  (25 MB / 50 MB), MIME allow-list and extension/MIME cross-check,
+  filename sanitization; multipart helper (`server/utils/multipart.ts`).
+- Assignments service (`server/services/assignments.ts`): CRUD with
+  draft/scheduled/published/archived state (publishing stamps
+  `publishedAt`), reference validation (term-in-session,
+  section-in-class), teacher-ownership enforcement, R2-backed
+  attachments; one submission per student per assignment with
+  draft → submitted/late → graded/returned workflow (late derived from
+  due date), graded-lock, inline score/feedback grading bounded by
+  maxScore; students only see published assignments for classes (and
+  sections) they are actively enrolled in.
+- Resources service (`server/services/resources.ts`): school-wide or
+  class/subject-scoped resource library, published visibility for
+  students, metadata CRUD with R2 byte lifecycle.
+- 22 Nitro routes under `/api/v1/assignments`, `/api/v1/resources` and
+  `/api/v1/my`, JSON + multipart support, RBAC and audit
+  (`submissions.create` added to the catalog for the student role).
+  See `docs/API.md` Phase 6.
+- Client service (`app/services/assignments.ts`), role-adaptive
+  `pages/assignments/index.vue` (staff create/manage/attach/grade;
+  students draft, upload, submit, view grades) and
+  `pages/resources/index.vue` (upload, download, publish); dashboard
+  gains a **Teaching** section.
+- Seeder: one published Primary 1 assignment with a graded text
+  submission (STU-001, 90/100) and one draft JSS 1 assignment; no
+  seeded files (R2 objects cannot exist before binding configuration);
+  idempotent.
+- 29 new unit tests (assignment/resource schemas, upload validation,
+  object-key construction); 143 tests pass, type-check and Cloudflare
+  build pass.
+
+**Limitations / known**
+
+- File routes require the R2 binding; plain `nuxt dev` returns 503 for
+  object I/O — run via `wrangler pages dev` (or staging/production).
+  The S3-compatible credentials fallback in runtime config is wired in
+  Phase 13. Live PostgreSQL + R2 verification pending in
+  Codespaces/staging (`db:migrate` + `db:seed`).
+- Magic-byte content sniffing and anti-malware scanning are deferred
+  (Phase 12 hardening); validation uses declared MIME + extension
+  agreement.
+- Assignment creation requires a teacher-linked account; admins create
+  via a teacher login (assigning-on-behalf can be added later).
+- Resource files cannot be replaced in place (delete + re-upload);
+  `scheduled` assignments store `publishedAt` but are not auto-published
+  by a cron yet (deployment/Queues phase).
+- Parent assignment views and submission notifications are not built
+  (Phase 10); gradebook/report aggregation is Phase 7.
+
+### Phase 7 --- Exams/results  (current)
 
 Assessment types, exams, scores, grading scales, approval, publication
 and report cards.
@@ -1403,22 +1566,26 @@ configuration, deployment and rollback procedures.
 
 ``` text
 Application    Nuxt 4 (Vue 3 + TypeScript) + Nitro server routes
-Runtime        Cloudflare Workers (cloudflare-pages preset)
-Database       PostgreSQL 16 (managed in staging/prod; Hyperdrive)
+Runtime        Cloudflare Workers + Static Assets (cloudflare-module preset)
+Database       PostgreSQL 16 (managed dev/staging/prod; Hyperdrive in Workers)
 ORM            Drizzle
 Validation     zod (shared schemas)
-Background     Cloudflare Queues + Cron Triggers
-Storage        Cloudflare R2
+Background     Cloudflare Queues + Cron Triggers (from Phase 10)
+Storage        Cloudflare R2 (R2_BUCKET binding only)
 Edge           Cloudflare DNS / TLS / WAF / rate limiting
-Source control GitHub
-CI             GitHub Actions (single Nuxt job)
+Source control GitHub (version history only; no Git-driven deployments)
+Deployment     Manual Wrangler from the local Mac (wrangler deploy -e …)
 IDE            TRAE CN
-Dev env        GitHub Codespaces (.devcontainer/: Node 24 + PostgreSQL)
-Mac            thin client only (TRAE CN + browser)
-Staging        Cloudflare Workers staging + sms-staging R2 + staging PG
-Production     separate Workers env + sms-production R2 + production PG
+Dev env        Local Node 24 + reachable dev PostgreSQL (no devcontainer)
+Mac            development + deployment machine (Node 24, npm, Wrangler)
+Staging        Worker sms-staging + sms-staging R2 + staging Hyperdrive/PG
+               (resources provisioned manually; first deploy pending the
+               staging acceptance checkpoint)
+Production     Worker sms-production + sms-production R2 + prod Hyperdrive/PG
+               (provisioned but not deployed until staging is accepted)
 Website        deferred
-Current phase  Phase 6 — Assignments/resources (Phases 0–5 complete)
+Current phase  Phase 7 — Exams/results (Phases 0–6 complete; Phase 7 NOT
+               started — staging acceptance gate runs first)
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -1460,7 +1627,7 @@ while **retaining PostgreSQL** as the primary database.
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
 -   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 6 — Assignments/resources** (Phases 0–5 done).
+-   Current phase: **Phase 7 — Exams/results** (Phases 0–6 done).
 
 ## 48. Architecture decision (summary)
 
@@ -1541,4 +1708,35 @@ documentation, not a second specification.
                     extended; idempotent fake-teacher seeding; docs/API
                     rewritten; no migration needed; type-check,
                     79 tests and Cloudflare build pass.
+2026-09-12  Infra   Deployment model migrated from Cloudflare Pages
+                    (cloudflare-pages) to Cloudflare Workers + Static
+                    Assets (Nitro cloudflare-module). New app/wrangler.toml
+                    with main/.output/server, [assets] ASSETS binding and
+                    staging/production named environments (own Hyperdrive
+                    ids + R2 buckets); old Pages config preserved as
+                    app/wrangler.pages.toml (git rename). DB client now
+                    initialises from the HYPERDRIVE binding per isolate
+                    (server/plugins/cloudflare.ts, binding-aware lazy
+                    db.ts; DATABASE_URL retained for local Node dev);
+                    unused R2 S3 key/secret config removed; manual-only
+                    deploys via npm run deploy:staging|production; no
+                    Git/Workers-Builds/Actions deployment. Verified:
+                    143 tests, type-check, cloudflare-module build and
+                    wrangler deploy --dry-run for both environments pass.
+2026-09-13  Infra   Pre-Phase-7 Cloudflare staging acceptance checkpoint:
+                    Codespaces/CI retired (.devcontainer/,
+                    .github/workflows/ci.yml, docs/CODESPACES.md removed;
+                    history preserved in Git). PROJECT_RULES, TRAE rules,
+                    README §29-§34/§39/§46, docs/ARCHITECTURE/DATABASE/
+                    CLOUDFLARE/SECURITY/TESTING rewritten for local
+                    development + manual Wrangler deployment; observability
+                    (wrangler tail/deployments) and manual rollback
+                    (wrangler rollback) documented; .dev.vars/.wrangler
+                    added to .gitignore. Gates: 143 tests, type-check,
+                    cloudflare-module build pass; nuxt dev verified
+                    (health degraded-without-DB as designed, login 200,
+                    protected API 401). Blocked on owner action before
+                    real staging deploy: managed PostgreSQL decision +
+                    Hyperdrive/R2 provisioning (token missing r2 scope;
+                    re-login may be required) + wrangler secrets.
 ```

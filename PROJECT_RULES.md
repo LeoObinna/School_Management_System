@@ -4,10 +4,10 @@
 Mission: production-ready School Management System.
 Frontend + Backend: Nuxt 4 + TypeScript (Vue 3 + Nitro server routes).
 Database: PostgreSQL (source of truth).
-Object storage: Cloudflare R2.
-Compute: Cloudflare Workers (Nitro cloudflare-pages preset).
-Background jobs: Cloudflare Queues.
-Dev environment: GitHub Codespaces (.devcontainer/).
+Object storage: Cloudflare R2 (R2_BUCKET binding; no S3 keys in the Worker).
+Compute: Cloudflare Workers + Static Assets (Nitro cloudflare-module preset).
+Background jobs: Cloudflare Queues (from Phase 10).
+Dev environment: local machine (Node 24 + npm) with a reachable PostgreSQL.
 
 Use Vue 3 Composition API and <script setup lang="ts">.
 Use strict TypeScript across client and server.
@@ -24,24 +24,47 @@ Never hard-code secrets or school policy.
 Never trust client authorization claims.
 Preserve historical records.
 Add tests for critical behavior and authorization boundaries.
-Run type-check, tests, lint and build before completing a phase.
+Run type-check, tests and build before completing a phase.
 Document architectural deviations.
 ```
 
-## Cloud-first development — approved approach
+## Local development + Cloudflare-only deployment — approved approach
 
-Development happens in **GitHub Codespaces**, not on the local Mac.
-The `.devcontainer/` folder defines a container with Node 24,
-PostgreSQL 16 and wrangler. The Mac is a thin client: it only needs
-TRAE CN, a browser, and a GitHub account.
+Development happens on the local machine with Node 24 and npm. The app
+runs three ways, all from `app/`:
 
-No local PHP, Composer, Redis, Docker, Herd, Postgres.app, Valkey or
-Homebrew is required.
+```text
+npm run dev      # Nuxt dev server (Node); PostgreSQL via DATABASE_URL
+npm run cf:dev   # build + wrangler dev (full Workers binding emulation)
+npm run test / npm run type-check / npm run build
+```
 
-Staging and production run on Cloudflare Workers with managed
-PostgreSQL (Neon/Supabase), Cloudflare R2 buckets and Cloudflare
-Queues. Never commit secrets — use Codespace Secrets or GitHub
-repository secrets.
+PostgreSQL is required for database work: a local instance or a remote
+dev database (e.g. Neon free tier); no Docker, Kubernetes, Redis, PHP,
+Composer or Laravel tooling is required. Migrations and seeds run
+directly against PostgreSQL (`npm run db:migrate`, `npm run db:seed`),
+never through Hyperdrive.
+
+Staging and production run on Cloudflare Workers (`sms-staging` and
+`sms-production` named environments in `app/wrangler.toml`) with
+separate managed PostgreSQL databases reached through separate
+Hyperdrive configs, and separate R2 buckets.
+
+**Deployment is manual only**, initiated from the local terminal:
+
+```text
+npm run deploy:staging      # npm run build + wrangler deploy -e staging
+npm run deploy:production   # npm run build + wrangler deploy -e production
+```
+
+There is no GitHub Actions deployment, no Cloudflare Pages Git
+integration, no Workers Builds, and no automatic deployment on push or
+pull request. GitHub is used strictly for source control and version
+history.
+
+Never commit secrets. Local secrets live only in the gitignored
+`app/.env`; staging/production secrets are stored with
+`wrangler secret put -e <env>` (or the Cloudflare dashboard).
 
 ## Architecture migration note
 

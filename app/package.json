@@ -16,7 +16,11 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx database/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "cf:dev": "npm run build && CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=${DATABASE_URL:-postgresql://sms:sms_secret@localhost:5432/sms} wrangler dev",
+    "cf:type": "wrangler types",
+    "deploy:staging": "npm run build && wrangler deploy -e staging",
+    "deploy:production": "npm run build && wrangler deploy -e production"
   },
   "dependencies": {
     "@pinia/nuxt": "^0.10.1",

@@ -1,6 +1,7 @@
 # Architecture
 
-Status: **Phase 0 — cloud-first foundation.** No backend or business modules yet.
+Status: **Phases 0–6 complete** on Nuxt 4 + Cloudflare Workers. Phase 7
+(exams/results) not started.
 
 ## Overview
 
@@ -8,87 +9,89 @@ Status: **Phase 0 — cloud-first foundation.** No backend or business modules y
                     Cloudflare (DNS, TLS, WAF, CDN)
                            |
                            v
-               Vue 3 + TypeScript + Vite (frontend)
-                           | HTTPS / JSON
-                           v
-            Laravel 12 API + Sanctum + RBAC (backend)
+        Cloudflare Worker (sms-staging / sms-production)
+        Nuxt 4 SSR + Nitro /api/v1 routes (+ Static Assets)
                            |
-           +---------------+---------------+---------------+
-           |               |               |               |
-           v               v               v               v
-     PostgreSQL 16      Redis 7      Cloudflare R2    Audit Logs
-     (source of truth)  (cache/queues) (object storage)
+           +---------------+---------------+
+           |                               |
+           v                               v
+     Hyperdrive -> PostgreSQL 16     R2_BUCKET (objects)
+     (source of truth, Drizzle)      metadata keys in PostgreSQL
+
+     (Queues + Cron Triggers join from Phase 10; audit logs live in PG)
 ```
 
 ## Stack
 
 | Concern         | Technology                                     |
 |-----------------|------------------------------------------------|
-| Frontend        | Vue 3, TypeScript, Vite 8, Pinia 3, Tailwind 4 |
-| Backend         | Laravel 12, PHP 8.4+, Sanctum, Eloquent         |
-| Database        | PostgreSQL 16                                   |
-| Cache/queues    | Redis 7                                         |
-| Object storage  | Cloudflare R2 (S3-compatible)                   |
+| Application     | Nuxt 4 (Vue 3, TypeScript) + Nitro server routes |
+| Runtime         | Cloudflare Workers + Static Assets (cloudflare-module) |
+| Database        | PostgreSQL 16 (Drizzle ORM; Hyperdrive binding in Workers) |
+| Background jobs | Cloudflare Queues + Cron Triggers (from Phase 10) |
+| Object storage  | Cloudflare R2 via R2_BUCKET binding            |
 | Edge/security   | Cloudflare DNS, TLS, WAF                        |
-| Source control  | Git + GitHub                                    |
-| CI/CD           | GitHub Actions                                  |
-| Dev environment | GitHub Codespaces (.devcontainer/)             |
+| Source control  | Git + GitHub (version history only)             |
+| Deployment      | Manual `wrangler deploy` from the local Mac     |
+| Dev environment | Local Node 24 + npm + reachable PostgreSQL      |
 | IDE             | TRAE CN                                         |
 
 ## Development environment
 
-All development happens in **GitHub Codespaces**. The
-`.devcontainer/` folder defines:
+Development runs locally with Node 24 and npm. There is no devcontainer,
+Docker, Redis, PHP or Composer. PostgreSQL for development is a local
+instance or a remote dev database reached via `DATABASE_URL` in the
+gitignored `app/.env`.
 
-- **app** container: PHP 8.4 + Composer + Node 24 + GitHub CLI
-- **db** service: PostgreSQL 16 (Alpine)
-- **redis** service: Redis 7 (Alpine)
-
-See [CODESPACES.md](./CODESPACES.md) for setup and [FRONTEND.md](./FRONTEND.md)
-for frontend details.
+``` text
+npm run dev       # Nuxt dev server (Node runtime, DATABASE_URL)
+npm run cf:dev    # build + wrangler dev (full Workers binding emulation)
+npm run test      # Vitest
+npm run type-check
+npm run build
+```
 
 ## Repository structure
 
 ``` text
 School_Management_System/
-├── README.md                    # Master spec (authoritative)
+├── README.md                    # Master spec (single source of truth)
 ├── PROJECT_RULES.md             # Hard rules for TRAE
-├── .env.example                 # Root env template (cloud-first)
 ├── .gitignore
-├── .devcontainer/
-│   ├── devcontainer.json        # Codespace definition
-│   ├── docker-compose.yml       # app + db + redis
-│   ├── Dockerfile               # PHP 8.4 + Node 24 + Composer
-│   └── post-create.sh           # Auto-setup script
-├── .github/
-│   └── workflows/ci.yml         # Frontend + backend CI
 ├── .trae/rules/
 │   └── project_rules.md         # TRAE operating rules
 ├── docs/
 │   ├── ARCHITECTURE.md          # This file
-│   ├── CODESPACES.md
 │   ├── CLOUDFLARE.md
 │   ├── DATABASE.md
 │   ├── API.md
 │   ├── TESTING.md
 │   ├── SECURITY.md
 │   └── FRONTEND.md
-├── frontend/                    # Vue 3 + TS + Vite
-└── backend/                     # (future) Laravel 12 API
+├── app/                         # Nuxt 4 application (all active code)
+│   ├── wrangler.toml            # Workers config (staging/production envs)
+│   ├── wrangler.pages.toml      # retired Pages config, kept for rollback
+│   ├── server/                  # Nitro API routes, services, utils
+│   ├── database/                # Drizzle schema, migrations, seeds
+│   ├── shared/                  # zod schemas + TS types (client/server)
+│   └── pages/, components/, stores/
+└── frontend/                    # legacy pre-migration scaffold (unused)
 ```
 
 ## Principles
 
-1. **PostgreSQL is the source of truth.** Redis is cache/queue only.
+1. **PostgreSQL is the source of truth** (never D1 for primary data).
 2. **R2 for objects, PostgreSQL for metadata.** Never store files in the DB.
 3. **Server-side authorization is authoritative.** Frontend guards are UX only.
 4. **Historical records are preserved.** Soft-delete where domain-appropriate.
-5. **No secrets in code.** Use Codespace Secrets / GitHub Secrets.
+5. **No secrets in code.** Local `.env` or `wrangler secret put`; never commit them.
 6. **Small, reviewable changes.** One phase at a time.
 7. **Tests are part of feature completion**, not an afterthought.
+8. **Deployment is manual Wrangler only** — no Git-driven or CI deployment.
 
 ## Phase status
 
-- **Phase 0** (Infrastructure): Frontend scaffold complete. Devcontainer
-  and CI created. Backend not yet scaffolded.
-- **Phase 1+**: Not started.
+Phases 0–6 are complete (foundation, auth/RBAC, academic structure,
+people/enrollment, timetable/attendance, assignments/resources).
+Phase 7 (exams/results) has not started. See README §41/§51 for the
+authoritative phase record.

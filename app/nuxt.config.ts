@@ -15,10 +15,12 @@ export default defineNuxtConfig({
     typeCheck: false, // run `npm run type-check` separately
   },
 
-  // Deploy to Cloudflare Pages (Workers runtime). Supports R2, KV,
-  // Hyperdrive, Queues, and Durable Object bindings via wrangler.toml.
+  // Deploy to Cloudflare Workers via the Nitro cloudflare-module preset:
+  // outputs .output/server/index.mjs (Worker) + .output/public (assets),
+  // deployed manually with `wrangler deploy`. Supports R2, KV, Hyperdrive,
+  // Queues, cron and Durable Object bindings via wrangler.toml.
   nitro: {
-    preset: 'cloudflare-pages',
+    preset: 'cloudflare-module',
   },
 
   // Pinia is configured via ~/plugins/pinia.ts (manual setup for Nuxt 4
@@ -50,12 +52,6 @@ export default defineNuxtConfig({
     // Dev-only: surface password-reset tokens from the API until the
     // Queues-backed mailer exists (Phase 10). NEVER enable in staging/prod.
     exposeResetTokens: process.env.EXPOSE_RESET_TOKENS === 'true',
-    r2: {
-      accountId: process.env.R2_ACCOUNT_ID || '',
-      accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-      bucket: process.env.R2_BUCKET || 'sms-staging',
-    },
     // Public config exposed to client
     public: {
       apiBaseUrl: '/api/v1',

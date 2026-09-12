@@ -2,62 +2,76 @@
 
 ## PostgreSQL 16
 
-PostgreSQL is the **source of truth** for all relational data.
+PostgreSQL is the **source of truth** for all relational data. D1 is
+not used. Evidence the current implementation requires real PostgreSQL:
+52 Drizzle tables, 16 `pgEnum` types, 47 UUID primary keys, 20 `NUMERIC`
+columns (money/scores), 80 index declarations, foreign keys and
+service-layer transactions.
 
-## Development (Codespace)
+## Three separated environments
 
-The devcontainer runs PostgreSQL 16 (Alpine) as a service container:
+### 1. Development (local machine)
 
-``` text
-Host:     db          (docker-compose service name)
-Port:     5432
-Database: sms
-User:     sms
-Password: sms_secret   (dev only — never use in staging/production)
-```
-
-Connection is pre-configured in `.env.example`. The Codespace forwards
-port 5432 so you can connect from the VS Code PostgreSQL explorer.
-
-## Staging / Production
-
-Use a managed PostgreSQL service (e.g., Cloudflare D1 Hyperdrive backend,
-Neon, Supabase, or a managed RDS/CloudSQL instance). Configure via
-environment variables:
+Any PostgreSQL 14+ reachable from the Mac — a local install or a remote
+dev database (e.g. Neon free tier). No Docker is required. The
+connection string is read by Nuxt/Drizzle from `app/.env`:
 
 ``` text
-DB_HOST=<managed-host>
-DB_PORT=5432
-DB_DATABASE=sms_staging   # or sms_production
-DB_USERNAME=<managed-user>
-DB_PASSWORD=<managed-password>
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
 ```
 
-Set these as **Codespace Secrets** (for dev) or **GitHub repository
-secrets** (for CI) — never commit real credentials.
+For Workers-emulation (`npm run cf:dev`) the same URL is supplied to
+Wrangler as
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` (wired in the
+`cf:dev` script). Only synthetic/fake demo data is allowed.
+
+### 2. Staging
+
+A dedicated managed PostgreSQL database/schema (`sms_staging`),
+reachable from the `sms-staging` Worker through a dedicated Hyperdrive
+config (`sms-pg-staging`). Never use the production database for
+staging.
+
+### 3. Production
+
+A separate managed PostgreSQL database (`sms_production`) with its own
+credentials, reached from the `sms-production` Worker through the
+`sms-pg-production` Hyperdrive config. Production credentials are never
+shared with development or staging, and never committed to Git.
+
+## Migrations
+
+- SQL lives in `app/database/migrations/` (Drizzle-generated).
+- Apply from the local machine against the **direct** managed-PG URL —
+  never through Hyperdrive:
+
+``` text
+cd app
+DATABASE_URL=<direct-env-url> npm run db:migrate
+DATABASE_URL=<direct-env-url> npm run db:seed   # fake demo data only
+```
+
+- Release order: migrate target database → deploy Worker.
+
+## Access inside the Worker
+
+`server/utils/db.ts` creates one Drizzle client per isolate from
+`env.HYPERDRIVE.connectionString` (`server/plugins/cloudflare.ts`),
+with `max: 1` because Hyperdrive pools at the edge. In plain Node dev
+(`npm run dev`) it falls back to `DATABASE_URL`.
 
 ## Schema principles
 
-- Foreign keys on all relationships
-- Meaningful unique constraints (e.g., student+session+term for enrollments)
-- Index real query paths, not every column
-- `NUMERIC` / `DECIMAL` for money — never floating point
-- Timestamps (`created_at`, `updated_at`) on all tables
-- `deleted_at` for soft-delete only where domain-appropriate
-- Migrations are version-controlled and reversible
+- UUID primary keys; foreign keys on all relationships
+- Meaningful unique constraints/composite keys (e.g. enrollment identity)
+- Index real query paths
+- `NUMERIC` for money/scores — never floating point
+- Timestamps on all tables; soft-delete only where domain-appropriate
+- Migrations are version-controlled SQL applied in order (README §40)
 
-## Migration order
+## Backups
 
-Follow the dependency-aware sequence in README §40. Never run migrations
-out of order without a documented dependency reason.
-
-## Backup strategy
-
-- **Dev**: `pg_dump` manually or via post-create script
-- **Staging**: Daily automated snapshot (managed service)
-- **Production**: Point-in-time recovery + daily snapshot + tested restore
-
-## Testing database
-
-CI uses a separate `sms_testing` database. Migrations run fresh on every
-CI run. See [TESTING.md](./TESTING.md).
+- **Dev**: disposable; fake data only.
+- **Staging**: provider snapshots as available.
+- **Production**: point-in-time recovery + scheduled snapshots with a
+  tested restore (configure at the managed-Postgres provider).
