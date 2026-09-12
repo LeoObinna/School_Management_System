@@ -264,6 +264,59 @@ session and the section to the class. Duplicate placements for the same
 `(studentId, parentId)`; `POST` and `PUT` set `relationship`,
 `isPrimary` and `isEmergencyContact`.
 
+## Phase 5 — Timetable & attendance
+
+All endpoints live under `/api/v1`. Write actions are authorized and
+audited. Timetable slots are half-open: a slot ending at 10:00 does not
+conflict with one starting at 10:00.
+
+### Timetable (`/timetable`)
+
+| Method | Path | Permission | Description |
+|--------|------|------------|-------------|
+| GET | `/timetable` | `timetable.view` | List entries (filters: sessionId, termId, classId, sectionId, teacherId, weekday) |
+| POST | `/timetable` | `timetable.manage` | Create an entry (conflict checked) |
+| GET | `/timetable/{id}` | `timetable.view` | Get one entry |
+| PUT | `/timetable/{id}` | `timetable.manage` | Update an entry (conflict re-checked) |
+| DELETE | `/timetable/{id}` | `timetable.manage` | Remove an entry |
+
+**Conflict rules (409).** Same weekday, session and overlapping time,
+with term/section scope — a whole-session entry clashes with term-
+specific entries and a whole-class entry with section-specific ones:
+
+- teacher already teaching at that time;
+- class already occupied (section scope aware);
+- room already booked (case-insensitive room match).
+
+Server also verifies session/term membership, section/class membership,
+subject and teacher existence.
+
+### Attendance (`/attendance`)
+
+Registers are unique per session/term/class/section/date; one record per
+student (upserted on `(attendanceSessionId, studentId)`). Workflow:
+`open → submitted → approved`. Approved registers are locked and only
+open registers can be deleted.
+
+| Method | Path | Permission | Description |
+|--------|------|------------|-------------|
+| GET | `/attendance/sessions` | `attendance.view` | List registers (session/class/status/date range, paginated) |
+| POST | `/attendance/sessions` | `attendance.mark` | Open a register (409 on duplicate) |
+| GET | `/attendance/sessions/{id}` | `attendance.view` | Register header + records |
+| PUT | `/attendance/sessions/{id}` | `attendance.update` | Update notes |
+| DELETE | `/attendance/sessions/{id}` | `attendance.update` | Delete an open register |
+| PUT | `/attendance/sessions/{id}/records` | `attendance.mark` | Bulk mark/upsert records (409 when register is approved) |
+| POST | `/attendance/sessions/{id}/submit` | `attendance.update` | open → submitted |
+| POST | `/attendance/sessions/{id}/approve` | `attendance.approve` | submitted → approved |
+| GET | `/attendance/report` | `attendance.view` | Class report (requires sessionId + classId; optional termId/sectionId) |
+| GET | `/attendance/students/{id}` | `attendance.view` | Student history + summary (requires sessionId) |
+
+`PUT .../records` body: `{ records: [{ studentId, status, remark? }] }`
+with status `present|absent|late|excused`; non-enrolled students are
+rejected with 422. Reports return per-student totals and an attendance
+rate of `(present + late) / total` rounded to 1 dp; whole-session/
+whole-class registers count toward term/section reports.
+
 ## Frontend integration
 
 The Nuxt app calls all APIs through `app/services/api.ts` (an ofetch

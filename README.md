@@ -1210,12 +1210,55 @@ enrollment/lifecycle.
 - Enrollment delete uses the `enrollments.update` permission (no
   `enrollments.delete` exists in the catalog).
 
-### Phase 5 --- Timetable/attendance  (current)
+### Phase 5 --- Timetable/attendance  ✅ COMPLETE
 
 Timetable, conflict detection, attendance, reports and approval where
 required.
 
-### Phase 6 --- Assignments/resources
+**Delivered**
+
+- Shared zod schemas and TypeScript types for timetable entries and
+  attendance sessions/records/reports
+  (`app/shared/schemas/schedule.ts`, `app/shared/types/index.ts`).
+- Schedule service (`app/server/services/schedule.ts`):
+  - timetable CRUD with server-side conflict detection (teacher
+    double-booked, class double-booked, room double-booked) on
+    overlapping weekday slots, term/section scope aware; half-open
+    intervals so back-to-back lessons are allowed; reference validation
+    (term-in-session, section-in-class, subject/teacher existence);
+  - attendance registers with bulk upsert marking, enrollment
+    validation, open → submitted → approved workflow, approved-register
+    locking;
+  - class percentage report and per-student session/term history;
+    attendance rate = (present + late) / total.
+- 15 Nitro routes under `/api/v1/timetable` and `/api/v1/attendance`
+  with RBAC (`timetable.view/.manage`, `attendance.view/.mark/.update/
+  .approve`) and audit logging. See `docs/API.md` Phase 5.
+- Client service (`app/services/schedule.ts`) and pages:
+  `timetable.vue` (weekly grid + create/edit/delete) and
+  `attendance.vue` (registers, marking roster, submit/approve, class
+  report). Dashboard gains a **Schedule** section. `UiBaseModal` gains
+  an optional `wide` size.
+- Pure, unit-tested overlap helper (`server/utils/time.ts`).
+- Seeder: 7 demo timetable entries plus one submitted Primary 1
+  register with records; all pre-checked for idempotency.
+- 17 new unit tests (schedule schemas + time overlap); 114 tests pass,
+  type-check and Cloudflare build pass.
+
+**Limitations / known**
+
+- No new database migration needed (timetable/attendance tables existed
+  from the initial schema); live PostgreSQL verification pending in
+  Codespaces (`db:migrate` + `db:seed`).
+- `attendance.export` exists in the catalog but no CSV/PDF export yet
+  (deferred with reporting work).
+- Configurable parent attendance notifications (README §15) are not
+  built this phase (depends on Phase 10 communication).
+- Student/parent attendance views are permission-gated but not yet
+  row-scoped to "own timetable/own children" (consistent with prior
+  phases; row-level scoping is Phase 12 hardening).
+
+### Phase 6 --- Assignments/resources  (current)
 
 Assignments, submissions, grading, resources and R2 integration.
 
@@ -1375,7 +1418,7 @@ Mac            thin client only (TRAE CN + browser)
 Staging        Cloudflare Workers staging + sms-staging R2 + staging PG
 Production     separate Workers env + sms-production R2 + production PG
 Website        deferred
-Current phase  Phase 5 — Timetable/attendance (Phases 0–4 complete)
+Current phase  Phase 6 — Assignments/resources (Phases 0–5 complete)
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -1417,7 +1460,7 @@ while **retaining PostgreSQL** as the primary database.
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
 -   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 5 — Timetable/attendance** (Phases 0–4 done).
+-   Current phase: **Phase 6 — Assignments/resources** (Phases 0–5 done).
 
 ## 48. Architecture decision (summary)
 
