@@ -1108,17 +1108,109 @@ Acceptance: auth works end-to-end, RBAC is enforced server-side,
 type-check/tests/build all pass. --- MET (pending live verification in
 Codespaces with PostgreSQL).
 
-### Phase 3 --- Academic foundation  (current)
+### Phase 3 --- Academic foundation  ✅ COMPLETE
 
 Sessions, terms, classes, sections, subjects, class subjects and teacher
 assignments.
 
-### Phase 4 --- People
+Delivered:
+
+-   Shared zod schemas (`shared/schemas/academics.ts`) and API types
+    (`shared/types`) for every Phase 3 resource, including date-order
+    rules, partial/no-op-update rejection, uuid relation checks and a
+    `booleanParamSchema` preprocessor (`"false"` must not coerce to
+    `true`). `maxScore: null` explicitly clears a class-subject score.
+-   Server services: `academic-structure.ts` (sessions, terms,
+    classes, sections, subjects and class subjects) and
+    `teacher-academics.ts` (teacher lookup, teacher subjects and class
+    assignments). Server-side invariants: slugs are derived and
+    uniquified server-side; setting a session/term current clears the
+    flag on siblings inside a transaction; term dates must sit inside
+    the session; assignment creation verifies the teacher, class,
+    session and subject exist, the section belongs to the class and
+    the class offers the subject; duplicate links return 409.
+-   Thin Nitro routes under `/api/v1` (27 route files) with
+    `requirePermission` checks (`*.view` / `*.manage`,
+    `class_subjects.manage`, `teacher_assignments.manage`,
+    `teachers.view`), 422 validation, 404/409 mapping, 201 on create
+    and audit records for every mutation. Structure deletes are
+    deactivations (`isActive = false`) to preserve history; teacher
+    links/assignments are removed directly.
+-   Server utilities: `smsSlugify`, pagination envelope helper,
+    Date→JSON serializers, Postgres error classifiers (23505/23503)
+    and typed query/body parsing.
+-   Client: `put`/`del` on the api service, typed
+    `services/academics.ts`, a `usePaginated` collection composable,
+    an accessible `UiBaseModal`, and four permission-guarded pages —
+    `academics/sessions` (sessions + terms tabs), `academics/classes`
+    (class detail with sections and offered subjects),
+    `academics/subjects` and `academics/assignments` (teacher subjects
+    and class allocations). Dashboard gains gated Academics links.
+-   RBAC catalog: teachers additionally receive
+    `academic_sessions.view` and `terms.view` so they can read the
+    academic calendar.
+-   Seeder: four fake teachers (one linked to the demo teacher login),
+    teacher-subject capability links and four teacher class
+    assignments for the current session. Fully idempotent; no real
+    personal data.
+-   No database migration was required — all Phase 3 tables existed in
+    the Phase 1 schema and initial migration.
+
+Known limitations (deferred by design):
+
+-   Teacher profile CRUD (staff records, user linking, lifecycle) is
+    Phase 4; Phase 3 seeds minimal teachers only so assignments work.
+-   No endpoint-level HTTP integration tests yet (no live PostgreSQL on
+    the Mac): the new logic is covered by 33 pure unit tests (schema
+    contract + slug helper); live verification in Codespaces is
+    pending.
+-   Class/section student capacity enforcement and timetable conflict
+    checks arrive with Phases 4/5.
+
+Acceptance: full academic foundation CRUD works through authorized
+endpoints and admin UI, relations and single-current invariants are
+enforced server-side, type-check, 79 tests and Cloudflare build pass.
+--- MET (pending live verification in Codespaces with PostgreSQL).
+
+### Phase 4 --- People  ✅ COMPLETE
 
 Students, parents, teachers, staff foundation, parent-child links and
 enrollment/lifecycle.
 
-### Phase 5 --- Timetable/attendance
+**Delivered**
+
+- Shared zod schemas and TypeScript types for students, parents,
+  teachers, staff, student-parent links and enrollments
+  (`app/shared/schemas/people.ts`, `app/shared/types/index.ts`).
+- People service (`app/server/services/people.ts`) with full CRUD,
+  soft-delete (archive/deactivate via `deletedAt`), parent↔student
+  linking, and enrollment lifecycle.
+- 31 Nitro routes under `/api/v1` (students, parents, teachers, staff,
+  enrollments) with RBAC + audit logging. See `docs/API.md` Phase 4.
+- `staff.view/.create/.update/.delete` permissions added to the RBAC
+  catalog; admin inherits all.
+- Client service (`app/services/people.ts`) and 5 admin pages:
+  `students.vue` (with guardian links and enrollment history),
+  `parents.vue`, `teachers.vue`, `staff.vue`, `enrollments.vue`.
+  Dashboard gains a **People** section gated by permissions.
+- Demo data: 4 students, 3 parents, parent-child links and current-term
+  enrollments seeded.
+- Enrollment `create` validates student/session/class (and term-in-
+  session, section-in-class) and returns `409` on duplicate placement.
+- Migration `0001_glossy_golden_guardian.sql` adds unique indexes on
+  `parents.email` and `staff_profiles.staff_number` so seeder upserts
+  are idempotent.
+
+**Limitations / known**
+
+- No live PostgreSQL verification on the Mac thin client; schema logic
+  covered by `app/shared/__tests__/people.test.ts` (18 cases).
+- `parents.link_children` permission controls student-parent link
+  routes (POST/PUT/DELETE).
+- Enrollment delete uses the `enrollments.update` permission (no
+  `enrollments.delete` exists in the catalog).
+
+### Phase 5 --- Timetable/attendance  (current)
 
 Timetable, conflict detection, attendance, reports and approval where
 required.
@@ -1283,7 +1375,7 @@ Mac            thin client only (TRAE CN + browser)
 Staging        Cloudflare Workers staging + sms-staging R2 + staging PG
 Production     separate Workers env + sms-production R2 + production PG
 Website        deferred
-Current phase  Phase 3 — Academic foundation (Phases 0–2 complete)
+Current phase  Phase 5 — Timetable/attendance (Phases 0–4 complete)
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -1307,6 +1399,14 @@ while **retaining PostgreSQL** as the primary database.
     login throttling, audit logging and a protected client
     (api service, Pinia auth store, route guard, login + dashboard);
     type-check, 46 tests and Cloudflare build all pass.
+-   Phase 3 academic foundation: complete — sessions, terms, classes,
+    sections, subjects, class subjects, teacher subjects and teacher
+    class assignments with server-derived unique slugs, single-current
+    session/term transactions, date and relation invariants, 409
+    duplicate handling, RBAC + audit on 27 Nitro routes, four
+    permission-guarded admin pages, fake-teacher demo seeding and
+    refreshed API docs; no schema migration needed; type-check,
+    79 tests and Cloudflare build all pass.
 -   The migration is performed **incrementally**, one phase at a time.
 -   Existing work is preserved: the original `frontend/` Vue 3 scaffold
     remains in the repository as a reference until the Nuxt app reaches
@@ -1317,7 +1417,7 @@ while **retaining PostgreSQL** as the primary database.
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
 -   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 3 — Academic foundation** (Phases 0–2 done).
+-   Current phase: **Phase 5 — Timetable/attendance** (Phases 0–4 done).
 
 ## 48. Architecture decision (summary)
 
@@ -1386,4 +1486,16 @@ documentation, not a second specification.
                     store, global route guard, login page and protected
                     dashboard; type-check, 46 tests and Cloudflare build
                     pass.
+2026-09-12  Phase 3  Academic foundation: sessions, terms, classes,
+                    sections, subjects, class subjects, teacher subjects
+                    and teacher class assignments; shared zod schemas
+                    and types; services with slug derivation,
+                    single-current transactions and relation
+                    invariants; 27 RBAC/audited Nitro routes with 404/
+                    409/422 handling; typed academics client service,
+                    pagination composable, modal and four admin pages
+                    with dashboard links; teacher view permissions
+                    extended; idempotent fake-teacher seeding; docs/API
+                    rewritten; no migration needed; type-check,
+                    79 tests and Cloudflare build pass.
 ```
