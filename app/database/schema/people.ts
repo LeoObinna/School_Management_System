@@ -99,7 +99,7 @@ export const parents = pgTable(
   },
   (t) => ({
     userIdx: index('parents_user_idx').on(t.userId),
-    emailIdx: index('parents_email_idx').on(t.email),
+    emailIdx: uniqueIndex('parents_email_idx').on(t.email),
   }),
 )
 
@@ -164,7 +164,9 @@ export const staffProfiles = pgTable('staff_profiles', {
     .defaultNow()
     .notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-})
+}, (t) => ({
+  staffIdx: uniqueIndex('staff_profiles_staff_no_idx').on(t.staffNumber),
+}))
 
 // ---------------------------------------------------------------------------
 // Student <-> Parent (guardian relationship)

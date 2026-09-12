@@ -1,14 +1,12 @@
-/**
- * GET /api/v1/teachers
- *
- * Minimal active-teacher lookup for academic assignment screens.
- * Full teacher CRUD arrives with Phase 4 (People).
- */
-import { defineEventHandler } from 'h3'
+/** GET /api/v1/teachers */
+import { defineEventHandler, getQuery } from 'h3'
 import { requirePermission } from '~/server/utils/auth/rbac'
-import { listActiveTeachers } from '~/server/services/teacher-academics'
+import { parseQueryData } from '~/server/utils/validation'
+import { teacherListQuerySchema } from '~/shared/schemas'
+import { listTeachers } from '~/server/services/people'
 
 export default defineEventHandler(async (event) => {
   requirePermission(event, 'teachers.view')
-  return { data: await listActiveTeachers() }
+  const query = parseQueryData(teacherListQuerySchema, getQuery(event))
+  return listTeachers(query)
 })

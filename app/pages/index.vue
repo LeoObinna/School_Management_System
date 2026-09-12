@@ -59,6 +59,61 @@ async function onLogout() {
 
       <section
         v-if="
+          auth.can('students.view') ||
+          auth.can('parents.view') ||
+          auth.can('teachers.view') ||
+          auth.can('staff.view') ||
+          auth.can('enrollments.create')
+        "
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">People</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <NuxtLink
+            v-if="auth.can('students.view')"
+            to="/students"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Students</p>
+            <p class="mt-1 text-sm text-gray-500">Records, guardians and enrollment</p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('parents.view')"
+            to="/parents"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Parents</p>
+            <p class="mt-1 text-sm text-gray-500">Guardian directory</p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('teachers.view')"
+            to="/teachers"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Teachers</p>
+            <p class="mt-1 text-sm text-gray-500">Teaching staff</p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('staff.view')"
+            to="/staff"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Staff</p>
+            <p class="mt-1 text-sm text-gray-500">Non-teaching staff</p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('enrollments.view') || auth.can('enrollments.create')"
+            to="/enrollments"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Enrollments</p>
+            <p class="mt-1 text-sm text-gray-500">Student class placement</p>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section
+        v-if="
           auth.can('academic_sessions.view') ||
           auth.can('classes.view') ||
           auth.can('subjects.view') ||

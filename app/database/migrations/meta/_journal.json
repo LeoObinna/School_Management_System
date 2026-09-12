@@ -8,6 +8,13 @@
       "when": 1789129541248,
       "tag": "0000_clever_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789212020756,
+      "tag": "0001_glossy_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

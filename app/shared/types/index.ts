@@ -233,3 +233,143 @@ export type StudentStatus =
   | 'transferred'
   | 'withdrawn'
   | 'archived'
+
+// ---------------------------------------------------------------------------
+// People (README §14, Phase 4)
+// ---------------------------------------------------------------------------
+
+export interface Student {
+  id: string
+  userId: string | null
+  admissionNumber: string
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  gender: string | null
+  dateOfBirth: string | null
+  bloodGroup: string | null
+  nationality: string | null
+  religion: string | null
+  address: string | null
+  photoUrl: string | null
+  status: StudentStatus
+  currentClassId: string | null
+  currentSectionId: string | null
+  enrolledAt: string | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export type Gender = 'male' | 'female' | 'other'
+
+export interface Parent {
+  id: string
+  userId: string | null
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  email: string | null
+  phone: string | null
+  gender: string | null
+  occupation: string | null
+  address: string | null
+  photoUrl: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export interface Teacher {
+  id: string
+  userId: string | null
+  staffNumber: string
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  email: string | null
+  phone: string | null
+  gender: string | null
+  qualification: string | null
+  specialization: string | null
+  address: string | null
+  photoUrl: string | null
+  hiredAt: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export interface StaffProfile {
+  id: string
+  userId: string | null
+  staffNumber: string
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  jobTitle: string | null
+  department: string | null
+  email: string | null
+  phone: string | null
+  gender: string | null
+  hiredAt: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export interface StudentParent {
+  studentId: string
+  parentId: string
+  relationship: string
+  isPrimary: boolean
+  isEmergencyContact: boolean
+  createdAt: string
+}
+
+// Student-parent link joined with the parent profile.
+export interface StudentParentDetail extends StudentParent {
+  parent: Parent
+}
+
+// Parent's children listing (parent id + link joined with student).
+export interface ParentChildDetail extends StudentParent {
+  student: Student
+}
+
+// ---------------------------------------------------------------------------
+// Student enrollments (README §14)
+// ---------------------------------------------------------------------------
+
+export type EnrollmentStatus =
+  | 'active'
+  | 'completed'
+  | 'promoted'
+  | 'repeated'
+  | 'withdrawn'
+
+export interface StudentEnrollment {
+  id: string
+  studentId: string
+  sessionId: string
+  termId: string | null
+  classId: string
+  sectionId: string | null
+  rollNumber: string | null
+  enrollmentDate: string
+  status: EnrollmentStatus
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StudentEnrollmentDetail extends StudentEnrollment {
+  studentName: string
+  className: string
+  sectionName: string | null
+  sessionName: string
+  termName: string | null
+}

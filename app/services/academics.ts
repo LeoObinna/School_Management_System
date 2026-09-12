@@ -12,6 +12,7 @@ import type {
   SchoolClass,
   Section,
   Subject,
+  Teacher,
   TeacherClassAssignmentDetail,
   TeacherSubjectDetail,
   Term,
@@ -118,8 +119,20 @@ export const academicsApi = {
     ),
 
   // --- Teacher lookup / teacher subjects ---------------------------------
-  listTeachers: () =>
-    api.get<{ data: TeacherLookup[] }>('/teachers'),
+  listTeachers: async () => {
+    // GET /teachers now returns a paginated full list; map to the
+    // lightweight lookup shape used by the assignment screens.
+    const page = await api.get<Paginated<Teacher>>('/teachers', {
+      params: { perPage: 500, isActive: true },
+    })
+    return {
+      data: page.data.map((t) => ({
+        id: t.id,
+        staffNumber: t.staffNumber,
+        name: `${t.firstName} ${t.lastName}`.trim(),
+      })),
+    }
+  },
   listTeacherSubjects: (teacherId: string) =>
     api.get<{ data: TeacherSubjectDetail[] }>('/teacher-subjects', {
       params: { teacherId },

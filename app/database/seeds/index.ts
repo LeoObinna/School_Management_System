@@ -9,6 +9,8 @@
  *   - starter classes, sections, subjects and class-subject links
  *   - fake teacher profiles, teacher-subject links and teacher class
  *     assignments for the current session (Phase 3)
+ *   - fake students, parents, student-parent links and enrollments
+ *     (Phase 4)
  *
  * Run via `npm run db:seed` (uses database/seed.ts). Safe to re-run:
  * every row upserts on its natural unique key and join rows use
@@ -33,6 +35,10 @@ import {
   teachers,
   teacherSubjects,
   teacherClassAssignments,
+  students,
+  parents,
+  studentParents,
+  studentEnrollments,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -119,6 +125,76 @@ const DEMO_TEACHERS = [
     gender: 'male' as const,
     qualification: 'B.Sc. Integrated Science',
     specialization: 'Basic Science',
+  },
+]
+
+// Fake students (Phase 4). The first row links to the demo student login.
+const DEMO_STUDENTS = [
+  {
+    admissionNumber: 'STU-001',
+    firstName: 'Amara',
+    lastName: 'Okafor',
+    gender: 'female' as const,
+    dateOfBirth: '2016-03-14',
+    status: 'active' as const,
+    classSlug: 'primary-1',
+    demoUserEmail: 'student@victoriouschildren.school',
+  },
+  {
+    admissionNumber: 'STU-002',
+    firstName: 'David',
+    lastName: 'Mensah',
+    gender: 'male' as const,
+    dateOfBirth: '2015-11-02',
+    status: 'active' as const,
+    classSlug: 'primary-1',
+  },
+  {
+    admissionNumber: 'STU-003',
+    firstName: 'Zainab',
+    lastName: 'Bello',
+    gender: 'female' as const,
+    dateOfBirth: '2014-07-22',
+    status: 'active' as const,
+    classSlug: 'jss-1',
+  },
+  {
+    admissionNumber: 'STU-004',
+    firstName: 'Chinedu',
+    lastName: 'Eze',
+    gender: 'male' as const,
+    dateOfBirth: '2013-01-30',
+    status: 'active' as const,
+    classSlug: 'sss-1',
+  },
+]
+
+// Fake parents (Phase 4). First row links to the demo parent login.
+const DEMO_PARENTS = [
+  {
+    firstName: 'Ngozi',
+    lastName: 'Okafor',
+    email: 'ngozi.okafor@victoriouschildren.school',
+    phone: '+2348010000001',
+    gender: 'female' as const,
+    occupation: 'Nurse',
+    demoUserEmail: 'parent@victoriouschildren.school',
+  },
+  {
+    firstName: 'Emeka',
+    lastName: 'Mensah',
+    email: 'emeka.mensah@victoriouschildren.school',
+    phone: '+2348010000002',
+    gender: 'male' as const,
+    occupation: 'Engineer',
+  },
+  {
+    firstName: 'Fatima',
+    lastName: 'Bello',
+    email: 'fatima.bello@victoriouschildren.school',
+    phone: '+2348010000003',
+    gender: 'female' as const,
+    occupation: 'Accountant',
   },
 ]
 
@@ -406,6 +482,150 @@ export async function seedDatabase(db: DB): Promise<void> {
         subjectId: subject.id,
         sessionId: session.id,
         isPrimaryTeacher: item.staff === 'T001',
+      })
+    }
+  }
+
+  // --- Students, parents, links and enrollments (Phase 4) ---------------
+  if (session) {
+    const studentRows: { id: string; admissionNumber: string; classId: string | null }[] =
+      []
+    for (const student of DEMO_STUDENTS) {
+      let userId: string | null = null
+      if (student.demoUserEmail) {
+        const [demoUser] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, student.demoUserEmail))
+          .limit(1)
+        userId = demoUser?.id ?? null
+      }
+      const klass = classRows.find((c) => c.slug === student.classSlug)
+      const [row] = await db
+        .insert(students)
+        .values({
+          userId,
+          admissionNumber: student.admissionNumber,
+          firstName: student.firstName,
+          lastName: student.lastName,
+          gender: student.gender,
+          dateOfBirth: student.dateOfBirth,
+          status: student.status,
+          currentClassId: klass?.id ?? null,
+          enrolledAt: '2026-09-07',
+        })
+        .onConflictDoUpdate({
+          target: students.admissionNumber,
+          set: { userId, updatedAt: new Date() },
+        })
+        .returning({
+          id: students.id,
+          admissionNumber: students.admissionNumber,
+          classId: students.currentClassId,
+        })
+      if (row) {
+        studentRows.push({ ...row, classId: row.classId ?? klass?.id ?? null })
+      }
+    }
+
+    const parentRows: { id: string; email: string | null }[] = []
+    for (const parent of DEMO_PARENTS) {
+      let userId: string | null = null
+      if (parent.demoUserEmail) {
+        const [demoUser] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, parent.demoUserEmail))
+          .limit(1)
+        userId = demoUser?.id ?? null
+      }
+      const [row] = await db
+        .insert(parents)
+        .values({
+          userId,
+          firstName: parent.firstName,
+          lastName: parent.lastName,
+          email: parent.email,
+          phone: parent.phone,
+          gender: parent.gender,
+          occupation: parent.occupation,
+          isActive: true,
+        })
+        .onConflictDoUpdate({
+          target: parents.email,
+          set: { userId, updatedAt: new Date() },
+        })
+        .returning({ id: parents.id, email: parents.email })
+      if (row) {
+        parentRows.push(row)
+      }
+    }
+
+    // Student -> parent links (composite PK -> onConflictDoNothing).
+    const linkPlan: Record<string, string[]> = {
+      'STU-001': ['ngozi.okafor@victoriouschildren.school'],
+      'STU-002': ['emeka.mensah@victoriouschildren.school'],
+      'STU-003': ['fatima.bello@victoriouschildren.school'],
+      'STU-004': [],
+    }
+    const byEmail = (email: string) => parentRows.find((p) => p.email === email)
+    for (const student of studentRows) {
+      for (const email of linkPlan[student.admissionNumber] ?? []) {
+        const parent = byEmail(email)
+        if (!parent) {
+          continue
+        }
+        await db
+          .insert(studentParents)
+          .values({
+            studentId: student.id,
+            parentId: parent.id,
+            relationship: 'mother',
+            isPrimary: true,
+            isEmergencyContact: true,
+          })
+          .onConflictDoNothing()
+      }
+    }
+
+    // Enrollments for the current session/term.
+    const firstTerm = await db
+      .select({ id: terms.id })
+      .from(terms)
+      .where(
+        and(
+          eq(terms.sessionId, session.id),
+          eq(terms.sequence, 1),
+        ),
+      )
+      .limit(1)
+    const termId = firstTerm[0]?.id ?? null
+
+    for (const student of studentRows) {
+      if (!student.classId) {
+        continue
+      }
+      const [existing] = await db
+        .select({ marker: sql`1` })
+        .from(studentEnrollments)
+        .where(
+          and(
+            eq(studentEnrollments.studentId, student.id),
+            eq(studentEnrollments.sessionId, session.id),
+            eq(studentEnrollments.classId, student.classId),
+          ),
+        )
+        .limit(1)
+      if (existing) {
+        continue
+      }
+      await db.insert(studentEnrollments).values({
+        studentId: student.id,
+        sessionId: session.id,
+        termId,
+        classId: student.classId,
+        enrollmentDate: '2026-09-07',
+        status: 'active',
       })
     }
   }
