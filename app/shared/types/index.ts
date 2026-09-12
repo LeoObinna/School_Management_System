@@ -498,3 +498,113 @@ export interface StudentAttendanceSummary {
   excused: number
   attendanceRate: number | null
 }
+
+// ---------------------------------------------------------------------------
+// Assignments, attachments and submissions (README §17)
+// ---------------------------------------------------------------------------
+
+export type PublicationStatus = 'draft' | 'scheduled' | 'published' | 'archived'
+export type SubmissionStatus =
+  | 'draft'
+  | 'submitted'
+  | 'late'
+  | 'graded'
+  | 'returned'
+
+export interface Assignment {
+  id: string
+  teacherId: string
+  classId: string
+  sectionId: string | null
+  subjectId: string
+  sessionId: string
+  termId: string | null
+  title: string
+  instructions: string | null
+  maxScore: number
+  dueDate: string | null
+  publishedAt: string | null
+  status: PublicationStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AssignmentAttachment {
+  id: string
+  assignmentId: string
+  objectKey: string
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number
+  uploadedById: string | null
+  createdAt: string
+}
+
+export interface AssignmentSubmission {
+  id: string
+  assignmentId: string
+  studentId: string
+  textContent: string | null
+  objectKey: string | null
+  fileName: string | null
+  mimeType: string | null
+  sizeBytes: number | null
+  submittedAt: string | null
+  status: SubmissionStatus
+  score: number | null
+  feedback: string | null
+  gradedById: string | null
+  gradedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AssignmentDetail extends Assignment {
+  className: string
+  sectionName: string | null
+  subjectName: string
+  teacherName: string
+  sessionName: string
+  termName: string | null
+  attachments: AssignmentAttachment[]
+}
+
+export interface AssignmentListItem extends Assignment {
+  className: string
+  sectionName: string | null
+  subjectName: string
+  teacherName: string
+  // Populated on student-facing lists.
+  mySubmission: AssignmentSubmission | null
+}
+
+export interface SubmissionDetail extends AssignmentSubmission {
+  studentName: string
+  admissionNumber: string
+  assignmentTitle: string
+  maxScore: number
+}
+
+// ---------------------------------------------------------------------------
+// Learning resources
+// ---------------------------------------------------------------------------
+
+export interface LearningResource {
+  id: string
+  title: string
+  description: string | null
+  classId: string | null
+  subjectId: string | null
+  uploadedById: string | null
+  objectKey: string
+  fileName: string
+  mimeType: string | null
+  isPublished: boolean
+  createdAt: string
+}
+
+export interface LearningResourceListItem extends LearningResource {
+  className: string | null
+  subjectName: string | null
+  uploadedByName: string | null
+}

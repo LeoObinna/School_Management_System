@@ -42,6 +42,8 @@ import {
   timetableEntries,
   attendanceSessions,
   attendanceRecords,
+  assignments,
+  assignmentSubmissions,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -766,6 +768,109 @@ export async function seedDatabase(db: DB): Promise<void> {
               attendanceSessionId: registerId,
               studentId: row.studentId,
               status: i === 1 ? 'late' : 'present',
+            })
+            .onConflictDoNothing()
+        }
+      }
+    }
+
+    // --- Assignments + one graded text submission (Phase 6) -------------
+    // No files are seeded: R2 objects cannot exist before the binding is
+    // configured, so demo work is text-only. Titles are pre-checked for
+    // idempotency (no natural unique index on assignments).
+    const phaseSessionId = session.id
+    const jssOneId = classIdBySlug('jss-1')
+    const teacherTwoId = teacherIdByNo('T002')
+    async function ensureAssignment(input: {
+      title: string
+      classId: string
+      subjectId: string
+      teacherId: string
+      termId: string | null
+      status: 'draft' | 'published'
+      dueDate: string | null
+      publishedAt: string | null
+      instructions: string | null
+    }): Promise<string | null> {
+      const [found] = await db
+        .select({ id: assignments.id })
+        .from(assignments)
+        .where(
+          and(
+            eq(assignments.sessionId, phaseSessionId),
+            eq(assignments.classId, input.classId),
+            eq(assignments.title, input.title),
+          ),
+        )
+        .limit(1)
+      if (found) {
+        return found.id
+      }
+      const [created] = await db
+        .insert(assignments)
+        .values({
+          sessionId: phaseSessionId,
+          termId: input.termId,
+          classId: input.classId,
+          subjectId: input.subjectId,
+          teacherId: input.teacherId,
+          title: input.title,
+          instructions: input.instructions,
+          status: input.status,
+          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          publishedAt: input.publishedAt ? new Date(input.publishedAt) : null,
+        })
+        .returning({ id: assignments.id })
+      return created?.id ?? null
+    }
+
+    if (primaryId && markerId && firstTermRow[0]) {
+      const publishedId = await ensureAssignment({
+        title: 'Counting 1–10 practice',
+        classId: primaryId,
+        subjectId: subjectRows[0]!.id,
+        teacherId: markerId,
+        termId: firstTermRow[0].id,
+        status: 'published',
+        dueDate: '2026-09-25T12:00:00Z',
+        publishedAt: '2026-09-08T09:00:00Z',
+        instructions:
+          'Practice counting objects at home and write your answers in full sentences.',
+      })
+      if (jssOneId && teacherTwoId && subjectRows[1]) {
+        await ensureAssignment({
+          title: 'Basic algebra worksheet (draft)',
+          classId: jssOneId,
+          subjectId: subjectRows[1].id,
+          teacherId: teacherTwoId,
+          termId: firstTermRow[0].id,
+          status: 'draft',
+          dueDate: null,
+          publishedAt: null,
+          instructions: null,
+        })
+      }
+
+      if (publishedId) {
+        const [demoStudent] = await db
+          .select({ id: students.id })
+          .from(students)
+          .where(eq(students.admissionNumber, 'STU-001'))
+          .limit(1)
+        if (demoStudent) {
+          await db
+            .insert(assignmentSubmissions)
+            .values({
+              assignmentId: publishedId,
+              studentId: demoStudent.id,
+              textContent:
+                'I counted ten pencils, nine books and eight crayons.',
+              status: 'graded',
+              score: 90,
+              feedback: 'Well done — remember to write out all ten items next time.',
+              submittedAt: new Date('2026-09-11T16:30:00Z'),
+              gradedById: markerId,
+              gradedAt: new Date('2026-09-12T08:30:00Z'),
             })
             .onConflictDoNothing()
         }

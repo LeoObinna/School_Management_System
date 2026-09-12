@@ -195,6 +195,35 @@ async function onLogout() {
         </div>
       </section>
 
+      <section
+        v-if="auth.can('assignments.view') || auth.can('resources.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Teaching</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <NuxtLink
+            v-if="auth.can('assignments.view')"
+            to="/assignments"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Assignments</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Set work, submit, grade and track feedback
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('resources.view')"
+            to="/resources"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Resources</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Shared documents and learning materials
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">System Health</h3>
         <HealthStatus />

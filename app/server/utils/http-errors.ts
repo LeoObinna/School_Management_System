@@ -20,6 +20,14 @@ export function smsConflict(message = 'Resource already exists.') {
   })
 }
 
+export function smsForbidden(message = 'You cannot perform this action.') {
+  return createError({
+    statusCode: 403,
+    statusMessage: 'Forbidden',
+    message,
+  })
+}
+
 /** 422 with a field-level errors map, matching parseBody's shape. */
 export function smsFieldError(field: string, message: string) {
   return createError({
