@@ -39,6 +39,9 @@ import {
   parents,
   studentParents,
   studentEnrollments,
+  timetableEntries,
+  attendanceSessions,
+  attendanceRecords,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -627,6 +630,146 @@ export async function seedDatabase(db: DB): Promise<void> {
         enrollmentDate: '2026-09-07',
         status: 'active',
       })
+    }
+  }
+
+  // --- Timetable + demo attendance register (Phase 5) -------------------
+  // All entries are whole-session / whole-class on disjoint slots, so
+  // conflict detection never trips. Pre-checked for idempotency because
+  // timetable_entries has no unique constraint.
+  if (
+    session &&
+    classRows.length >= 4 &&
+    subjectRows.length >= 5 &&
+    teacherRows.length >= 4
+  ) {
+    const classIdBySlug = (slug: string) =>
+      classRows.find((c) => c.slug === slug)?.id
+    const teacherIdByNo = (no: string) =>
+      teacherRows.find((t) => t.staffNumber === no)?.id
+
+    const plan: {
+      classSlug: string
+      subjectIdx: number
+      teacher: string
+      weekday: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday'
+      start: string
+      end: string
+      room: string
+    }[] = [
+      { classSlug: 'jss-1', subjectIdx: 1, teacher: 'T002', weekday: 'monday', start: '08:00', end: '08:45', room: 'J1' },
+      { classSlug: 'sss-1', subjectIdx: 2, teacher: 'T004', weekday: 'monday', start: '09:00', end: '09:45', room: 'S1' },
+      { classSlug: 'primary-1', subjectIdx: 0, teacher: 'T001', weekday: 'tuesday', start: '08:00', end: '08:45', room: 'P1' },
+      { classSlug: 'jss-1', subjectIdx: 4, teacher: 'T003', weekday: 'tuesday', start: '10:00', end: '10:45', room: 'Lab' },
+      { classSlug: 'jss-1', subjectIdx: 3, teacher: 'T004', weekday: 'wednesday', start: '09:00', end: '09:45', room: 'J1' },
+      { classSlug: 'sss-1', subjectIdx: 2, teacher: 'T004', weekday: 'thursday', start: '08:00', end: '08:45', room: 'S1' },
+      { classSlug: 'primary-1', subjectIdx: 0, teacher: 'T001', weekday: 'friday', start: '08:00', end: '08:45', room: 'P1' },
+    ]
+
+    for (const item of plan) {
+      const cid = classIdBySlug(item.classSlug)
+      const tid = teacherIdByNo(item.teacher)
+      const sid = subjectRows[item.subjectIdx]?.id
+      if (!cid || !tid || !sid) {
+        continue
+      }
+      const [existing] = await db
+        .select({ marker: sql`1` })
+        .from(timetableEntries)
+        .where(
+          and(
+            eq(timetableEntries.sessionId, session.id),
+            eq(timetableEntries.classId, cid),
+            isNull(timetableEntries.termId),
+            isNull(timetableEntries.sectionId),
+            eq(timetableEntries.weekday, item.weekday),
+            eq(timetableEntries.startTime, item.start),
+          ),
+        )
+        .limit(1)
+      if (existing) {
+        continue
+      }
+      await db.insert(timetableEntries).values({
+        sessionId: session.id,
+        classId: cid,
+        subjectId: sid,
+        teacherId: tid,
+        room: item.room,
+        weekday: item.weekday,
+        startTime: item.start,
+        endTime: item.end,
+      })
+    }
+
+    // One submitted register for Primary 1 so the approval workflow and
+    // reports have data on first run.
+    const primaryId = classIdBySlug('primary-1')
+    const markerId = teacherIdByNo('T001') ?? null
+    const firstTermRow = await db
+      .select({ id: terms.id })
+      .from(terms)
+      .where(and(eq(terms.sessionId, session.id), eq(terms.sequence, 1)))
+      .limit(1)
+    if (primaryId && firstTermRow[0]) {
+      let registerId: string | undefined
+      const [existingRegister] = await db
+        .select({ id: attendanceSessions.id })
+        .from(attendanceSessions)
+        .where(
+          and(
+            eq(attendanceSessions.sessionId, session.id),
+            eq(attendanceSessions.classId, primaryId),
+            isNull(attendanceSessions.sectionId),
+            eq(attendanceSessions.date, '2026-09-10'),
+          ),
+        )
+        .limit(1)
+      if (existingRegister) {
+        registerId = existingRegister.id
+      } else {
+        const [created] = await db
+          .insert(attendanceSessions)
+          .values({
+            sessionId: session.id,
+            termId: firstTermRow[0].id,
+            classId: primaryId,
+            date: '2026-09-10',
+            status: 'submitted',
+            markedById: markerId,
+          })
+          .returning({ id: attendanceSessions.id })
+        registerId = created?.id
+      }
+
+      if (registerId) {
+        const enrolled = await db
+          .select({
+            studentId: studentEnrollments.studentId,
+            admissionNumber: students.admissionNumber,
+          })
+          .from(studentEnrollments)
+          .innerJoin(
+            students,
+            eq(studentEnrollments.studentId, students.id),
+          )
+          .where(
+            and(
+              eq(studentEnrollments.sessionId, session.id),
+              eq(studentEnrollments.classId, primaryId),
+            ),
+          )
+        for (const [i, row] of enrolled.entries()) {
+          await db
+            .insert(attendanceRecords)
+            .values({
+              attendanceSessionId: registerId,
+              studentId: row.studentId,
+              status: i === 1 ? 'late' : 'present',
+            })
+            .onConflictDoNothing()
+        }
+      }
     }
   }
 }

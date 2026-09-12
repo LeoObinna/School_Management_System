@@ -3,7 +3,7 @@
  * Accessible modal dialog used by academic admin screens. Closes on
  * Escape and backdrop click; body scroll is locked while open.
  */
-const props = defineProps<{ open: boolean; title?: string }>()
+const props = defineProps<{ open: boolean; title?: string; wide?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 function onKeydown(event: KeyboardEvent) {
@@ -37,7 +37,8 @@ onBeforeUnmount(() => {
       @click.self="emit('close')"
     >
       <div
-        class="w-full max-w-lg rounded-xl bg-white shadow-xl"
+        class="w-full rounded-xl bg-white shadow-xl"
+        :class="wide ? 'max-w-3xl' : 'max-w-lg'"
         role="dialog"
         aria-modal="true"
         tabindex="-1"

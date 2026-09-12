@@ -373,3 +373,128 @@ export interface StudentEnrollmentDetail extends StudentEnrollment {
   sessionName: string
   termName: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Timetable (README §16)
+// ---------------------------------------------------------------------------
+
+export type Weekday =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday'
+
+export interface TimetableEntry {
+  id: string
+  sessionId: string
+  termId: string | null
+  classId: string
+  sectionId: string | null
+  subjectId: string
+  teacherId: string
+  room: string | null
+  weekday: Weekday
+  startTime: string
+  endTime: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TimetableEntryDetail extends TimetableEntry {
+  className: string
+  sectionName: string | null
+  subjectName: string
+  teacherName: string
+  sessionName: string
+  termName: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Attendance (README §15)
+// ---------------------------------------------------------------------------
+
+export type AttendanceSessionStatus = 'open' | 'submitted' | 'approved'
+
+export interface AttendanceSession {
+  id: string
+  sessionId: string
+  termId: string | null
+  classId: string
+  sectionId: string | null
+  date: string
+  status: AttendanceSessionStatus
+  markedById: string | null
+  approvedById: string | null
+  approvedAt: string | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AttendanceRecord {
+  id: string
+  attendanceSessionId: string
+  studentId: string
+  status: AttendanceStatus
+  remark: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AttendanceRecordDetail extends AttendanceRecord {
+  studentName: string
+  admissionNumber: string
+}
+
+export interface AttendanceSessionDetail extends AttendanceSession {
+  className: string
+  sectionName: string | null
+  sessionName: string
+  termName: string | null
+  records: AttendanceRecordDetail[]
+}
+
+// List rows summarize the register header plus record count and names.
+export interface AttendanceSessionListItem extends AttendanceSession {
+  className: string
+  sectionName: string | null
+  termName: string | null
+  recordCount: number
+}
+
+// One row of a class attendance percentage report.
+export interface AttendanceReportRow {
+  studentId: string
+  admissionNumber: string
+  studentName: string
+  total: number
+  present: number
+  absent: number
+  late: number
+  excused: number
+  // (present + late) / total, rounded to 1 dp; null when no records.
+  attendanceRate: number | null
+}
+
+// A single day in a student's attendance history.
+export interface StudentAttendanceDay {
+  attendanceSessionId: string
+  date: string
+  status: AttendanceStatus
+  remark: string | null
+  className: string
+  sectionName: string | null
+  sessionStatus: AttendanceSessionStatus
+}
+
+export interface StudentAttendanceSummary {
+  total: number
+  present: number
+  absent: number
+  late: number
+  excused: number
+  attendanceRate: number | null
+}
