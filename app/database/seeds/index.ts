@@ -53,6 +53,12 @@ import {
   assessmentScores,
   resultPublications,
   reportCards,
+  feeStructures,
+  feeItems,
+  studentInvoices,
+  invoiceItems,
+  payments,
+  paymentReceipts,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -1152,6 +1158,209 @@ export async function seedDatabase(db: DB): Promise<void> {
               generatedById: adminUser.id,
               publishedAt: new Date('2026-12-17T15:00:00Z'),
             })
+          }
+        }
+      }
+    }
+
+    // --- Phase 8: finance — fee structure, invoice, payment, receipt -------
+    // Idempotent via pre-checks on natural unique keys (structure name,
+    // invoice/payment/receipt numbers). Fake demo data only.
+    if (primaryId && firstTermRow[0] && adminUser) {
+      const [financeStudent] = await db
+        .select({ id: students.id })
+        .from(students)
+        .where(eq(students.admissionNumber, 'STU-001'))
+        .limit(1)
+
+      if (financeStudent) {
+        // Fee structure for Primary 1, First Term.
+        const structureName = 'Primary 1 First Term Fees'
+        const [existingStructure] = await db
+          .select({ id: feeStructures.id })
+          .from(feeStructures)
+          .where(
+            and(
+              eq(feeStructures.sessionId, session.id),
+              eq(feeStructures.classId, primaryId),
+              eq(feeStructures.name, structureName),
+            ),
+          )
+          .limit(1)
+        let structureId = existingStructure?.id
+        if (!structureId) {
+          const [created] = await db
+            .insert(feeStructures)
+            .values({
+              sessionId: session.id,
+              classId: primaryId,
+              name: structureName,
+              description: 'Standard first-term charges for Primary 1.',
+              isActive: true,
+            })
+            .returning({ id: feeStructures.id })
+          structureId = created?.id
+        }
+
+        // Fee items (idempotent on (feeStructureId, name)).
+        const itemPlan = [
+          { name: 'Tuition', amount: '50000.00', isOptional: false, dueDate: '2026-01-31' },
+          { name: 'Books', amount: '5000.00', isOptional: false, dueDate: '2026-01-20' },
+          { name: 'Activity Fee', amount: '2500.00', isOptional: true, dueDate: '2026-02-15' },
+        ]
+        const feeItemIds: Record<string, string> = {}
+        for (const plan of itemPlan) {
+          const [existingItem] = await db
+            .select({ id: feeItems.id })
+            .from(feeItems)
+            .where(
+              and(
+                eq(feeItems.feeStructureId, structureId!),
+                eq(feeItems.name, plan.name),
+              ),
+            )
+            .limit(1)
+          let itemId = existingItem?.id
+          if (!itemId) {
+            const [created] = await db
+              .insert(feeItems)
+              .values({
+                feeStructureId: structureId!,
+                name: plan.name,
+                amount: plan.amount,
+                isOptional: plan.isOptional,
+                dueDate: plan.dueDate,
+              })
+              .returning({ id: feeItems.id })
+            itemId = created?.id
+          }
+          if (itemId) {
+            feeItemIds[plan.name] = itemId
+          }
+        }
+
+        // Invoice INV-2026-0001 — total 57,500, later partially paid.
+        const invoiceNumber = 'INV-2026-0001'
+        const [existingInvoice] = await db
+          .select({ id: studentInvoices.id })
+          .from(studentInvoices)
+          .where(eq(studentInvoices.invoiceNumber, invoiceNumber))
+          .limit(1)
+        let invoiceId = existingInvoice?.id
+        if (!invoiceId) {
+          const [created] = await db
+            .insert(studentInvoices)
+            .values({
+              invoiceNumber,
+              studentId: financeStudent.id,
+              sessionId: session.id,
+              termId: firstTermRow[0].id,
+              issueDate: '2026-01-10',
+              dueDate: '2026-01-31',
+              subtotal: '57500.00',
+              discount: '0.00',
+              tax: '0.00',
+              total: '57500.00',
+              amountPaid: '0.00',
+              balance: '57500.00',
+              status: 'issued',
+              notes: 'First term fees — payment partially recorded.',
+              createdById: adminUser.id,
+            })
+            .returning({ id: studentInvoices.id })
+          invoiceId = created?.id
+        }
+
+        // Invoice lines (idempotent per fee item / description).
+        if (invoiceId) {
+          const linePlan = [
+            { key: 'Tuition', description: 'Tuition', quantity: 1, unitAmount: '50000.00', lineTotal: '50000.00' },
+            { key: 'Books', description: 'Books and stationery', quantity: 1, unitAmount: '5000.00', lineTotal: '5000.00' },
+            { key: 'Activity Fee', description: 'Activity Fee', quantity: 1, unitAmount: '2500.00', lineTotal: '2500.00' },
+          ]
+          for (const line of linePlan) {
+            const linkedFeeItemId = feeItemIds[line.key] ?? null
+            const [existingLine] = await db
+              .select({ id: invoiceItems.id })
+              .from(invoiceItems)
+              .where(
+                and(
+                  eq(invoiceItems.invoiceId, invoiceId),
+                  linkedFeeItemId
+                    ? eq(invoiceItems.feeItemId, linkedFeeItemId)
+                    : eq(invoiceItems.description, line.description),
+                ),
+              )
+              .limit(1)
+            if (existingLine) {
+              continue
+            }
+            await db.insert(invoiceItems).values({
+              invoiceId,
+              feeItemId: linkedFeeItemId,
+              description: line.description,
+              quantity: line.quantity,
+              unitAmount: line.unitAmount,
+              lineTotal: line.lineTotal,
+            })
+          }
+        }
+
+        // Payment PAY-2026-0001 — verified cash payment of 30,000.
+        const paymentReference = 'PAY-2026-0001'
+        const [existingPayment] = await db
+          .select({ id: payments.id })
+          .from(payments)
+          .where(eq(payments.paymentReference, paymentReference))
+          .limit(1)
+        let paymentId = existingPayment?.id
+        if (!paymentId && invoiceId) {
+          const [created] = await db
+            .insert(payments)
+            .values({
+              paymentReference,
+              invoiceId,
+              studentId: financeStudent.id,
+              amount: '30000.00',
+              method: 'cash',
+              status: 'verified',
+              paidAt: new Date('2026-01-15T10:00:00Z'),
+              verifiedAt: new Date('2026-01-15T10:05:00Z'),
+              verifiedById: adminUser.id,
+              notes: 'Cash paid at the school office.',
+            })
+            .returning({ id: payments.id })
+          paymentId = created?.id
+        }
+
+        if (paymentId) {
+          // Receipt RCT-2026-0001 (idempotent on receipt number).
+          const [existingReceipt] = await db
+            .select({ id: paymentReceipts.id })
+            .from(paymentReceipts)
+            .where(eq(paymentReceipts.receiptNumber, 'RCT-2026-0001'))
+            .limit(1)
+          if (!existingReceipt) {
+            await db.insert(paymentReceipts).values({
+              receiptNumber: 'RCT-2026-0001',
+              paymentId,
+              objectKey: null,
+              issuedById: adminUser.id,
+              issuedAt: new Date('2026-01-15T10:05:00Z'),
+            })
+          }
+
+          // Reflect the verified payment on a freshly created invoice.
+          if (!existingInvoice && invoiceId) {
+            await db
+              .update(studentInvoices)
+              .set({
+                amountPaid: '30000.00',
+                balance: '27500.00',
+                status: 'partially_paid',
+                updatedAt: new Date(),
+              })
+              .where(eq(studentInvoices.id, invoiceId))
           }
         }
       }

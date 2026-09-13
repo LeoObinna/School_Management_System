@@ -319,11 +319,18 @@ async function parentOwnsStudent(
   parentUserId: string,
   studentId: string,
 ): Promise<boolean> {
+  // Resolve through parents → student_parents; the earlier join on
+  // students.user_id matched the student's own login, never a parent.
   const [row] = await client
     .select({ marker: sql`1` })
-    .from(students)
-    .innerJoin(users, eq(students.userId, users.id))
-    .where(and(eq(users.id, parentUserId), eq(students.id, studentId)))
+    .from(studentParents)
+    .innerJoin(parents, eq(studentParents.parentId, parents.id))
+    .where(
+      and(
+        eq(parents.userId, parentUserId),
+        eq(studentParents.studentId, studentId),
+      ),
+    )
     .limit(1)
   return Boolean(row)
 }

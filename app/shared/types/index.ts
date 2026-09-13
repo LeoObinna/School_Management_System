@@ -839,3 +839,185 @@ export interface MySchoolContext {
     name: string
   }[]
 }
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Finance (README §19)
+// ---------------------------------------------------------------------------
+export type InvoiceStatus =
+  | 'draft'
+  | 'issued'
+  | 'partially_paid'
+  | 'paid'
+  | 'overdue'
+  | 'void'
+
+export type PaymentStatus = 'pending' | 'verified' | 'failed' | 'refunded'
+
+export type PaymentMethod =
+  | 'cash'
+  | 'bank_transfer'
+  | 'card'
+  | 'online_gateway'
+  | 'cheque'
+  | 'other'
+
+export interface FeeItem {
+  id: string
+  feeStructureId: string
+  name: string
+  description: string | null
+  amount: string
+  isOptional: boolean
+  dueDate: string | null
+  createdAt: string
+}
+
+export interface FeeStructure {
+  id: string
+  sessionId: string
+  classId: string | null
+  name: string
+  description: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FeeStructureDetail extends FeeStructure {
+  sessionName: string
+  className: string | null
+  items: FeeItem[]
+}
+
+export interface InvoiceItem {
+  id: string
+  invoiceId: string
+  feeItemId: string | null
+  description: string
+  quantity: number
+  unitAmount: string
+  lineTotal: string
+  createdAt: string
+}
+
+export interface Invoice {
+  id: string
+  invoiceNumber: string
+  studentId: string
+  sessionId: string
+  termId: string | null
+  issueDate: string
+  dueDate: string | null
+  subtotal: string
+  discount: string
+  tax: string
+  total: string
+  amountPaid: string
+  balance: string
+  status: InvoiceStatus
+  notes: string | null
+  createdById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InvoiceListItem extends Invoice {
+  studentName: string
+  admissionNumber: string
+  className: string | null
+  sessionName: string
+  termName: string | null
+  overdue: boolean
+}
+
+export interface PaymentReceipt {
+  id: string
+  receiptNumber: string
+  paymentId: string
+  objectKey: string | null
+  issuedById: string | null
+  issuedAt: string
+  createdAt: string
+}
+
+export interface InvoicePaymentSummary {
+  id: string
+  paymentReference: string
+  amount: string
+  method: PaymentMethod
+  status: PaymentStatus
+  paidAt: string | null
+  createdAt: string
+  receiptNumber: string | null
+}
+
+export interface InvoiceDetail extends InvoiceListItem {
+  items: InvoiceItem[]
+  payments: InvoicePaymentSummary[]
+}
+
+export interface Payment {
+  id: string
+  paymentReference: string
+  invoiceId: string
+  studentId: string
+  amount: string
+  method: PaymentMethod
+  status: PaymentStatus
+  providerReference: string | null
+  idempotencyKey: string | null
+  webhookPayload: string | null
+  paidAt: string | null
+  verifiedAt: string | null
+  verifiedById: string | null
+  refundedAt: string | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PaymentListItem extends Payment {
+  invoiceNumber: string
+  studentName: string
+  admissionNumber: string
+  receiptNumber: string | null
+}
+
+export interface PaymentDetail extends PaymentListItem {
+  receipt: PaymentReceipt | null
+}
+
+// GET /finance/outstanding row — invoice + derived overdue flag.
+export interface OutstandingRow {
+  id: string
+  invoiceNumber: string
+  studentId: string
+  studentName: string
+  admissionNumber: string
+  className: string | null
+  sessionName: string
+  termName: string | null
+  issueDate: string
+  dueDate: string | null
+  total: string
+  amountPaid: string
+  balance: string
+  status: InvoiceStatus
+  overdue: boolean
+}
+
+// GET /finance/summary
+export interface FinanceSummary {
+  sessionId: string | null
+  termId: string | null
+  totalInvoiced: string
+  totalCollected: string
+  totalRefunded: string
+  totalOutstanding: string
+  invoicesByStatus: Record<InvoiceStatus, number>
+  paymentsByMethod: {
+    method: PaymentMethod
+    count: number
+    total: string
+  }[]
+}

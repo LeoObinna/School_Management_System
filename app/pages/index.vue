@@ -224,6 +224,45 @@ async function onLogout() {
         </div>
       </section>
 
+      <section
+        v-if="auth.can('fees.view') || auth.can('invoices.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Finance</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <NuxtLink
+            v-if="auth.can('fees.view')"
+            to="/finance/fees"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Fees</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Fee structures and fee items per session and class
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('invoices.view')"
+            to="/finance/invoices"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Invoices &amp; payments</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Issue invoices, verify payments and refunds
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('invoices.view')"
+            to="/billing"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">My billing</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Student and parent view of invoices and receipts
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">System Health</h3>
         <HealthStatus />
