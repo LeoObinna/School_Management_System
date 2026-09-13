@@ -44,6 +44,15 @@ import {
   attendanceRecords,
   assignments,
   assignmentSubmissions,
+  assessmentTypes,
+  gradingScales,
+  gradingScaleItems,
+  exams,
+  examSubjects,
+  examScores,
+  assessmentScores,
+  resultPublications,
+  reportCards,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -876,5 +885,277 @@ export async function seedDatabase(db: DB): Promise<void> {
         }
       }
     }
+
+    // --- Phase 7: exams, grading scales, scores, publication, report card --
+    // Idempotent via pre-checks on natural unique keys.
+    const [adminUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, 'admin@victoriouschildren.school'))
+      .limit(1)
+
+    // Assessment type: midterm (idempotent on slug).
+    const [existingType] = await db
+      .select({ id: assessmentTypes.id })
+      .from(assessmentTypes)
+      .where(eq(assessmentTypes.slug, 'midterm'))
+      .limit(1)
+    let assessmentTypeId = existingType?.id
+    if (!assessmentTypeId) {
+      const [created] = await db
+        .insert(assessmentTypes)
+        .values({
+          name: 'Midterm',
+          slug: 'midterm',
+          weight: '30',
+          description: 'Continuous assessment midpoint',
+        })
+        .returning({ id: assessmentTypes.id })
+      assessmentTypeId = created?.id
+    }
+
+    // Grading scale with 6 grade items (idempotent on scale name + grade).
+    const [existingScale] = await db
+      .select({ id: gradingScales.id })
+      .from(gradingScales)
+      .where(eq(gradingScales.name, 'Default Scale'))
+      .limit(1)
+    let scaleId = existingScale?.id
+    if (!scaleId) {
+      const [createdScale] = await db
+        .insert(gradingScales)
+        .values({
+          sessionId: session.id,
+          name: 'Default Scale',
+          isActive: true,
+        })
+        .returning({ id: gradingScales.id })
+      scaleId = createdScale?.id
+    }
+    if (scaleId) {
+      const gradeRows = [
+        { grade: 'A', minScore: '70', maxScore: '100', remark: 'Excellent' },
+        { grade: 'B', minScore: '60', maxScore: '69.99', remark: 'Very good' },
+        { grade: 'C', minScore: '50', maxScore: '59.99', remark: 'Good' },
+        { grade: 'D', minScore: '45', maxScore: '49.99', remark: 'Pass' },
+        { grade: 'E', minScore: '40', maxScore: '44.99', remark: 'Weak pass' },
+        { grade: 'F', minScore: '0', maxScore: '39.99', remark: 'Fail' },
+      ]
+      for (const item of gradeRows) {
+        const [existing] = await db
+          .select({ id: gradingScaleItems.id })
+          .from(gradingScaleItems)
+          .where(
+            and(
+              eq(gradingScaleItems.scaleId, scaleId),
+              eq(gradingScaleItems.grade, item.grade),
+            ),
+          )
+          .limit(1)
+        if (existing) {
+          continue
+        }
+        await db.insert(gradingScaleItems).values({
+          scaleId,
+          grade: item.grade,
+          minScore: item.minScore,
+          maxScore: item.maxScore,
+          remark: item.remark,
+        })
+      }
+    }
+
+    // One exam for Primary 1, First Term, with two subjects (Mathematics,
+    // English). Idempotent on (sessionId, classId, name).
+    if (primaryId && firstTermRow[0] && subjectRows[0] && subjectRows[1]) {
+      const [existingExam] = await db
+        .select({ id: exams.id })
+        .from(exams)
+        .where(
+          and(
+            eq(exams.sessionId, session.id),
+            eq(exams.classId, primaryId),
+            eq(exams.name, 'Primary 1 First Term Exam'),
+          ),
+        )
+        .limit(1)
+      let examId = existingExam?.id
+      if (!examId) {
+        const [createdExam] = await db
+          .insert(exams)
+          .values({
+            sessionId: session.id,
+            termId: firstTermRow[0].id,
+            classId: primaryId,
+            name: 'Primary 1 First Term Exam',
+            startDate: '2026-12-01',
+            endDate: '2026-12-10',
+            status: 'closed',
+          })
+          .returning({ id: exams.id })
+        examId = createdExam?.id
+      }
+
+      if (examId) {
+        // Exam subjects (idempotent on (examId, subjectId)).
+        const examSubjectPlan = [
+          { subjectId: subjectRows[0]!.id, maxScore: '100' },
+          { subjectId: subjectRows[1]!.id, maxScore: '100' },
+        ]
+        const examSubjectIds: string[] = []
+        for (const plan of examSubjectPlan) {
+          const [existing] = await db
+            .select({ id: examSubjects.id })
+            .from(examSubjects)
+            .where(
+              and(
+                eq(examSubjects.examId, examId),
+                eq(examSubjects.subjectId, plan.subjectId),
+              ),
+            )
+            .limit(1)
+          if (existing) {
+            examSubjectIds.push(existing.id)
+            continue
+          }
+          const [created] = await db
+            .insert(examSubjects)
+            .values({
+              examId,
+              subjectId: plan.subjectId,
+              maxScore: plan.maxScore,
+              examDate: '2026-12-02',
+            })
+            .returning({ id: examSubjects.id })
+          if (created) {
+            examSubjectIds.push(created.id)
+          }
+        }
+
+        // Exam scores for STU-001 in both subjects (idempotent on
+        // (examSubjectId, studentId)).
+        const [demoStudent] = await db
+          .select({ id: students.id })
+          .from(students)
+          .where(eq(students.admissionNumber, 'STU-001'))
+          .limit(1)
+        if (demoStudent && examSubjectIds.length === 2 && markerId) {
+          const scorePlan = [
+            { examSubjectId: examSubjectIds[0]!, score: '85', grade: 'A' },
+            { examSubjectId: examSubjectIds[1]!, score: '72', grade: 'A' },
+          ]
+          for (const item of scorePlan) {
+            const [existing] = await db
+              .select({ id: examScores.id })
+              .from(examScores)
+              .where(
+                and(
+                  eq(examScores.examSubjectId, item.examSubjectId),
+                  eq(examScores.studentId, demoStudent.id),
+                ),
+              )
+              .limit(1)
+            if (existing) {
+              continue
+            }
+            await db.insert(examScores).values({
+              examSubjectId: item.examSubjectId,
+              studentId: demoStudent.id,
+              score: item.score,
+              grade: item.grade,
+              enteredById: markerId,
+            })
+          }
+        }
+
+        // Result publication taken through draft → submitted → approved →
+        // published. Idempotent on (sessionId, termId, classId, sectionId NULL).
+        const [existingPub] = await db
+          .select({
+            id: resultPublications.id,
+            status: resultPublications.status,
+          })
+          .from(resultPublications)
+          .where(
+            and(
+              eq(resultPublications.sessionId, session.id),
+              eq(resultPublications.termId, firstTermRow[0].id),
+              eq(resultPublications.classId, primaryId),
+              isNull(resultPublications.sectionId),
+            ),
+          )
+          .limit(1)
+        let publicationId = existingPub?.id
+        if (!publicationId) {
+          const [created] = await db
+            .insert(resultPublications)
+            .values({
+              sessionId: session.id,
+              termId: firstTermRow[0].id,
+              classId: primaryId,
+              sectionId: null,
+              status: 'published',
+              submittedById: markerId,
+              submittedAt: new Date('2026-12-15T10:00:00Z'),
+              approvedById: adminUser?.id ?? null,
+              approvedAt: new Date('2026-12-16T09:00:00Z'),
+              publishedById: adminUser?.id ?? null,
+              publishedAt: new Date('2026-12-17T12:00:00Z'),
+            })
+            .returning({ id: resultPublications.id })
+          publicationId = created?.id
+        } else if (existingPub && existingPub.status !== 'published') {
+          await db
+            .update(resultPublications)
+            .set({
+              status: 'published',
+              submittedById: markerId,
+              submittedAt: new Date('2026-12-15T10:00:00Z'),
+              approvedById: adminUser?.id ?? null,
+              approvedAt: new Date('2026-12-16T09:00:00Z'),
+              publishedById: adminUser?.id ?? null,
+              publishedAt: new Date('2026-12-17T12:00:00Z'),
+              updatedAt: new Date(),
+            })
+            .where(eq(resultPublications.id, existingPub.id))
+        }
+
+        // Generated published report card for STU-001 (idempotent on
+        // (studentId, sessionId, termId)).
+        if (demoStudent && adminUser) {
+          const [existingCard] = await db
+            .select({ id: reportCards.id })
+            .from(reportCards)
+            .where(
+              and(
+                eq(reportCards.studentId, demoStudent.id),
+                eq(reportCards.sessionId, session.id),
+                eq(reportCards.termId, firstTermRow[0].id),
+              ),
+            )
+            .limit(1)
+          if (!existingCard) {
+            await db.insert(reportCards).values({
+              studentId: demoStudent.id,
+              sessionId: session.id,
+              termId: firstTermRow[0].id,
+              classId: primaryId,
+              sectionId: null,
+              totalScore: '157',
+              averageScore: '78.5',
+              overallGrade: 'A',
+              attendanceSummary: 'Present 18/20 days',
+              teacherRemark: 'Good progress this term — keep it up.',
+              principalRemark: 'A strong start to the year.',
+              objectKey: null,
+              status: 'published',
+              generatedById: adminUser.id,
+              publishedAt: new Date('2026-12-17T15:00:00Z'),
+            })
+          }
+        }
+      }
+    }
   }
 }
+

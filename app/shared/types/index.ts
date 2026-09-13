@@ -608,3 +608,234 @@ export interface LearningResourceListItem extends LearningResource {
   subjectName: string | null
   uploadedByName: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Exams, assessments, grading, results & report cards (README §18, Phase 7)
+// ---------------------------------------------------------------------------
+
+export type ExamStatus = 'open' | 'closed'
+
+export interface AssessmentType {
+  id: string
+  name: string
+  slug: string
+  weight: string
+  description: string | null
+  isActive: boolean
+  createdAt: string
+}
+
+export interface GradingScaleItem {
+  id: string
+  scaleId: string
+  grade: string
+  minScore: string
+  maxScore: string
+  remark: string | null
+  points: string | null
+  createdAt: string
+}
+
+export interface GradingScale {
+  id: string
+  sessionId: string | null
+  name: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GradingScaleDetail extends GradingScale {
+  items: GradingScaleItem[]
+}
+
+export interface Exam {
+  id: string
+  sessionId: string
+  termId: string | null
+  classId: string
+  name: string
+  startDate: string | null
+  endDate: string | null
+  status: ExamStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ExamSubject {
+  id: string
+  examId: string
+  subjectId: string
+  maxScore: string
+  examDate: string | null
+  createdAt: string
+}
+
+export interface ExamSubjectDetail extends ExamSubject {
+  subjectName: string
+  subjectCode: string | null
+}
+
+export interface ExamDetail extends Exam {
+  className: string
+  sessionName: string
+  termName: string | null
+  subjects: ExamSubjectDetail[]
+}
+
+export interface ExamListItem extends Exam {
+  className: string
+  sessionName: string
+  termName: string | null
+  subjectCount: number
+}
+
+export interface AssessmentScore {
+  id: string
+  studentId: string
+  subjectId: string
+  sessionId: string
+  termId: string | null
+  assessmentTypeId: string
+  score: string
+  maxScore: string
+  enteredById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AssessmentScoreDetail extends AssessmentScore {
+  studentName: string
+  admissionNumber: string
+  subjectName: string
+  assessmentTypeName: string
+}
+
+export interface ExamScore {
+  id: string
+  examSubjectId: string
+  studentId: string
+  score: string
+  grade: string | null
+  enteredById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ExamScoreDetail extends ExamScore {
+  studentName: string
+  admissionNumber: string
+  subjectName: string
+  subjectCode: string | null
+  maxScore: string
+  examDate: string | null
+}
+
+export interface ResultPublication {
+  id: string
+  sessionId: string
+  termId: string
+  classId: string
+  sectionId: string | null
+  status: ResultStatus
+  submittedById: string | null
+  submittedAt: string | null
+  approvedById: string | null
+  approvedAt: string | null
+  publishedById: string | null
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ResultPublicationDetail extends ResultPublication {
+  className: string
+  sectionName: string | null
+  sessionName: string
+  termName: string | null
+}
+
+export interface ReportCard {
+  id: string
+  studentId: string
+  sessionId: string
+  termId: string
+  classId: string
+  sectionId: string | null
+  totalScore: string | null
+  averageScore: string | null
+  overallGrade: string | null
+  attendanceSummary: string | null
+  teacherRemark: string | null
+  principalRemark: string | null
+  objectKey: string | null
+  status: ResultStatus
+  generatedById: string | null
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ReportCardDetail extends ReportCard {
+  studentName: string
+  admissionNumber: string
+  className: string
+  sectionName: string | null
+  sessionName: string
+  termName: string | null
+  subjectResults: SubjectResult[]
+}
+
+// One subject's aggregated result for a student.
+export interface SubjectResult {
+  subjectId: string
+  subjectName: string
+  subjectCode: string | null
+  assessmentScores: {
+    assessmentTypeId: string
+    assessmentTypeName: string
+    score: string
+    maxScore: string
+  }[]
+  examScores: {
+    examId: string
+    examName: string
+    score: string
+    maxScore: string
+    grade: string | null
+  }[]
+  totalScore: string
+  maxScore: string
+  percentage: string
+  grade: string | null
+}
+
+// Student-wide summary returned by GET /students/{id}/results.
+export interface StudentResultSummary {
+  studentId: string
+  studentName: string
+  admissionNumber: string
+  sessionId: string
+  sessionName: string
+  termId: string | null
+  termName: string | null
+  classId: string | null
+  className: string | null
+  publicationStatus: ResultStatus | null
+  subjects: SubjectResult[]
+  totalScore: string | null
+  averageScore: string | null
+  overallGrade: string | null
+}
+
+// GET /api/v1/my/school-context — resolves the current user's student id
+// (for student logins) or list of children (for parent logins). Staff get
+// null fields; the /results page is not for them.
+export interface MySchoolContext {
+  studentId: string | null
+  children: {
+    id: string
+    admissionNumber: string | null
+    name: string
+  }[]
+}
