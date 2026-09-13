@@ -11,6 +11,8 @@
  *     assignments for the current session (Phase 3)
  *   - fake students, parents, student-parent links and enrollments
  *     (Phase 4)
+ *   - fake admissions applications, documents metadata and assessments
+ *     (Phase 9); placeholder document object keys have no R2 bytes
  *
  * Run via `npm run db:seed` (uses database/seed.ts). Safe to re-run:
  * every row upserts on its natural unique key and join rows use
@@ -59,6 +61,9 @@ import {
   invoiceItems,
   payments,
   paymentReceipts,
+  admissionApplications,
+  admissionDocuments,
+  admissionAssessments,
 } from '../schema'
 import type { Schema } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
@@ -1362,6 +1367,218 @@ export async function seedDatabase(db: DB): Promise<void> {
               })
               .where(eq(studentInvoices.id, invoiceId))
           }
+        }
+      }
+    }
+
+    // --- Phase 9: admissions pipeline (fake demo data) --------------------
+    // Five applications across the workflow; idempotent on the
+    // application number. Document rows use placeholder object keys
+    // (no R2 bytes are uploaded by the seeder — downloads return 404).
+    if (primaryId && adminUser) {
+      const [enrolledStudent] = await db
+        .select({ id: students.id })
+        .from(students)
+        .where(eq(students.admissionNumber, 'STU-001'))
+        .limit(1)
+
+      type SeedDocument = {
+        documentType: string
+        objectKey: string
+        fileName: string
+        mimeType: string
+        sizeBytes: number
+      }
+      type SeedAssessment = {
+        title: string
+        assessmentType: string
+        scheduledAt: Date
+        score?: string | null
+        result?: string | null
+        notes?: string | null
+      }
+      type SeedApplication =
+        typeof admissionApplications.$inferInsert & {
+          documents: SeedDocument[]
+          assessments: SeedAssessment[]
+        }
+
+      const applicationPlan: SeedApplication[] = [
+        {
+          applicationNumber: 'APP-2026-0001',
+          sessionId: session.id,
+          intendedClassId: primaryId,
+          firstName: 'Amara',
+          lastName: 'Okafor',
+          gender: 'female',
+          dateOfBirth: '2016-03-14',
+          guardianName: 'Ngozi Okafor',
+          guardianPhone: '+234 801 111 0001',
+          guardianEmail: 'ngozi.okafor@example.test',
+          address: '12 Demo Estate, Lagos',
+          previousSchool: 'Sunrise Nursery',
+          status: 'enrolled',
+          decisionNotes:
+            'Historical demo conversion; enrolled as student STU-001.',
+          reviewedById: adminUser.id,
+          reviewedAt: new Date('2026-08-20T09:00:00Z'),
+          decidedAt: new Date('2026-08-25T10:00:00Z'),
+          admittedStudentId: enrolledStudent?.id ?? null,
+          documents: [],
+          assessments: [],
+        },
+        {
+          applicationNumber: 'APP-2026-0002',
+          sessionId: session.id,
+          intendedClassId: primaryId,
+          firstName: 'Favour',
+          lastName: 'Adeyemi',
+          gender: 'female',
+          dateOfBirth: '2016-04-02',
+          guardianName: 'Samuel Adeyemi',
+          guardianPhone: '+234 802 222 0002',
+          guardianEmail: 'samuel.adeyemi@example.test',
+          address: '5 Palm Avenue, Ibadan',
+          previousSchool: 'Bright Start Academy',
+          status: 'under_review',
+          reviewedById: adminUser.id,
+          reviewedAt: new Date('2026-09-08T11:30:00Z'),
+          documents: [
+            {
+              documentType: 'Birth certificate',
+              objectKey: 'seeds/admissions/app-0002-birth-certificate.pdf',
+              fileName: 'birth-certificate.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 184320,
+            },
+            {
+              documentType: 'Passport photograph',
+              objectKey: 'seeds/admissions/app-0002-photo.jpg',
+              fileName: 'photo.jpg',
+              mimeType: 'image/jpeg',
+              sizeBytes: 245760,
+            },
+          ],
+          assessments: [
+            {
+              title: 'Parent interview',
+              assessmentType: 'interview',
+              scheduledAt: new Date('2026-09-18T10:00:00Z'),
+            },
+          ],
+        },
+        {
+          applicationNumber: 'APP-2026-0003',
+          sessionId: session.id,
+          intendedClassId: primaryId,
+          firstName: 'Musa',
+          lastName: 'Ibrahim',
+          gender: 'male',
+          dateOfBirth: '2015-09-21',
+          guardianName: 'Hauwa Ibrahim',
+          guardianPhone: '+234 803 333 0003',
+          guardianEmail: 'hauwa.ibrahim@example.test',
+          address: '22 River Road, Kaduna',
+          previousSchool: 'Al-Amin Nursery',
+          status: 'accepted',
+          decisionNotes:
+            'Accepted for Primary 1 pending placement test confirmation.',
+          reviewedById: adminUser.id,
+          reviewedAt: new Date('2026-09-01T08:15:00Z'),
+          decidedAt: new Date('2026-09-09T14:00:00Z'),
+          documents: [
+            {
+              documentType: 'Previous report card / transcript',
+              objectKey: 'seeds/admissions/app-0003-report-card.pdf',
+              fileName: 'report-card.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 412672,
+            },
+          ],
+          assessments: [
+            {
+              title: 'Placement test',
+              assessmentType: 'test',
+              scheduledAt: new Date('2026-09-05T09:00:00Z'),
+              score: '82/100',
+              result: 'pass',
+              notes: 'Strong numeracy; average reading.',
+            },
+          ],
+        },
+        {
+          applicationNumber: 'APP-2026-0004',
+          sessionId: session.id,
+          intendedClassId: primaryId,
+          firstName: 'Esi',
+          lastName: 'Mensah',
+          gender: 'female',
+          dateOfBirth: '2016-01-30',
+          guardianName: 'Yaw Mensah',
+          guardianPhone: '+233 24 444 0004',
+          guardianEmail: 'yaw.mensah@example.test',
+          address: '8 Hilltop Lane, Accra',
+          previousSchool: null,
+          status: 'applied',
+          documents: [],
+          assessments: [],
+        },
+        {
+          applicationNumber: 'APP-2026-0005',
+          sessionId: session.id,
+          intendedClassId: primaryId,
+          firstName: 'Tunde',
+          lastName: 'Bakare',
+          gender: 'male',
+          dateOfBirth: '2015-12-11',
+          guardianName: 'Funke Bakare',
+          guardianPhone: '+234 805 555 0005',
+          guardianEmail: 'funke.bakare@example.test',
+          address: '3 Unity Close, Abuja',
+          previousSchool: 'Gracefield School',
+          status: 'rejected',
+          decisionNotes:
+            'No Primary 1 seat available for this session; encouraged to reapply next year.',
+          reviewedById: adminUser.id,
+          reviewedAt: new Date('2026-08-28T10:00:00Z'),
+          decidedAt: new Date('2026-09-02T16:30:00Z'),
+          documents: [],
+          assessments: [],
+        },
+      ]
+
+      for (const plan of applicationPlan) {
+        const { documents, assessments, ...values } = plan
+        const [existing] = await db
+          .select({ id: admissionApplications.id })
+          .from(admissionApplications)
+          .where(
+            eq(admissionApplications.applicationNumber, plan.applicationNumber!),
+          )
+          .limit(1)
+        if (existing) {
+          continue
+        }
+        const [created] = await db
+          .insert(admissionApplications)
+          .values(values)
+          .returning({ id: admissionApplications.id })
+        if (!created) {
+          continue
+        }
+
+        for (const doc of documents) {
+          await db.insert(admissionDocuments).values({
+            applicationId: created.id,
+            ...doc,
+          })
+        }
+        for (const assessment of assessments) {
+          await db.insert(admissionAssessments).values({
+            applicationId: created.id,
+            ...assessment,
+            assessorId: adminUser.id,
+          })
         }
       }
     }

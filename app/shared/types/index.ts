@@ -1021,3 +1021,99 @@ export interface FinanceSummary {
     total: string
   }[]
 }
+
+// ---------------------------------------------------------------------------
+// Admissions (README §20, Phase 9)
+// ---------------------------------------------------------------------------
+export type AdmissionStatus =
+  | 'applied'
+  | 'documents_submitted'
+  | 'under_review'
+  | 'assessment_scheduled'
+  | 'assessed'
+  | 'accepted'
+  | 'rejected'
+  | 'waitlisted'
+  | 'admitted'
+  | 'enrolled'
+  | 'withdrawn'
+
+export type AdmissionAssessmentType =
+  | 'exam'
+  | 'interview'
+  | 'test'
+  | 'other'
+export type AdmissionAssessmentResult = 'pass' | 'fail' | 'consider'
+
+export interface AdmissionApplication {
+  id: string
+  applicationNumber: string
+  sessionId: string | null
+  intendedClassId: string | null
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  gender: Gender | null
+  dateOfBirth: string | null
+  nationality: string | null
+  guardianName: string | null
+  guardianPhone: string | null
+  guardianEmail: string | null
+  address: string | null
+  status: AdmissionStatus
+  previousSchool: string | null
+  decisionNotes: string | null
+  reviewedById: string | null
+  reviewedAt: string | null
+  decidedAt: string | null
+  admittedStudentId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdmissionApplicationListItem extends AdmissionApplication {
+  applicantName: string
+  sessionName: string | null
+  className: string | null
+  documentCount: number
+  assessmentCount: number
+}
+
+export interface AdmissionDocument {
+  id: string
+  applicationId: string
+  documentType: string
+  objectKey: string
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  uploadedAt: string
+}
+
+export interface AdmissionAssessment {
+  id: string
+  applicationId: string
+  title: string
+  assessmentType: AdmissionAssessmentType | null
+  scheduledAt: string | null
+  score: string | null
+  result: AdmissionAssessmentResult | null
+  assessorId: string | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdmissionApplicationDetail extends AdmissionApplication {
+  sessionName: string | null
+  className: string | null
+  documents: AdmissionDocument[]
+  assessments: AdmissionAssessment[]
+}
+
+export interface AdmissionEnrollResult {
+  application: AdmissionApplicationDetail
+  student: Student
+  enrollment: StudentEnrollmentDetail
+  parent: Parent | null
+}

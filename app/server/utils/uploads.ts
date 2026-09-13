@@ -12,12 +12,14 @@ export const UPLOAD_LIMITS: Record<UploadCategory, number> = {
   assignment_attachment: 25 * 1024 * 1024,
   submission: 25 * 1024 * 1024,
   resource: 50 * 1024 * 1024,
+  admission_document: 10 * 1024 * 1024,
 }
 
 export type UploadCategory =
   | 'assignment_attachment'
   | 'submission'
   | 'resource'
+  | 'admission_document'
 
 // Allowed declared MIME types. Magic-byte content sniffing is deferred
 // to Phase 12 hardening; for now the declared type must be a known

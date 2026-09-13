@@ -263,6 +263,24 @@ async function onLogout() {
         </div>
       </section>
 
+      <section
+        v-if="auth.can('admissions.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Admissions</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <NuxtLink
+            to="/admissions"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Applications</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Intake, documents, assessments, decisions and enrollment
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">System Health</h3>
         <HealthStatus />

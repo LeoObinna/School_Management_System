@@ -91,6 +91,27 @@ describe('validateUpload', () => {
     })
     expect(result.mimeType).toBe('text/plain')
   })
+
+  it('accepts admission documents up to 10 MB', () => {
+    const result = validateUpload({
+      fileName: 'birth-certificate.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 5 * 1024 * 1024,
+      category: 'admission_document',
+    })
+    expect(result.extension).toBe('pdf')
+  })
+
+  it('rejects admission documents over 10 MB', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'portfolio.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 11 * 1024 * 1024,
+        category: 'admission_document',
+      }),
+    ).toThrow(/10 MB/)
+  })
 })
 
 describe('buildObjectKey', () => {
