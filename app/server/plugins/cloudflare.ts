@@ -1,32 +1,21 @@
 /**
  * Cloudflare Workers runtime integration.
  *
- * In the Workers runtime (cloudflare-module preset, including `wrangler
- * dev`), bindings are delivered per request on
- * `event.context.cloudflare.env`. The HYPERDRIVE binding exposes a
- * Postgres connection string that is stable for the whole isolate, so we
- * lazily initialise the shared Drizzle client on the first request.
+ * Bindings are delivered per request on
+ * `event.context.cloudflare.env`. The Drizzle/postgres.js client is
+ * created lazily PER REQUEST from the HYPERDRIVE binding (see
+ * utils/db.ts) — the Workers runtime forbids reusing a connection's
+ * socket I/O across different request invocations, and Hyperdrive
+ * itself maintains the upstream connection pool.
  *
- * In plain Node dev (`nuxt dev`) the cloudflare context is absent; the
- * client is created lazily from DATABASE_URL instead (see utils/db.ts).
+ * This plugin only closes that per-request client once the response has
+ * been sent. In plain Node dev (`nuxt dev`) there is no cloudflare
+ * context; the process-wide client created from DATABASE_URL is used and
+ * this hook is a no-op.
  */
-interface CloudflareBindingEnv {
-  HYPERDRIVE?: {
-    connectionString?: string
-  }
-}
-
 export default defineNitroPlugin((nitroApp) => {
-  nitroApp.hooks.hook('request', async (event) => {
-    const env = (
-      event.context as { cloudflare?: { env?: CloudflareBindingEnv } }
-    ).cloudflare?.env
-
-    const connectionString = env?.HYPERDRIVE?.connectionString
-    if (connectionString) {
-      const { initDatabase } = await import('../utils/db')
-      // Hyperdrive pools at the edge — one connection per isolate.
-      initDatabase(connectionString, { max: 1 })
-    }
+  nitroApp.hooks.hook('afterResponse', async (event) => {
+    const { closeRequestDatabase } = await import('../utils/db')
+    await closeRequestDatabase(event)
   })
 })

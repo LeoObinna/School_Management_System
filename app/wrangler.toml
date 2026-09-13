@@ -25,17 +25,28 @@ directory = ".output/public"
 binding = "ASSETS"
 
 # --- Local development (`wrangler dev`, via `npm run cf:dev`) ---------------
-# Hyperdrive is emulated locally through the
-# CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE environment
-# variable (the npm script wires it from DATABASE_URL). No deployable
-# hyperdrive binding is declared at the top level because deployable
-# bindings require a real Hyperdrive id.
+# LOCAL MODE ONLY — never use `wrangler dev --remote` before production
+# cutover (it would hit real remote resources).
 #
-# R2 is emulated on local disk by `wrangler dev`; the bucket name below is
-# only used to name the local simulation, nothing is written remotely.
+# Hyperdrive local emulation with ZERO cloud resources: the binding is
+# declared for local `wrangler dev` and `localConnectionString` points at
+# the local Postgres.app database sms_dev. The `id` is a non-functional
+# placeholder (no remote Hyperdrive exists); wrangler never calls the API
+# for it in local mode. This top-level binding is NEVER deployed — every
+# deploy targets a named environment below (-e staging|production), which
+# supplies its own real Hyperdrive id. Do NOT run `wrangler deploy`
+# without an environment.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "00000000-0000-0000-0000-000000000000"
+localConnectionString = "postgresql://mac:local@127.0.0.1:5432/sms_dev"
+
+# R2 is emulated on local disk by `wrangler dev` (state under .wrangler/);
+# the bucket name only names the local simulation. Nothing is created or
+# written remotely, and the bucket is never exposed publicly.
 [[r2_buckets]]
 binding = "R2_BUCKET"
-bucket_name = "sms-staging"
+bucket_name = "sms-local"
 
 # ===========================================================================
 # Staging — deployed Worker name: sms-staging

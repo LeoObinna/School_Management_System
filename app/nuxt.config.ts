@@ -21,6 +21,12 @@ export default defineNuxtConfig({
   // Queues, cron and Durable Object bindings via wrangler.toml.
   nitro: {
     preset: 'cloudflare-module',
+    // Enables h3's AsyncLocalStorage event context so shared utilities
+    // (e.g. the DB layer resolving the per-request HYPERDRIVE client) can
+    // call useEvent() outside the route handler, including in Workers.
+    experimental: {
+      asyncContext: true,
+    },
   },
 
   // Pinia is configured via ~/plugins/pinia.ts (manual setup for Nuxt 4
