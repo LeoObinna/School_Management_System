@@ -3,11 +3,28 @@ import {
   buildObjectKey,
 } from '../storage'
 import {
+  assertSniffMatchesDeclared,
   fileExtension,
   isAllowedMimeType,
   sanitizeFileName,
+  sniffMagicBytes,
   validateUpload,
 } from '../uploads'
+
+function bytes(...values: number[]): Uint8Array {
+  return Uint8Array.of(...values)
+}
+
+// Builds a buffer of `length` printable-text bytes ending in a newline,
+// used for the text-heuristic sniff cases.
+function textBytes(length: number): Uint8Array {
+  const out = new Uint8Array(length)
+  for (let i = 0; i < length; i++) {
+    out[i] = i % 26 + 0x61 // 'a'..'z'
+  }
+  out[out.length - 1] = 0x0a // newline
+  return out
+}
 
 describe('sanitizeFileName', () => {
   it('strips path components', () => {
@@ -157,5 +174,170 @@ describe('buildObjectKey', () => {
     expect(key).toBe(
       'assignments/submissions/uuid-1/uuid-2/abc-My_Homework.pdf',
     )
+  })
+})
+
+describe('sniffMagicBytes', () => {
+  it('detects a PDF header', () => {
+    expect(
+      sniffMagicBytes(bytes(0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e)),
+    ).toBe('application/pdf')
+  })
+
+  it('detects PNG, JPEG and GIF', () => {
+    expect(
+      sniffMagicBytes(
+        bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00),
+      ),
+    ).toBe('image/png')
+    expect(sniffMagicBytes(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe(
+      'image/jpeg',
+    )
+    expect(sniffMagicBytes(bytes(0x47, 0x49, 0x46, 0x38, 0x39, 0x61))).toBe(
+      'image/gif',
+    )
+  })
+
+  it('detects WebP from the RIFF/WEBP pair', () => {
+    const head = bytes(
+      0x52, 0x49, 0x46, 0x46, // RIFF
+      0x00, 0x00, 0x00, 0x00, // size
+      0x57, 0x45, 0x42, 0x50, // WEBP
+    )
+    expect(sniffMagicBytes(head)).toBe('image/webp')
+  })
+
+  it('detects ZIP (covers OOXML containers)', () => {
+    expect(sniffMagicBytes(bytes(0x50, 0x4b, 0x03, 0x04))).toBe(
+      'application/zip',
+    )
+  })
+
+  it('detects legacy Office OLE compound files', () => {
+    expect(
+      sniffMagicBytes(
+        bytes(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1),
+      ),
+    ).toBe('application/x-cfb')
+  })
+
+  it('flags MZ (DOS/PE) and ELF executables', () => {
+    expect(sniffMagicBytes(bytes(0x4d, 0x5a, 0x90, 0x00))).toBe(
+      'application/x-msdownload',
+    )
+    expect(sniffMagicBytes(bytes(0x7f, 0x45, 0x4c, 0x46))).toBe(
+      'application/x-elf',
+    )
+  })
+
+  it('recognises SVG via leading <svg', () => {
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg">')
+    expect(sniffMagicBytes(svg)).toBe('image/svg+xml')
+  })
+
+  it('recognises SVG with an XML prolog', () => {
+    const svg = new TextEncoder().encode(
+      '<?xml version="1.0"?>\n<svg width="10"></svg>',
+    )
+    expect(sniffMagicBytes(svg)).toBe('image/svg+xml')
+  })
+
+  it('treats printable text with newlines as text/plain', () => {
+    expect(sniffMagicBytes(textBytes(64))).toBe('text/plain')
+  })
+
+  it('honours a UTF-8 BOM as text', () => {
+    const bom = bytes(0xef, 0xbb, 0xbf, 0x68, 0x69) // "hi"
+    expect(sniffMagicBytes(bom)).toBe('text/plain')
+  })
+
+  it('rejects control bytes (NUL) as non-text', () => {
+    const buf = bytes(0x68, 0x69, 0x00, 0x2e)
+    expect(sniffMagicBytes(buf)).toBeNull()
+  })
+
+  it('returns null for unknown content', () => {
+    expect(sniffMagicBytes(bytes(0x01, 0x02, 0x03, 0x04, 0x05))).toBeNull()
+  })
+
+  it('returns null for an empty buffer', () => {
+    expect(sniffMagicBytes(new Uint8Array())).toBeNull()
+  })
+})
+
+describe('assertSniffMatchesDeclared', () => {
+  const pdf = 'application/pdf'
+  const png = 'image/png'
+
+  it('passes when sniff is null (unknown content)', () => {
+    expect(() => assertSniffMatchesDeclared(null, pdf)).not.toThrow()
+  })
+
+  it('passes when sniff equals the declared MIME', () => {
+    expect(() => assertSniffMatchesDeclared(pdf, pdf)).not.toThrow()
+    expect(() => assertSniffMatchesDeclared(png, png)).not.toThrow()
+  })
+
+  it('passes when sniff is the ZIP container for an OOXML declared type', () => {
+    const oox = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    expect(() =>
+      assertSniffMatchesDeclared('application/zip', oox),
+    ).not.toThrow()
+    expect(() =>
+      assertSniffMatchesDeclared('application/zip', 'application/zip'),
+    ).not.toThrow()
+  })
+
+  it('passes when sniff is OLE for a legacy Office declared type', () => {
+    expect(() =>
+      assertSniffMatchesDeclared('application/x-cfb', 'application/msword'),
+    ).not.toThrow()
+    expect(() =>
+      assertSniffMatchesDeclared(
+        'application/x-cfb',
+        'application/vnd.ms-excel',
+      ),
+    ).not.toThrow()
+  })
+
+  it('passes when sniff is text/plain for any text/* declared type', () => {
+    expect(() =>
+      assertSniffMatchesDeclared('text/plain', 'text/csv'),
+    ).not.toThrow()
+    expect(() =>
+      assertSniffMatchesDeclared('text/plain', 'text/plain'),
+    ).not.toThrow()
+  })
+
+  it('passes when sniff is SVG for an image/svg+xml declared type', () => {
+    expect(() =>
+      assertSniffMatchesDeclared('image/svg+xml', 'image/svg+xml'),
+    ).not.toThrow()
+  })
+
+  it('rejects a PDF sniffed under a PNG declared type', () => {
+    expect(() => assertSniffMatchesDeclared(pdf, png)).toThrow(/content/)
+  })
+
+  it('rejects a PNG sniffed under a PDF declared type', () => {
+    expect(() => assertSniffMatchesDeclared(png, pdf)).toThrow(/content/)
+  })
+
+  it('rejects an EXE (MZ) sniffed under a PDF declared type', () => {
+    expect(() =>
+      assertSniffMatchesDeclared('application/x-msdownload', pdf),
+    ).toThrow(/content/)
+  })
+
+  it('rejects an ELF sniffed under a PNG declared type', () => {
+    expect(() =>
+      assertSniffMatchesDeclared('application/x-elf', png),
+    ).toThrow(/content/)
+  })
+
+  it('rejects text/plain sniffed under a non-text declared type', () => {
+    expect(() =>
+      assertSniffMatchesDeclared('text/plain', pdf),
+    ).toThrow(/content/)
   })
 })

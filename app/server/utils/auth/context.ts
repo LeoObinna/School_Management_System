@@ -29,6 +29,9 @@ export interface AuthContext {
 declare module 'h3' {
   interface H3EventContext {
     auth?: AuthContext | null
+    // Per-request cache of business-actor ids (Phase 12 hardening).
+    // Populated lazily by `resolveActorBusinessIds` in ./actor.ts.
+    actorBusinessIds?: import('./actor').ActorBusinessIds
   }
 }
 

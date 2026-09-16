@@ -18,6 +18,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   isNull,
   or,
   sql,
@@ -59,10 +60,18 @@ import type {
   Weekday,
 } from '../../shared/types'
 import {
+  classifyActorScope,
+  studentEnrolledClassIds,
+  teacherTaughtClassIds,
+  type ActorProfile,
+  type ActorScope,
+} from '../utils/auth/actor'
+import {
   isPgForeignKeyViolation,
   isPgUniqueViolation,
   smsConflict,
   smsFieldError,
+  smsForbidden,
   smsNotFound,
 } from '../utils/http-errors'
 import type { SmsDb } from '../utils/pagination'
@@ -86,6 +95,86 @@ const activeStudent = isNull(students.deletedAt)
 
 // SQL order expression: Monday first ... Sunday last.
 const weekdayOrder = sql`array_position(ARRAY['monday','tuesday','wednesday','thursday','friday','saturday','sunday']::text[], ${timetableEntries.weekday})`
+
+// Row-level scoping helpers (classifyActorScope, studentEnrolledClassIds,
+// teacherTaughtClassIds) are imported from `../utils/auth/actor` and shared
+// with the exams service so scoping stays consistent across schedule +
+// exams (Phase 12 hardening). Staff bypass; teachers see their own data;
+// students see their own enrollments; parents see their children's.
+
+/**
+ * Asserts a non-staff caller may read attendance for `studentId` in
+ * `sessionId`; throws 403 otherwise. Staff bypass. A teacher may read any
+ * student enrolled in a class they teach that session; a student only
+ * themselves; a parent only their own children.
+ */
+async function assertStudentAccess(
+  client: SmsDb,
+  scope: ActorScope,
+  studentId: string,
+  sessionId?: string,
+): Promise<void> {
+  if (scope.kind === 'staff') return
+  if (scope.kind === 'none') {
+    throw smsForbidden('You cannot view this student.')
+  }
+  if (scope.kind === 'student') {
+    if (studentId !== scope.studentId) {
+      throw smsForbidden('You can only view your own attendance.')
+    }
+    return
+  }
+  if (scope.kind === 'parent') {
+    if (!scope.children.includes(studentId)) {
+      throw smsForbidden('You can only view your own children.')
+    }
+    return
+  }
+  // Teacher: allow when the student is enrolled in a class the teacher
+  // teaches this session.
+  const [taught, enrolled] = await Promise.all([
+    teacherTaughtClassIds(client, scope.teacherId, sessionId),
+    studentEnrolledClassIds(client, studentId, sessionId),
+  ])
+  if (!taught.some((c) => enrolled.includes(c))) {
+    throw smsForbidden('You can only view students in classes you teach.')
+  }
+}
+
+/**
+ * Asserts a non-staff caller may read attendance for a class; throws 403
+ * otherwise. Staff bypass. A teacher must teach the class this session; a
+ * student must be actively enrolled in it; a parent must have a child
+ * enrolled in it.
+ */
+async function assertClassAccess(
+  client: SmsDb,
+  scope: ActorScope,
+  sessionId: string,
+  classId: string,
+): Promise<void> {
+  if (scope.kind === 'staff') return
+  if (scope.kind === 'none') {
+    throw smsForbidden('You cannot view this class.')
+  }
+  if (scope.kind === 'teacher') {
+    const taught = await teacherTaughtClassIds(client, scope.teacherId, sessionId)
+    if (!taught.includes(classId)) {
+      throw smsForbidden('You can only view classes you teach.')
+    }
+    return
+  }
+  const studentId =
+    scope.kind === 'student' ? scope.studentId : scope.children
+  const ids = await Promise.all(
+    (Array.isArray(studentId) ? studentId : [studentId]).map((id) =>
+      studentEnrolledClassIds(client, id, sessionId),
+    ),
+  )
+  if (!ids.flat().includes(classId)) {
+    throw smsForbidden('You can only view classes you are enrolled in.')
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Reference validation (shared by timetable + attendance session writes)
@@ -190,7 +279,10 @@ function timetableDetailQuery(client: SmsDb) {
     .leftJoin(terms, eq(timetableEntries.termId, terms.id))
 }
 
-export async function listTimetableEntries(query: TimetableListQuery) {
+export async function listTimetableEntries(
+  query: TimetableListQuery,
+  actor?: ActorProfile | null,
+) {
   const client = await db()
   const where: SQL[] = []
   if (query.sessionId) {
@@ -205,12 +297,39 @@ export async function listTimetableEntries(query: TimetableListQuery) {
   if (query.sectionId) {
     where.push(eq(timetableEntries.sectionId, query.sectionId))
   }
-  if (query.teacherId) {
-    where.push(eq(timetableEntries.teacherId, query.teacherId))
-  }
   if (query.weekday) {
     where.push(eq(timetableEntries.weekday, query.weekday))
   }
+
+  // Row-level scoping (Phase 12). A teacher sees only their own entries
+  // (any passed teacherId is ignored in favour of their own). A student or
+  // parent sees only entries for classes they/their children are actively
+  // enrolled in. Staff see everything.
+  if (actor) {
+    const scope = classifyActorScope(actor)
+    if (scope.kind === 'teacher') {
+      where.push(eq(timetableEntries.teacherId, scope.teacherId))
+    } else if (scope.kind === 'student' || scope.kind === 'parent') {
+      const studentIds =
+        scope.kind === 'student' ? [scope.studentId] : scope.children
+      const classIdSets = await Promise.all(
+        studentIds.map((id) =>
+          studentEnrolledClassIds(client, id, query.sessionId),
+        ),
+      )
+      const classIds = [...new Set(classIdSets.flat())]
+      if (classIds.length === 0) {
+        return { data: [], total: 0 }
+      }
+      where.push(inArray(timetableEntries.classId, classIds))
+    } else if (scope.kind === 'none') {
+      return { data: [], total: 0 }
+    }
+    // scope.kind === 'staff' → no extra constraint.
+  } else if (query.teacherId) {
+    where.push(eq(timetableEntries.teacherId, query.teacherId))
+  }
+
   const rows = await timetableDetailQuery(client)
     .where(where.length ? and(...where) : undefined)
     .orderBy(weekdayOrder, asc(timetableEntries.startTime))
@@ -504,7 +623,24 @@ export async function removeTimetableEntry(id: string): Promise<void> {
 // Attendance sessions
 // ---------------------------------------------------------------------------
 
-export async function listAttendanceSessions(query: AttendanceSessionListQuery) {
+// Empty pagination envelope returned when row-level scoping leaves a
+// non-staff caller with no accessible classes.
+function emptyAttendancePage(query: AttendanceSessionListQuery) {
+  return {
+    data: [] as AttendanceSessionListItem[],
+    meta: {
+      currentPage: query.page,
+      perPage: query.perPage,
+      total: 0,
+      lastPage: 1,
+    },
+  }
+}
+
+export async function listAttendanceSessions(
+  query: AttendanceSessionListQuery,
+  actor?: ActorProfile | null,
+) {
   const client = await db()
   const where: SQL[] = []
   if (query.sessionId) {
@@ -528,6 +664,40 @@ export async function listAttendanceSessions(query: AttendanceSessionListQuery) 
   if (query.dateTo) {
     where.push(sql`${attendanceSessions.date} <= ${query.dateTo}::date`)
   }
+
+  // Row-level scoping (Phase 12). Teachers see only registers for classes
+  // they teach that session; students see their own enrolled classes;
+  // parents see their children's classes. Staff see everything.
+  if (actor) {
+    const scope = classifyActorScope(actor)
+    if (scope.kind === 'teacher') {
+      const classIds = await teacherTaughtClassIds(
+        client,
+        scope.teacherId,
+        query.sessionId,
+      )
+      if (classIds.length === 0) {
+        return emptyAttendancePage(query)
+      }
+      where.push(inArray(attendanceSessions.classId, classIds))
+    } else if (scope.kind === 'student' || scope.kind === 'parent') {
+      const studentIds =
+        scope.kind === 'student' ? [scope.studentId] : scope.children
+      const classIdSets = await Promise.all(
+        studentIds.map((id) =>
+          studentEnrolledClassIds(client, id, query.sessionId),
+        ),
+      )
+      const classIds = [...new Set(classIdSets.flat())]
+      if (classIds.length === 0) {
+        return emptyAttendancePage(query)
+      }
+      where.push(inArray(attendanceSessions.classId, classIds))
+    } else if (scope.kind === 'none') {
+      return emptyAttendancePage(query)
+    }
+  }
+
   const filter = where.length ? and(...where) : undefined
   const offset = (query.page - 1) * query.perPage
 
@@ -902,8 +1072,20 @@ function rate(present: number, late: number, total: number): number | null {
 
 export async function attendanceClassReport(
   query: AttendanceReportQuery,
+  actor?: ActorProfile | null,
 ): Promise<AttendanceReportRow[]> {
   const client = await db()
+
+  // Row-level access check (Phase 12). A teacher must teach the class;
+  // a student/parent must be enrolled/have a child enrolled. Staff bypass.
+  if (actor) {
+    await assertClassAccess(
+      client,
+      classifyActorScope(actor),
+      query.sessionId,
+      query.classId,
+    )
+  }
 
   const sessionMatch: SQL[] = [
     eq(attendanceSessions.sessionId, query.sessionId),
@@ -975,6 +1157,7 @@ export async function attendanceClassReport(
 export async function studentAttendance(
   studentId: string,
   query: StudentAttendanceQuery,
+  actor?: ActorProfile | null,
 ): Promise<{ summary: StudentAttendanceSummary; data: StudentAttendanceDay[] }> {
   const client = await db()
   const [student] = await client
@@ -984,6 +1167,18 @@ export async function studentAttendance(
     .limit(1)
   if (!student) {
     throw smsNotFound('Student not found.')
+  }
+
+  // Row-level access check (Phase 12). A student only sees themselves;
+  // a parent only their children; a teacher only students in classes
+  // they teach that session. Staff bypass.
+  if (actor) {
+    await assertStudentAccess(
+      client,
+      classifyActorScope(actor),
+      studentId,
+      query.sessionId,
+    )
   }
 
   const where: SQL[] = [

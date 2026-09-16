@@ -5,6 +5,8 @@
  */
 import { createError, type H3Event, readFormData } from 'h3'
 import {
+  assertSniffMatchesDeclared,
+  sniffMagicBytes,
   validateUpload,
   type UploadCategory,
   type ValidatedUpload,
@@ -54,6 +56,14 @@ export async function readUpload(
       sizeBytes: entry.size,
       category,
     })
+    // Magic-byte content sniff (Phase 12 hardening): verify the actual
+    // bytes agree with the declared MIME. Reads only the leading 512
+    // bytes via a Blob slice, so the whole file is not loaded for this.
+    const head = new Uint8Array(
+      await entry.slice(0, 512).arrayBuffer(),
+    )
+    const sniffed = sniffMagicBytes(head)
+    assertSniffMatchesDeclared(sniffed, meta.mimeType)
     return { form, file: entry, meta }
   } catch (e) {
     throw fileError(e instanceof Error ? e.message : 'Invalid file.')

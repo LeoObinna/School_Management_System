@@ -22,6 +22,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   isNull,
   or,
   sql,
@@ -84,6 +85,12 @@ import type {
   SubjectResult,
 } from '../../shared/types'
 import type { AuthContext } from '../utils/auth/context'
+import {
+  classifyActorScope,
+  studentEnrolledClassIds,
+  teacherTaughtClassIds,
+  type ActorProfile,
+} from '../utils/auth/actor'
 import {
   isPgForeignKeyViolation,
   isPgUniqueViolation,
@@ -609,6 +616,7 @@ function examBaseQuery(client: SmsDb) {
 
 export async function listExams(
   query: ExamListQuery,
+  actor?: ActorProfile | null,
 ): Promise<{ data: ExamListItem[] }> {
   const client = await db()
   const where: SQL[] = []
@@ -616,6 +624,38 @@ export async function listExams(
   if (query.termId) where.push(eq(exams.termId, query.termId))
   if (query.classId) where.push(eq(exams.classId, query.classId))
   if (query.status) where.push(eq(exams.status, query.status))
+
+  // Row-level scoping (Phase 12). Teachers see only exams for classes
+  // they teach that session; students see their own enrolled classes;
+  // parents see their children's classes. Staff (admins / callers with
+  // exams.create) see everything.
+  if (actor) {
+    const scope = classifyActorScope(actor)
+    if (scope.kind === 'teacher') {
+      const classIds = await teacherTaughtClassIds(
+        client,
+        scope.teacherId,
+        query.sessionId,
+      )
+      if (classIds.length === 0) return { data: [] }
+      where.push(inArray(exams.classId, classIds))
+    } else if (scope.kind === 'student' || scope.kind === 'parent') {
+      const studentIds =
+        scope.kind === 'student' ? [scope.studentId] : scope.children
+      const classIdSets = await Promise.all(
+        studentIds.map((id) =>
+          studentEnrolledClassIds(client, id, query.sessionId),
+        ),
+      )
+      const classIds = [...new Set(classIdSets.flat())]
+      if (classIds.length === 0) return { data: [] }
+      where.push(inArray(exams.classId, classIds))
+    } else if (scope.kind === 'none') {
+      return { data: [] }
+    }
+    // scope.kind === 'staff' → no extra constraint.
+  }
+
   const rows = await examBaseQuery(client)
     .where(where.length ? and(...where) : undefined)
     .orderBy(desc(exams.createdAt))
