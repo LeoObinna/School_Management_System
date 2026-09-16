@@ -67,4 +67,20 @@ describe('role catalog', () => {
     expect(finance(ROLE_PERMISSIONS.teacher)).toHaveLength(0)
     expect(finance(ROLE_PERMISSIONS.student)).toHaveLength(0)
   })
+
+  it('includes Phase 10 events and gallery permissions', () => {
+    expect(PERMISSION_SLUGS).toContain('events.view')
+    expect(PERMISSION_SLUGS).toContain('events.manage')
+    expect(PERMISSION_SLUGS).toContain('gallery.view')
+    expect(PERMISSION_SLUGS).toContain('gallery.manage')
+  })
+
+  it('grants events.view and gallery.view to non-admin roles', () => {
+    for (const role of ['teacher', 'student', 'parent'] as const) {
+      expect(ROLE_PERMISSIONS[role]).toContain('events.view')
+      expect(ROLE_PERMISSIONS[role]).toContain('gallery.view')
+      expect(ROLE_PERMISSIONS[role]).not.toContain('events.manage')
+      expect(ROLE_PERMISSIONS[role]).not.toContain('gallery.manage')
+    }
+  })
 })

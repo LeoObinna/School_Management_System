@@ -281,6 +281,78 @@ async function onLogout() {
         </div>
       </section>
 
+      <section
+        v-if="auth.can('announcements.view') || auth.can('notifications.view') || auth.can('messages.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">
+          Communication
+        </h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <NuxtLink
+            v-if="auth.can('announcements.view')"
+            to="/announcements"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Announcements</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Draft, publish and archive school-wide notices
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('notifications.view')"
+            to="/notifications"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Notifications</p>
+            <p class="mt-1 text-sm text-gray-500">
+              View and manage your personal notifications
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('messages.view')"
+            to="/messages"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Messages</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Internal messaging between staff and users
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section
+        v-if="auth.can('events.view') || auth.can('gallery.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">
+          Events &amp; gallery
+        </h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <NuxtLink
+            v-if="auth.can('events.view')"
+            to="/events"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Events</p>
+            <p class="mt-1 text-sm text-gray-500">
+              School events with audience targeting
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('gallery.view')"
+            to="/gallery"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Gallery</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Photo albums with R2-backed images
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">System Health</h3>
         <HealthStatus />

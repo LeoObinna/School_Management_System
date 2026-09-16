@@ -1117,3 +1117,116 @@ export interface AdmissionEnrollResult {
   enrollment: StudentEnrollmentDetail
   parent: Parent | null
 }
+
+// ---------------------------------------------------------------------------
+// Communication (README §21, Phase 10)
+// ---------------------------------------------------------------------------
+export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'archived'
+export type Audience = 'all' | 'staff' | 'teachers' | 'students' | 'parents' | 'admins'
+export type NotificationStatus = 'unread' | 'read'
+export type MessageDirection = 'inbound' | 'outbound'
+
+export interface Announcement {
+  id: string
+  title: string
+  body: string | null
+  audience: Audience
+  classId: string | null
+  status: AnnouncementStatus
+  authorId: string | null
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AnnouncementListItem extends Announcement {
+  authorName: string | null
+}
+
+export interface Notification {
+  id: string
+  userId: string
+  type: string
+  title: string
+  body: string | null
+  link: string | null
+  status: NotificationStatus
+  readAt: string | null
+  createdAt: string
+}
+
+export interface Message {
+  id: string
+  senderId: string | null
+  recipientId: string
+  direction: MessageDirection
+  subject: string | null
+  body: string
+  isRead: boolean
+  readAt: string | null
+  createdAt: string
+}
+
+export interface MessageListItem extends Message {
+  senderName: string | null
+  senderEmail: string | null
+  recipientName: string | null
+  recipientEmail: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Events & gallery (README §22, Phase 10)
+// ---------------------------------------------------------------------------
+export type EventStatus = 'draft' | 'published' | 'cancelled'
+
+export interface SchoolEvent {
+  id: string
+  title: string
+  description: string | null
+  startsAt: string
+  endsAt: string | null
+  location: string | null
+  audience: Audience
+  status: string
+  createdById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SchoolEventListItem extends SchoolEvent {
+  createdByName: string | null
+}
+
+export interface GalleryAlbum {
+  id: string
+  title: string
+  description: string | null
+  coverObjectKey: string | null
+  eventId: string | null
+  isPublished: boolean
+  createdById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GalleryAlbumListItem extends GalleryAlbum {
+  imageCount: number
+  eventName: string | null
+}
+
+export interface GalleryImage {
+  id: string
+  albumId: string
+  objectKey: string
+  thumbObjectKey: string | null
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  caption: string | null
+  createdAt: string
+}
+
+export interface GalleryAlbumDetail extends GalleryAlbum {
+  images: GalleryImage[]
+  eventName: string | null
+}

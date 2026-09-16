@@ -82,5 +82,23 @@ id = "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID"
 binding = "R2_BUCKET"
 bucket_name = "sms-production"
 
-# Queues (producer + consumer) are intentionally absent until Phase 10.
+# Queues (Phase 10). Producer binding only — notification fan-out
+# currently runs synchronously inside the publish transaction. The
+# producer is reserved for the Phase 12 async email path; no queue
+# consumer is declared yet because there is no `queue()` handler.
+# Provision once per environment:
+#   wrangler queues create sms-notifications-staging
+#   wrangler queues create sms-notifications-production
+[[queues.producers]]
+binding = "NOTIFICATION_QUEUE"
+queue = "sms-notifications-local"
+
+[[env.staging.queues.producers]]
+binding = "NOTIFICATION_QUEUE"
+queue = "sms-notifications-staging"
+
+[[env.production.queues.producers]]
+binding = "NOTIFICATION_QUEUE"
+queue = "sms-notifications-production"
+
 # Cron Triggers / Durable Objects will be added here when their phases land.

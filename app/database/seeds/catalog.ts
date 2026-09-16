@@ -106,6 +106,10 @@ export const PERMISSION_SLUGS = [
   'notifications.view',
   'messages.view',
   'messages.send',
+  'events.view',
+  'events.manage',
+  'gallery.view',
+  'gallery.manage',
   'reports.view',
   'reports.export',
   'audit_logs.view',
@@ -227,6 +231,8 @@ const TEACHER_PERMISSIONS: PermissionSlug[] = [
   'notifications.view',
   'messages.view',
   'messages.send',
+  'events.view',
+  'gallery.view',
   'reports.view',
 ]
 
@@ -245,6 +251,8 @@ const STUDENT_PERMISSIONS: PermissionSlug[] = [
   'notifications.view',
   'messages.view',
   'messages.send',
+  'events.view',
+  'gallery.view',
 ]
 
 // Parent: linked-children view plus fee visibility.
@@ -263,6 +271,8 @@ const PARENT_PERMISSIONS: PermissionSlug[] = [
   'notifications.view',
   'messages.view',
   'messages.send',
+  'events.view',
+  'gallery.view',
 ]
 
 export const ROLE_PERMISSIONS: Record<RoleSeed['slug'], PermissionSlug[]> = {

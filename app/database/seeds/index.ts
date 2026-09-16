@@ -13,6 +13,8 @@
  *     (Phase 4)
  *   - fake admissions applications, documents metadata and assessments
  *     (Phase 9); placeholder document object keys have no R2 bytes
+ *   - fake announcements, notifications, messages, events and gallery
+ *     albums/images (Phase 10); gallery image object keys have no R2 bytes
  *
  * Run via `npm run db:seed` (uses database/seed.ts). Safe to re-run:
  * every row upserts on its natural unique key and join rows use
@@ -64,8 +66,15 @@ import {
   admissionApplications,
   admissionDocuments,
   admissionAssessments,
+  announcements,
+  notifications,
+  messages,
+  events,
+  galleryAlbums,
+  galleryImages,
 } from '../schema'
 import type { Schema } from '../schema'
+import { audienceEnum } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
 import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from './catalog'
 
@@ -1579,6 +1588,229 @@ export async function seedDatabase(db: DB): Promise<void> {
             ...assessment,
             assessorId: adminUser.id,
           })
+        }
+      }
+    }
+
+    // --- Phase 10: communication, events & gallery (fake demo data) --------
+    // Idempotent: announcements on title, notifications/messages on a
+    // check for existing rows, events on title+startsAt, albums on
+    // title. Gallery image rows use placeholder object keys (no R2
+    // bytes — downloads will 404 until real uploads happen).
+    if (adminUser) {
+      const [superadminUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, 'superadmin@victoriouschildren.school'))
+        .limit(1)
+      const [teacherUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, 'teacher@victoriouschildren.school'))
+        .limit(1)
+      const [studentUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, 'student@victoriouschildren.school'))
+        .limit(1)
+      const [parentUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, 'parent@victoriouschildren.school'))
+        .limit(1)
+
+      // Announcements (idempotent on title).
+      const seedAnnouncements = [
+        {
+          title: 'Welcome to the 2026-2027 academic year',
+          body: 'Classes resume on Monday, 7 September 2026. All students should arrive by 7:45 AM.',
+          audience: 'all' as const,
+          status: 'published' as const,
+          authorId: adminUser.id,
+          publishedAt: new Date('2026-09-01T08:00:00Z'),
+        },
+        {
+          title: 'Staff meeting — Friday 3 PM',
+          body: 'All teaching staff are required to attend the curriculum planning meeting in the staff room.',
+          audience: 'staff' as const,
+          status: 'published' as const,
+          authorId: adminUser.id,
+          publishedAt: new Date('2026-09-08T10:00:00Z'),
+        },
+        {
+          title: 'Parent-teacher conference draft',
+          body: 'Draft agenda for the upcoming parent-teacher conference.',
+          audience: 'parents' as const,
+          status: 'draft' as const,
+          authorId: adminUser.id,
+        },
+        {
+          title: 'Old open day notice',
+          body: 'The school open day has been rescheduled.',
+          audience: 'all' as const,
+          status: 'archived' as const,
+          authorId: adminUser.id,
+          publishedAt: new Date('2026-08-15T09:00:00Z'),
+        },
+      ]
+      for (const a of seedAnnouncements) {
+        const [existing] = await db
+          .select({ id: announcements.id })
+          .from(announcements)
+          .where(eq(announcements.title, a.title))
+          .limit(1)
+        if (existing) continue
+        await db.insert(announcements).values(a)
+      }
+
+      // Notifications (idempotent — check by title+userId).
+      const seedNotifications = [
+        { userId: adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume on Monday.', link: '/announcements', status: 'read' as const, readAt: new Date('2026-09-02T08:00:00Z') },
+        { userId: teacherUser?.id ?? adminUser.id, type: 'announcement', title: 'Staff meeting — Friday 3 PM', body: 'All teaching staff required.', link: '/announcements', status: 'unread' as const },
+        { userId: studentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: new Date('2026-09-03T10:00:00Z') },
+        { userId: parentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'unread' as const },
+        { userId: superadminUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: new Date('2026-09-01T12:00:00Z') },
+      ]
+      for (const n of seedNotifications) {
+        const [existing] = await db
+          .select({ id: notifications.id })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.userId, n.userId),
+              eq(notifications.title, n.title),
+            ),
+          )
+          .limit(1)
+        if (existing) continue
+        await db.insert(notifications).values(n)
+      }
+
+      // Messages (idempotent — check by body text).
+      const seedMessages = [
+        { senderId: adminUser.id, recipientId: teacherUser?.id ?? adminUser.id, direction: 'outbound' as const, subject: 'Lesson plan review', body: 'Please submit your updated lesson plans by Friday.', isRead: false },
+        { senderId: teacherUser?.id ?? adminUser.id, recipientId: parentUser?.id ?? adminUser.id, direction: 'outbound' as const, subject: 'Student progress', body: 'Your child is doing well in mathematics.', isRead: true, readAt: new Date('2026-09-10T14:00:00Z') },
+        { senderId: parentUser?.id ?? adminUser.id, recipientId: adminUser.id, direction: 'outbound' as const, subject: 'Fee enquiry', body: 'When is the next fee payment due?', isRead: true, readAt: new Date('2026-09-09T11:00:00Z') },
+      ]
+      for (const m of seedMessages) {
+        const [existing] = await db
+          .select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.body, m.body))
+          .limit(1)
+        if (existing) continue
+        await db.insert(messages).values(m)
+      }
+
+      // Events (idempotent on title + startsAt).
+      const seedEvents: {
+        title: string
+        description: string
+        startsAt: Date
+        endsAt: Date | null
+        location: string
+        audience: (typeof audienceEnum.enumValues)[number]
+        status: string
+        createdById: string
+      }[] = [
+        {
+          title: 'Annual Sports Day 2026',
+          description: 'Inter-house athletics competition on the school field.',
+          startsAt: new Date('2026-10-18T09:00:00Z'),
+          endsAt: new Date('2026-10-18T16:00:00Z'),
+          location: 'School Sports Field',
+          audience: 'all',
+          status: 'published',
+          createdById: adminUser.id,
+        },
+        {
+          title: 'Staff curriculum review',
+          description: 'Termly curriculum planning meeting for all staff.',
+          startsAt: new Date('2026-09-12T15:00:00Z'),
+          endsAt: new Date('2026-09-12T17:00:00Z'),
+          location: 'Staff Room',
+          audience: 'staff',
+          status: 'published',
+          createdById: adminUser.id,
+        },
+        {
+          title: 'Cultural Festival (draft)',
+          description: 'Planning for the end-of-year cultural festival.',
+          startsAt: new Date('2026-12-05T10:00:00Z'),
+          endsAt: null,
+          location: 'School Hall',
+          audience: 'all',
+          status: 'draft',
+          createdById: adminUser.id,
+        },
+      ]
+      const eventIds: { id: string; title: string }[] = []
+      for (const e of seedEvents) {
+        const [existing] = await db
+          .select({ id: events.id })
+          .from(events)
+          .where(
+            and(
+              eq(events.title, e.title),
+              eq(events.startsAt, e.startsAt),
+            ),
+          )
+          .limit(1)
+        if (existing) {
+          eventIds.push({ id: existing.id, title: e.title })
+          continue
+        }
+        const [created] = await db
+          .insert(events)
+          .values(e)
+          .returning({ id: events.id, title: events.title })
+        if (created) eventIds.push(created)
+      }
+
+      // Gallery albums (idempotent on title).
+      const sportsDayEvent = eventIds.find(
+        (e) => e.title === 'Annual Sports Day 2026',
+      )
+      const seedAlbums = [
+        {
+          title: 'Sports Day 2026',
+          description: 'Photos from the annual sports day.',
+          eventId: sportsDayEvent?.id ?? null,
+          isPublished: true,
+          createdById: adminUser.id,
+        },
+        {
+          title: 'Cultural Festival',
+          description: 'Behind the scenes preparation (unpublished).',
+          eventId: null,
+          isPublished: false,
+          createdById: adminUser.id,
+        },
+      ]
+      for (const album of seedAlbums) {
+        const [existing] = await db
+          .select({ id: galleryAlbums.id })
+          .from(galleryAlbums)
+          .where(eq(galleryAlbums.title, album.title))
+          .limit(1)
+        if (existing) continue
+        const [created] = await db
+          .insert(galleryAlbums)
+          .values(album)
+          .returning({ id: galleryAlbums.id })
+
+        if (created) {
+          const seedImages = [
+            { objectKey: `gallery/albums/${created.id}/img1-placeholder.jpg`, fileName: 'opening-ceremony.jpg', mimeType: 'image/jpeg', sizeBytes: 1048576, caption: 'Opening ceremony' },
+            { objectKey: `gallery/albums/${created.id}/img2-placeholder.jpg`, fileName: '100m-race.jpg', mimeType: 'image/jpeg', sizeBytes: 2097152, caption: '100m dash' },
+            { objectKey: `gallery/albums/${created.id}/img3-placeholder.jpg`, fileName: 'award-ceremony.jpg', mimeType: 'image/jpeg', sizeBytes: 1572864, caption: 'Award ceremony' },
+          ]
+          for (const img of seedImages) {
+            await db.insert(galleryImages).values({
+              albumId: created.id,
+              ...img,
+            })
+          }
         }
       }
     }

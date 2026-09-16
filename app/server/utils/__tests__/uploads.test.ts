@@ -112,6 +112,38 @@ describe('validateUpload', () => {
       }),
     ).toThrow(/10 MB/)
   })
+
+  it('accepts gallery images up to 25 MB', () => {
+    const result = validateUpload({
+      fileName: 'sports-day.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 5 * 1024 * 1024,
+      category: 'gallery_image',
+    })
+    expect(result.extension).toBe('jpg')
+  })
+
+  it('rejects gallery images over 25 MB', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'huge-photo.png',
+        mimeType: 'image/png',
+        sizeBytes: 26 * 1024 * 1024,
+        category: 'gallery_image',
+      }),
+    ).toThrow(/25 MB/)
+  })
+
+  it('rejects non-image gallery uploads', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'readme.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 1024,
+        category: 'gallery_image',
+      }),
+    ).toThrow(/not allowed/)
+  })
 })
 
 describe('buildObjectKey', () => {

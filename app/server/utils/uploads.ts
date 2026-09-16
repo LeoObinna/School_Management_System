@@ -13,6 +13,7 @@ export const UPLOAD_LIMITS: Record<UploadCategory, number> = {
   submission: 25 * 1024 * 1024,
   resource: 50 * 1024 * 1024,
   admission_document: 10 * 1024 * 1024,
+  gallery_image: 25 * 1024 * 1024,
 }
 
 export type UploadCategory =
@@ -20,6 +21,7 @@ export type UploadCategory =
   | 'submission'
   | 'resource'
   | 'admission_document'
+  | 'gallery_image'
 
 // Allowed declared MIME types. Magic-byte content sniffing is deferred
 // to Phase 12 hardening; for now the declared type must be a known
@@ -50,6 +52,14 @@ const MIME_EXTENSIONS: Record<string, string[]> = {
     'pptx',
   ],
   'application/zip': ['zip'],
+}
+
+// Per-category MIME prefix restrictions. When an entry exists, the
+// declared MIME type must start with one of the listed prefixes in
+// addition to passing the global allowlist. `gallery_image` only
+// accepts true image uploads.
+const CATEGORY_MIME_PREFIXES: Partial<Record<UploadCategory, string[]>> = {
+  gallery_image: ['image/'],
 }
 
 export interface ValidatedUpload {
@@ -109,6 +119,15 @@ export function validateUpload(input: {
   }
   if (!mimeType || !isAllowedMimeType(mimeType)) {
     throw new Error(`File type "${mimeType || 'unknown'}" is not allowed.`)
+  }
+  const categoryPrefixes = CATEGORY_MIME_PREFIXES[input.category]
+  if (
+    categoryPrefixes &&
+    !categoryPrefixes.some((prefix) => mimeType.startsWith(prefix))
+  ) {
+    throw new Error(
+      `File type "${mimeType}" is not allowed for this upload category.`,
+    )
   }
   const match = Object.entries(MIME_EXTENSIONS).find(([prefix]) =>
     mimeType.startsWith(prefix),
