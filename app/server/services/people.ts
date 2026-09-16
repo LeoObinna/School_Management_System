@@ -116,6 +116,73 @@ export async function listStudents(
   })
 }
 
+export interface StudentExportRow {
+  id: string
+  admissionNumber: string
+  firstName: string
+  lastName: string
+  status: string
+  className: string | null
+  guardianName: string | null
+  guardianEmail: string | null
+  guardianPhone: string | null
+}
+
+/**
+ * Returns the active student directory joined to current class and
+ * primary guardian, for CSV export (README §41 Phase 11). Capped at
+ * 5000 rows — school-scale, not a paginated listing.
+ */
+export async function listStudentsForExport(): Promise<StudentExportRow[]> {
+  const client = await db()
+  // Left-join the primary guardian via student_parents. The join is
+  // correlated; we filter on is_primary inside the ON clause so a
+  // student with no primary guardian still appears with nulls.
+  const rows = await client
+    .select({
+      id: students.id,
+      admissionNumber: students.admissionNumber,
+      firstName: students.firstName,
+      lastName: students.lastName,
+      status: students.status,
+      className: classes.name,
+      guardianFirstName: parents.firstName,
+      guardianLastName: parents.lastName,
+      guardianEmail: parents.email,
+      guardianPhone: parents.phone,
+    })
+    .from(students)
+    .leftJoin(classes, eq(students.currentClassId, classes.id))
+    .leftJoin(
+      studentParents,
+      and(
+        eq(studentParents.studentId, students.id),
+        eq(studentParents.isPrimary, true),
+      ),
+    )
+    .leftJoin(parents, eq(studentParents.parentId, parents.id))
+    .where(activeStudent)
+    .orderBy(asc(students.admissionNumber))
+    .limit(5000)
+
+  return rows.map((r) => ({
+    id: r.id,
+    admissionNumber: r.admissionNumber,
+    firstName: r.firstName,
+    lastName: r.lastName,
+    status: r.status,
+    className: r.className ?? null,
+    guardianName:
+      r.guardianFirstName || r.guardianLastName
+        ? [r.guardianFirstName, r.guardianLastName]
+            .filter(Boolean)
+            .join(' ')
+        : null,
+    guardianEmail: r.guardianEmail ?? null,
+    guardianPhone: r.guardianPhone ?? null,
+  }))
+}
+
 export async function getStudentOrThrow(id: string): Promise<Student> {
   const client = await db()
   const [row] = await client

@@ -353,6 +353,42 @@ async function onLogout() {
         </div>
       </section>
 
+      <section
+        v-if="auth.can('reports.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Reports</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <NuxtLink
+            to="/reports"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Operational reports</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Overview counts, attendance and enrollment reports, CSV exports
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section
+        v-if="auth.can('audit_logs.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Audit logs</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <NuxtLink
+            to="/audit-logs"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Audit log viewer</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Security and sensitive-operation events with CSV export
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">System Health</h3>
         <HealthStatus />

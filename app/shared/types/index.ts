@@ -1230,3 +1230,71 @@ export interface GalleryAlbumDetail extends GalleryAlbum {
   images: GalleryImage[]
   eventName: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Reports & audit (README §26/§27, Phase 11)
+// ---------------------------------------------------------------------------
+export interface AuditLog {
+  id: string
+  userId: string | null
+  action: string
+  resource: string
+  resourceId: string | null
+  description: string | null
+  ipAddress: string | null
+  userAgent: string | null
+  metadata: string | null
+  createdAt: string
+}
+
+export interface AuditLogListItem extends AuditLog {
+  userName: string | null
+  userEmail: string | null
+}
+
+export interface OverviewReport {
+  studentsTotal: number
+  studentsActive: number
+  studentsArchived: number
+  teachers: number
+  parents: number
+  staff: number
+  classes: number
+  sections: number
+  subjects: number
+  enrollmentsByStatus: Record<
+    'active' | 'completed' | 'promoted' | 'repeated' | 'withdrawn',
+    number
+  >
+  announcementsByStatus: Record<
+    'draft' | 'scheduled' | 'published' | 'archived',
+    number
+  >
+  eventsUpcoming: number
+  eventsPast: number
+  sessionId: string | null
+  termId: string | null
+}
+
+export interface AttendanceReportClassRow {
+  classId: string
+  className: string
+  present: number
+  absent: number
+  late: number
+  excused: number
+  total: number
+  rate: string
+}
+
+export interface EnrollmentReportRow {
+  classId: string
+  className: string
+  status:
+    | 'active'
+    | 'completed'
+    | 'promoted'
+    | 'repeated'
+    | 'withdrawn'
+  count: number
+}

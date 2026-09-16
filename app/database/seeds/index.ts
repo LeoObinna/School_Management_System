@@ -15,6 +15,8 @@
  *     (Phase 9); placeholder document object keys have no R2 bytes
  *   - fake announcements, notifications, messages, events and gallery
  *     albums/images (Phase 10); gallery image object keys have no R2 bytes
+ *   - fake audit log rows (Phase 11) so the audit viewer isn't empty;
+ *     ids are UUID defaults so idempotency uses userId+action+resource+createdAt
  *
  * Run via `npm run db:seed` (uses database/seed.ts). Safe to re-run:
  * every row upserts on its natural unique key and join rows use
@@ -72,6 +74,7 @@ import {
   events,
   galleryAlbums,
   galleryImages,
+  auditLogs,
 } from '../schema'
 import type { Schema } from '../schema'
 import { audienceEnum } from '../schema'
@@ -1812,6 +1815,142 @@ export async function seedDatabase(db: DB): Promise<void> {
             })
           }
         }
+      }
+
+      // --- Phase 11: audit log demo rows -----------------------------
+      // Idempotent on the natural key (userId, action, resource,
+      // createdAt). Fixed timestamps so re-running the seeder does not
+      // double-insert. Metadata is a JSON string per the audit_logs
+      // schema; nothing here is sensitive (passwords/tokens never
+      // logged).
+      const seedAuditLogs: {
+        userId?: string
+        action: string
+        resource: string
+        resourceId?: string | null
+        description: string
+        ipAddress?: string | null
+        metadata?: Record<string, unknown> | null
+        createdAt: Date
+      }[] = [
+        {
+          userId: superadminUser?.id,
+          action: 'auth.login.success',
+          resource: 'auth',
+          resourceId: superadminUser?.id ?? null,
+          description: 'Super admin signed in.',
+          ipAddress: '127.0.0.1',
+          createdAt: new Date('2026-09-13T08:00:00Z'),
+        },
+        {
+          userId: superadminUser?.id,
+          action: 'role.update',
+          resource: 'role',
+          description: 'Adjusted teacher role permissions.',
+          ipAddress: '127.0.0.1',
+          createdAt: new Date('2026-09-13T16:00:00Z'),
+        },
+        {
+          userId: adminUser.id,
+          action: 'student.create',
+          resource: 'student',
+          resourceId: '00000000-0000-0000-0000-000000000001',
+          description: 'Created Amara Okafor (STU-001).',
+          ipAddress: '10.0.0.5',
+          metadata: { admissionNumber: 'STU-001', class: 'Primary 1' },
+          createdAt: new Date('2026-09-14T14:00:00Z'),
+        },
+        {
+          userId: adminUser.id,
+          action: 'student.archive',
+          resource: 'student',
+          resourceId: '00000000-0000-0000-0000-000000000002',
+          description: 'Archived STU-002 (graduated).',
+          ipAddress: '10.0.0.5',
+          createdAt: new Date('2026-09-14T15:00:00Z'),
+        },
+        {
+          userId: adminUser.id,
+          action: 'invoice.create',
+          resource: 'invoice',
+          resourceId: '00000000-0000-0000-0000-000000000003',
+          description: 'Issued termly tuition invoice.',
+          ipAddress: '10.0.0.5',
+          metadata: { total: '50000.00', term: 'First' },
+          createdAt: new Date('2026-09-15T11:00:00Z'),
+        },
+        {
+          userId: teacherUser?.id,
+          action: 'attendance.mark',
+          resource: 'attendance_session',
+          resourceId: '00000000-0000-0000-0000-000000000004',
+          description: 'Marked Primary 1 attendance.',
+          ipAddress: '10.0.0.12',
+          createdAt: new Date('2026-09-15T13:00:00Z'),
+        },
+        {
+          userId: adminUser.id,
+          action: 'payment.verify',
+          resource: 'payment',
+          resourceId: '00000000-0000-0000-0000-000000000005',
+          description: 'Verified bank transfer NGN 50,000.',
+          ipAddress: '10.0.0.5',
+          metadata: { method: 'bank_transfer', amount: '50000.00' },
+          createdAt: new Date('2026-09-15T15:30:00Z'),
+        },
+        {
+          userId: superadminUser?.id,
+          action: 'announcement.publish',
+          resource: 'announcement',
+          resourceId: '00000000-0000-0000-0000-000000000006',
+          description: 'Published welcome announcement.',
+          ipAddress: '127.0.0.1',
+          createdAt: new Date('2026-09-16T09:00:00Z'),
+        },
+        {
+          userId: adminUser.id,
+          action: 'admission.advance',
+          resource: 'admission',
+          resourceId: '00000000-0000-0000-0000-000000000007',
+          description: 'Advanced STU-004 to under_review.',
+          ipAddress: '10.0.0.5',
+          metadata: { from: 'submitted', to: 'under_review' },
+          createdAt: new Date('2026-09-16T10:00:00Z'),
+        },
+        {
+          userId: superadminUser?.id,
+          action: 'user.update',
+          resource: 'user',
+          resourceId: '00000000-0000-0000-0000-000000000008',
+          description: 'Deactivated former staff account.',
+          ipAddress: '127.0.0.1',
+          createdAt: new Date('2026-09-16T11:00:00Z'),
+        },
+      ]
+      for (const a of seedAuditLogs) {
+        const [existing] = await db
+          .select({ id: auditLogs.id })
+          .from(auditLogs)
+          .where(
+            and(
+              a.userId ? eq(auditLogs.userId, a.userId) : isNull(auditLogs.userId),
+              eq(auditLogs.action, a.action),
+              eq(auditLogs.resource, a.resource),
+              eq(auditLogs.createdAt, a.createdAt),
+            ),
+          )
+          .limit(1)
+        if (existing) continue
+        await db.insert(auditLogs).values({
+          userId: a.userId ?? null,
+          action: a.action,
+          resource: a.resource,
+          resourceId: a.resourceId ?? null,
+          description: a.description,
+          ipAddress: a.ipAddress ?? null,
+          metadata: a.metadata ? JSON.stringify(a.metadata) : null,
+          createdAt: a.createdAt,
+        })
       }
     }
   }
