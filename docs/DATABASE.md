@@ -12,18 +12,31 @@ service-layer transactions.
 
 ### 1. Development (local machine)
 
-Any PostgreSQL 14+ reachable from the Mac — a local install or a remote
-dev database (e.g. Neon free tier). No Docker is required. The
-connection string is read by Nuxt/Drizzle from `app/.env`:
+Local PostgreSQL via **Postgres.app** (verified server 16.15) with a
+dedicated database `sms_dev`. Postgres.app uses trust auth on localhost
+(no password). Create it once:
 
 ``` text
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
+/Applications/Postgres.app/Contents/Versions/latest/bin/createdb \
+  -h localhost -p 5432 -U "$USER" sms_dev
 ```
 
-For Workers-emulation (`npm run cf:dev`) the same URL is supplied to
-Wrangler as
-`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` (wired in the
-`cf:dev` script). Only synthetic/fake demo data is allowed.
+The connection string is read by Nuxt/Drizzle from the gitignored
+`app/.env`:
+
+``` text
+DATABASE_URL=postgresql://mac@127.0.0.1:5432/sms_dev
+```
+
+For Workers emulation (`npm run cf:dev` / `wrangler dev`) the same
+database is reached via a locally emulated HYPERDRIVE binding declared
+at the top of `app/wrangler.toml` with
+`localConnectionString = "postgresql://mac:local@127.0.0.1:5432/sms_dev"`
+(the dummy password is required by Wrangler URL validation; trust auth
+ignores it). The top-level placeholder Hyperdrive `id` is never used
+remotely and is never deployed — deploys always target the named
+staging/production environments. R2 is emulated on local disk. Only
+synthetic/fake demo data is allowed.
 
 ### 2. Staging
 

@@ -751,10 +751,15 @@ LOCAL DEV (Mac + DATABASE_URL) -> STAGING -> PRODUCTION
 ### Local development
 
 Development runs on the local machine with Node 24 and npm from `app/`.
-PostgreSQL is a local or remote dev database reached via
-`DATABASE_URL` in the gitignored `app/.env`. No Docker, Kubernetes,
-Redis, Codespace, PHP, Composer or Laravel tooling is required;
-background jobs will use Cloudflare Queues (Phase 10).
+PostgreSQL runs locally through **Postgres.app** (database `sms_dev`,
+trust auth on localhost) and is reached via `DATABASE_URL` in the
+gitignored `app/.env` for `nuxt dev`, drizzle-kit and the seeder. Under
+`wrangler dev` the same database is reached through a locally emulated
+HYPERDRIVE binding (`localConnectionString` in `wrangler.toml`), with R2
+emulated on local disk — no remote Cloudflare resources are needed for
+development. No Docker, Kubernetes, Redis, Codespace, PHP, Composer or
+Laravel tooling is required; background jobs will use Cloudflare Queues
+(Phase 10).
 
 ``` text
 npm install
@@ -765,8 +770,9 @@ npm run cf:dev    # build + wrangler dev (Workers + binding emulation)
 ### Remote / managed services
 
 -   Staging and production PostgreSQL run on a managed provider
-    (Neon/Supabase), reached from Workers via separate Cloudflare
-    Hyperdrive configs.
+    (planned: PlanetScale PostgreSQL), reached from Workers via separate
+    Cloudflare Hyperdrive configs. Nothing is provisioned remotely
+    during local development.
 -   R2 objects, Queues and the Worker runtime are Cloudflare-managed.
 -   No PHP, Composer, Redis server, or long-lived application server is
     required anywhere.
@@ -800,8 +806,8 @@ TRAE CN (IDE)
 Node.js 24 + npm 11 (verified: Node v24.11.1 / npm 11.6.2)
 Git
 A modern browser
-A reachable PostgreSQL for database work (local install or remote
-dev database such as Neon; connection details in app/.env)
+Postgres.app (verified: PostgreSQL server 16.15; creates a local
+superuser matching the macOS user, trust auth on localhost)
 ```
 
 ## 31. Local setup
@@ -811,16 +817,24 @@ dev database such as Neon; connection details in app/.env)
 cd app
 npm install
 
-# 2. Create your local environment file (never committed)
+# 2. Create the local development database once (Postgres.app running,
+#    default server on localhost:5432; -U is the macOS username):
+/Applications/Postgres.app/Contents/Versions/latest/bin/createdb \
+  -h localhost -p 5432 -U "$USER" sms_dev
+#    Connection string used below:
+#    postgresql://$USER@127.0.0.1:5432/sms_dev (no password; trust auth)
+
+# 3. Create your local environment file (never committed)
 cp .env.example .env
-#    edit .env: set DATABASE_URL to your dev PostgreSQL and a random
+#    edit .env: set DATABASE_URL to the sms_dev URL above and a random
 #    SESSION_SECRET (openssl rand -base64 48)
 
-# 3. Prepare the database (direct connection, not Hyperdrive)
+# 4. Prepare the database (direct connection, not Hyperdrive)
 npm run db:migrate
 npm run db:seed        # fake demo data only
 
-# 4. Authenticate Wrangler once (opens the browser)
+# 5. Authenticate Wrangler once (opens the browser) — only required for
+#    deploys/remote operations; plain `wrangler dev` works without it
 npx wrangler login
 npx wrangler whoami
 ```
@@ -838,7 +852,9 @@ Run the app:
 
 ``` text
 npm run dev       # http://localhost:3000 (Node runtime, DATABASE_URL)
-npm run cf:dev    # Workers runtime emulation with R2/Hyperdrive bindings
+npm run cf:dev    # Workers runtime emulation with local R2 on disk and
+                  # local Hyperdrive -> sms_dev (wrangler.toml
+                  # localConnectionString). Never use --remote locally.
 ```
 
 Do not start feature work until these checks pass. The quality gate
@@ -1012,8 +1028,9 @@ Daily commands, run from `app/`:
 ``` text
 npm run dev                # Nuxt dev server (Node; DATABASE_URL, no bindings)
 npm run cf:dev             # build + wrangler dev (full Worker emulation;
-                           # local Hyperdrive via CLOUDFLARE_HYPERDRIVE_
-                           # LOCAL_CONNECTION_STRING_HYPERDRIVE, R2 on disk)
+                           # local Hyperdrive -> sms_dev via
+                           # localConnectionString in wrangler.toml,
+                           # R2 emulated on disk; never pass --remote)
 npm run deploy:staging     # build + wrangler deploy -e staging
 npm run deploy:production  # build + wrangler deploy -e production
 ```
@@ -1360,7 +1377,8 @@ required.
   built this phase (depends on Phase 10 communication).
 - Student/parent attendance views are permission-gated but not yet
   row-scoped to "own timetable/own children" (consistent with prior
-  phases; row-level scoping is Phase 12 hardening).
+  phases; row-level scoping delivered in Phase 12 Part A — teachers now
+  see only their own classes, students/parents their own/children's).
 
 ### Phase 6 --- Assignments/resources  ✅ COMPLETE
 
@@ -1414,9 +1432,11 @@ Assignments, submissions, grading, resources and R2 integration.
   The S3-compatible credentials fallback in runtime config is wired in
   Phase 13. Live PostgreSQL + R2 verification pending in
   Codespaces/staging (`db:migrate` + `db:seed`).
-- Magic-byte content sniffing and anti-malware scanning are deferred
-  (Phase 12 hardening); validation uses declared MIME + extension
-  agreement.
+- Magic-byte content sniffing was delivered in Phase 12 Part A
+  (`sniffMagicBytes` + `assertSniffMatchesDeclared` in
+  `server/utils/uploads.ts`, wired into `readUpload`); anti-malware
+  scanning (e.g. a ClamAV/AV gateway) remains deferred. Validation uses
+  declared MIME + extension agreement plus the magic-byte check.
 - Assignment creation requires a teacher-linked account; admins create
   via a teacher login (assigning-on-behalf can be added later).
 - Resource files cannot be replaced in place (delete + re-upload);
@@ -1425,32 +1445,229 @@ Assignments, submissions, grading, resources and R2 integration.
 - Parent assignment views and submission notifications are not built
   (Phase 10); gradebook/report aggregation is Phase 7.
 
-### Phase 7 --- Exams/results  (current)
+### Phase 7 --- Exams/results  ✅ COMPLETE
 
 Assessment types, exams, scores, grading scales, approval, publication
-and report cards.
+and report cards. Result workflow is a state machine
+(`draft → submitted → approved → published`) with scores locked once
+`submitted`. Students/parents only see `published` results. Report
+cards have metadata + JSON view + workflow only; PDF generation is
+deferred to a later phase (`objectKey` stays null). Staff `/exams` page
+manages exams, scores and the publication workflow; student/parent
+`/results` page shows published subject results and report cards. See
+`docs/API.md` Phase 7.
 
-### Phase 8 --- Finance
+### Phase 8 --- Finance  ✅ COMPLETE
 
-Fees, invoices, payments, verification, receipts, balances and reports.
+Fee structures and fee items, invoices (draft → issued → partially
+paid → paid / void), manual payment recording and verification,
+refunds, auto-generated receipts, balances and finance reports
+(outstanding, summary, CSV export). Money is NUMERIC(12,2) transported
+as strings and computed in integer cents. Parents/students are scoped
+to their own/children's data on `/billing`; staff manage fees on
+`/finance/fees` and invoices/payments on `/finance/invoices`. Payments
+are recorded and verified manually this phase — the payment
+gateway/webhook integration is deferred (`providerReference` and
+`idempotencyKey` columns are reserved) and receipts are metadata-only
+JSON (`objectKey` stays null); PDF receipts are deferred. See
+`docs/API.md` Phase 8.
 
-### Phase 9 --- Admissions
+### Phase 9 --- Admissions  ✅ COMPLETE
 
-Applications, documents, assessments, review, decisions and
-admission-to-enrollment transition.
+Staff-intake applications (`applied → documents_submitted →
+under_review → assessment_scheduled → assessed → accepted →
+enrolled`, plus `waitlisted`/`rejected`/`withdrawn`), R2-backed
+applicant documents with metadata in PostgreSQL (multipart upload,
+authorized streaming download, 10 MB limit), entrance
+assessments/interviews (schedule, score, result), review and
+accept/reject/waitlist/withdraw decisions with notes, and a separate
+two-step conversion: enroll an accepted/waitlisted application in one
+transaction that creates the student (staff-supplied admission
+number), the active enrollment and, optionally, a guardian parent
+record. Numbers are `APP-YYYY-NNNN`; all routes are staff-only
+(admin/super_admin permissions) and live on `/admissions`. The public,
+unauthenticated application form is deferred to Phase 14, and R2
+upload/download returns 503 under plain Node dev (use `npm run cf:dev`
+or a deployed environment). See `docs/API.md` Phase 9.
 
-### Phase 10 --- Communication/events
+### Phase 10 --- Communication/events  ✅ COMPLETE
 
-Announcements, notifications, messaging, events and gallery.
+Announcements (draft/scheduled/published/archived with audience
+targeting and synchronous notification fan-out on publish — moved to
+the async queue consumer in Phase 12 Part B), notifications
+(per-recipient, list/mark-read/delete scoped to the authenticated
+user), internal messages (send by email or user ID, inbox with
+mark-read), events (CRUD with audience), and gallery (albums +
+R2-backed images with multipart upload, authorized streaming
+download, 25 MB limit). Queue producer bindings declared in
+`wrangler.toml`; the consumer + `queue()` handler landed in Phase 12
+Part B. Learning resources deferred (Phase 7 territory);
+thumbnail/optimization pipeline deferred to Phase 12; public
+events/gallery website deferred to Phase 14. Gallery upload/download
+returns 503 under plain Node dev (use `npm run cf:dev`). See
+`docs/API.md` Phase 10.
 
-### Phase 11 --- Reports/audit
+### Phase 11 --- Reports/audit  ✅ COMPLETE
 
-Operational reports, exports and audit UI.
+Operational reports, exports and audit UI. Audit log viewer
+(super_admin-only via `audit_logs.view`) with filter bar (action,
+resource, user, dates, search), expandable rows showing `resourceId`
+and pretty-printed `metadata`, and CSV export (gated by
+`reports.export`). Reports overview endpoint (school-wide counts for
+students/teachers/parents/staff/classes/sections/subjects, with
+enrollments-by-status and announcements-by-status breakdowns and
+upcoming/past event counts). Attendance per-class report (present/
+absent/late/excused totals + rate) and enrollment per-class-by-status
+report, both with CSV export. Student directory CSV export using the
+previously-dormant `students.export` slug. Dashboard adds Reports +
+Audit logs sections. Ten idempotent audit log seed rows cover typical
+actions (auth.login.success, role.update, student.create/archive,
+invoice.create, attendance.mark, payment.verify,
+announcement.publish, admission.advance, user.update). No new
+permissions or migrations. Delivered in Phase 12: row-level scoping for
+teachers (Part A), queue consumer handler (Part B), PDF report cards
+(Part C / Option A). Still deferred in Phase 12: PDF audit
+certificates, Excel/.xlsx exports, admissions-pipeline report, gallery
+image thumbnails. See `docs/API.md` Phase 11.
 
 ### Phase 12 --- Hardening
 
 Security, authorization, file security, rate limits, queues,
 performance, accessibility and staging review.
+
+**Part A --- Security & authorization hardening  ✅ COMPLETE**
+
+- File-upload magic-byte content sniffing
+  (`server/utils/uploads.ts`): `sniffMagicBytes` reads the leading bytes
+  and `assertSniffMatchesDeclared` verifies the sniffed family is
+  consistent with the declared MIME. Wired into `readUpload`
+  (`server/utils/multipart.ts`) so all five upload routes
+  (assignment attachments, submissions, gallery images, resources,
+  admission documents) inherit it. A renamed EXE/PNG/etc. named `.pdf`
+  with a matching declared type now returns 422. Recognised: PDF, PNG,
+  JPEG, GIF, WebP, SVG, ZIP/OOXML, legacy Office OLE, MZ/ELF
+  executables, plus a printable-text heuristic. Unknown content falls
+  back to the existing declared-MIME + extension check.
+- Shared business-actor resolver (`server/utils/auth/actor.ts`):
+  `resolveActorProfile(event, staffPermission)` resolves the caller's
+  teacherId / studentId / staffProfileId / parent's children, cached
+  per request on `event.context.actorBusinessIds`. Does not touch the
+  auth middleware hot path (`loadUserGrants` unchanged). Includes the
+  pure `classifyActorScope` decision function and shared
+  `studentEnrolledClassIds` / `teacherTaughtClassIds` helpers.
+- Row-level scoping for timetable, attendance and exams lists
+  (`server/services/schedule.ts`, `server/services/exams.ts`):
+  teachers see only their own timetable entries and the classes they
+  teach; students see their own enrolled classes; parents see their
+  children's classes; staff (admins + callers holding the route's
+  admin-only permission: `timetable.manage`, `attendance.approve`,
+  `exams.create`) see everything. `attendanceClassReport` and
+  `studentAttendance` gain 403 access checks for non-staff callers. A
+  teacher passing a foreign `teacherId` is silently scoped to self.
+- Tests: 26 new pure unit tests (18 sniff/compatibility +
+  8 `classifyActorScope` branches). Suite 317/317 pass; typecheck
+  clean; cloudflare-module build succeeds; `db:seed` idempotent.
+
+**Part B --- Queue consumer + async notifications  ✅ COMPLETE**
+
+- Announcement fan-out moved off the publish request:
+  `publishAnnouncement` marks the row published, counts the audience
+  recipients, and enqueues ONE `announcement.published` message on the
+  `NOTIFICATION_QUEUE` producer (`server/services/communication.ts`,
+  `server/utils/notifications-queue.ts`). The API contract
+  (`{ announcement, notified }`) is unchanged; `notified` is the
+  targeted recipient count.
+- Consumer inside the same Worker: Nitro's cloudflare-module runtime
+  already exports a `queue()` handler that emits the
+  `cloudflare:queue` Nitro hook, so no custom Worker entry is needed.
+  `server/plugins/cloudflare-queue.ts` handles the batch with a
+  short-lived Hyperdrive client (`createWorkerDatabase` in
+  `server/utils/db.ts`), ack on success, `message.retry()` on
+  transient failure, ack of malformed poison messages.
+- Dispatch logic in `server/services/notification-dispatch.ts`: zod
+  message envelope, audience targeting (moved from communication.ts),
+  recipient count, idempotent per-recipient insert, and the message
+  router.
+- Idempotency for at-least-once delivery: migration 0002 adds
+  `notifications.announcement_id` + a partial unique index
+  `(user_id, announcement_id) WHERE announcement_id IS NOT NULL`;
+  the consumer INSERTs `ON CONFLICT … DO NOTHING`. Verified against
+  local PostgreSQL (first delivery inserts rows; redelivery inserts
+  0). Plain Node dev has no queue binding, so fan-out runs inline.
+- `wrangler.toml` declares `[[queues.consumers]]` for local, staging
+  and production (`max_batch_size = 10`, `max_batch_timeout = 5`);
+  `wrangler deploy --dry-run` passes.
+- Tests: 17 new dispatch tests (envelope validation, audience SQL
+  parameter binding, idempotent insert, stale/missing announcement,
+  routing). Suite 334/334 pass; typecheck clean; build succeeds;
+  migrations apply and `db:seed` is idempotent.
+
+**Part C / Option A --- PDF report cards  ✅ COMPLETE**
+
+- A PDF is rendered on report-card generate
+  (`POST /api/v1/students/:id/report-cards`) and re-rendered on
+  publish (`POST /api/v1/report-cards/:id/publish`), stored in R2
+  under a stable key
+  (`report-cards/<sessionId>/<termId>/<studentId>/<cardId>.pdf`), and
+  the `report_cards.object_key` column is updated. No new migration,
+  table column, or permission — the existing `object_key` column and
+  `report_cards.view` permission are reused.
+- New download endpoint `GET /api/v1/report-cards/:id/pdf` streams the
+  stored PDF from R2 with `application/pdf` + an attachment filename.
+  `requirePermission('report_cards.view')` +
+  `getActor('report_cards.view')` + `getReportCard(id, actor)`
+  enforces own/children + published-only access for non-staff callers
+  (404 when missing, 403 when forbidden). A null `objectKey` returns
+  404 ("Report card PDF has not been generated.").
+- Rendering uses `pdf-lib` (pure JavaScript, Workers-compatible) in a
+  pure function `renderReportCardPdf(card)` (`server/utils/pdf/report-card.ts`):
+  A4 portrait, standard Helvetica fonts, header (school name +
+  session/term), student block, subject results table (subject/total/
+  max/pct/grade), per-subject score breakdown, totals row
+  (total/average/overall grade), remarks (attendance/teacher/principal)
+  and a status/date footer. Pages paginate automatically. Long subject
+  names are truncated with an ellipsis; long remarks are word-wrapped.
+- Plain Node dev (`nuxt dev`) has no `R2_BUCKET` binding, so
+  `storeReportCardPdf` swallows the 503 from `putObject` and leaves
+  `objectKey` null — generation/publish still succeed and return the
+  card; the download endpoint returns 404. Use `npm run cf:dev` or
+  staging/prod to actually store and serve PDFs.
+- Tests: 15 new pure unit tests
+  (`server/utils/pdf/__tests__/report-card.test.ts`) — object-key
+  build/stability/character stripping; PDF magic header; single page
+  for an empty card; header/student-block/totals/remarks rendering;
+  empty subject state; subject table with scores + score breakdown;
+  several table-only subjects on one page; pagination for 30 subjects;
+  null optional fields; omission of absent sections; long-name
+  truncation; long-remark wrapping. Text assertions inflate pdf-lib's
+  FlateDecode streams and decode the `<hex> Tj` text operands so no
+  extra text-extraction dependency is needed. Suite 349/349 pass;
+  typecheck clean; cloudflare-module build succeeds.
+- `putObject` (`server/utils/storage.ts`) was widened from
+  `ArrayBuffer` to `ArrayBuffer | ArrayBufferView` so a `Uint8Array`
+  can be passed directly (matches the underlying R2 binding signature).
+
+Known limitations: standard Latin fonts only (Unicode font embedding
+deferred); PDF storage requires the R2 binding; PDF regenerated only
+on generate/publish (editing a published card's remarks without
+re-publishing leaves a stale PDF). Options B (xlsx exports + PDF audit
+certificates + admissions report) and C (gallery thumbnails) remain
+deferred.
+
+Part B does NOT add email delivery yet — queue messages create in-app
+notification rows only; an email provider integration remains future
+work. Remaining Phase 12 workstreams deferred:
+
+- Part C Option B: Excel/.xlsx exports (grades, attendance, admissions
+  report) + PDF audit certificates + admissions-pipeline report.
+- Part C Option C: gallery image thumbnails (Workers has no native
+  image processing; needs a Cloudflare Images binding or wasm
+  pipeline — explicit permission required per user preference).
+- Shared KV/Durable-Object rate limiter and server-side session
+  revocation list (infra-dependent; candidate for Phase 13).
+- Performance, accessibility and staging review.
+
+See `docs/API.md` Phase 12 (Parts A–C / Option A).
 
 ### Phase 13 --- Production readiness
 
@@ -1584,8 +1801,15 @@ Staging        Worker sms-staging + sms-staging R2 + staging Hyperdrive/PG
 Production     Worker sms-production + sms-production R2 + prod Hyperdrive/PG
                (provisioned but not deployed until staging is accepted)
 Website        deferred
-Current phase  Phase 7 — Exams/results (Phases 0–6 complete; Phase 7 NOT
-               started — staging acceptance gate runs first)
+Current phase  Phase 12 Parts A–C / Option A ✅ COMPLETE (Phases 0–11
+               done; Part A security/auth hardening: file magic-byte
+               sniffing + timetable/attendance/exams row-level scoping;
+               Part B queue consumer + async idempotent announcement
+               fan-out; Part C Option A PDF report cards with R2
+               storage + authorized download; Options B/C
+               [xlsx/PDF-audit/admissions exports, gallery thumbnails],
+               email delivery, payment gateway/webhook still
+               deferred).
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -1627,7 +1851,12 @@ while **retaining PostgreSQL** as the primary database.
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
 -   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 7 — Exams/results** (Phases 0–6 done).
+-   Current phase: **Phase 11 — Reports/audit ✅ COMPLETE**
+    (Phases 0–11 done; public website deferred to Phase 14; payment
+    gateway/webhook, PDF receipts, PDF report cards/PDF audit
+    certificates, Excel/.xlsx exports, admissions-pipeline report,
+    queue consumer handler, row-level scoping for teachers, and
+    gallery thumbnails also deferred).
 
 ## 48. Architecture decision (summary)
 
@@ -1739,4 +1968,80 @@ documentation, not a second specification.
                     real staging deploy: managed PostgreSQL decision +
                     Hyperdrive/R2 provisioning (token missing r2 scope;
                     re-login may be required) + wrangler secrets.
+2026-09-13  Phase 8 Finance: fee structures + fee items, invoices
+                    (draft/issued/partially paid/paid/void), manual
+                    payment record/verify/refund with overpayment guard,
+                    auto-generated receipts, balances and outstanding/
+                    summary reports with CSV export; NUMERIC money on
+                    the wire with integer-cents shared helpers
+                    (shared/utils/money.ts); shared zod schemas + types;
+                    finance service with parent/student scoping and
+                    year-based INV-/PAY-/RCT- numbering in transactions;
+                    21 RBAC/audited Nitro routes; typed finance client
+                    service; staff /finance/fees and
+                    /finance/invoices pages plus parent/student /billing
+                    and dashboard links; idempotent fake finance seeding
+                    (structure, partially paid invoice, verified cash
+                    payment, receipt); docs/API + ARCHITECTURE updated;
+                    payment gateway/webhook and PDF receipts deferred.
+2026-09-13  Phase 9 Admissions: staff-only application pipeline
+                    (applied/documents/under review/assessment/
+                    accepted/waitlisted/rejected/withdrawn/enrolled)
+                    with APP-YYYY-NNNN transactional numbering,
+                    multipart R2 document upload + authorized streaming
+                    download/delete (10 MB category, PG metadata,
+                    orphan cleanup), assessments/interviews with derived
+                    statuses, review and decision actions with notes
+                    and transition guards, and one-transaction
+                    accepted/waitlisted -> student + enrollment
+                    conversion with optional guardian parent; shared
+                    zod schemas + types; 16 RBAC/audited Nitro routes;
+                    typed admissions client service; /admissions page
+                    and dashboard card; five fake seeded applications
+                    (one historical enrolled conversion); docs/API +
+                    ARCHITECTURE updated; public application form
+                    deferred to Phase 14.
+2026-09-16  Phase 10 Communication/events: announcements
+                    (draft/scheduled/published/archived with audience
+                    targeting and synchronous notification fan-out on
+                    publish), notifications (per-recipient,
+                    list/mark-read/delete scoped to authenticated
+                    user), internal messages (send by email or user
+                    ID, inbox with mark-read), events (CRUD with
+                    audience), gallery albums + R2-backed images
+                    (multipart upload, authorized streaming
+                    download, 25 MB category); queue producer
+                    bindings declared in wrangler.toml for future
+                    async email; shared zod schemas + types; 28
+                    RBAC/audited Nitro routes; typed communication +
+                    events client services; /announcements,
+                    /notifications, /messages, /events and /gallery
+                    pages plus dashboard sections; four new
+                    permissions (events.view/manage,
+                    gallery.view/manage); idempotent fake seeding
+                    (4 announcements, 5 notifications, 3 messages, 3
+                    events, 2 albums with placeholder images);
+                    docs/API + ARCHITECTURE updated; learning
+                    resources, thumbnail pipeline and public
+                    events/gallery website deferred.
+2026-09-16  Phase 11 Reports/audit: audit log viewer
+                    (super_admin-only via audit_logs.view) with
+                    filter bar and CSV export (reports.export);
+                    reports overview (school-wide counts for
+                    students/teachers/parents/staff/classes/sections/
+                    subjects plus enrollments-by-status and
+                    announcements-by-status breakdowns and
+                    upcoming/past event counts); attendance per-class
+                    report and enrollment per-class-by-status report,
+                    both with CSV export; student directory CSV export
+                    using the previously-dormant students.export slug;
+                    /reports and /audit-logs pages plus dashboard
+                    sections; ten idempotent audit log seed rows;
+                    shared zod schemas + types; 5 RBAC Nitro routes
+                    (4 new + 1 modified); no new permissions or
+                    migrations; docs/API + ARCHITECTURE updated; PDF
+                    report cards/PDF audit certificates, Excel/.xlsx
+                    exports, admissions-pipeline report, row-level
+                    scoping for teachers, queue consumer handler
+                    deferred to Phase 12.
 ```

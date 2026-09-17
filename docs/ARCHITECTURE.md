@@ -1,7 +1,23 @@
 # Architecture
 
-Status: **Phases 0–6 complete** on Nuxt 4 + Cloudflare Workers. Phase 7
-(exams/results) not started.
+Status: **Phases 0–11 complete** on Nuxt 4 + Cloudflare Workers. Phase 11
+(reports/audit) adds a super_admin-only audit log viewer with CSV export,
+operational reports (overview, attendance per class, enrollment per class
+by status) with CSV export, and a student directory CSV export using the
+previously-dormant students.export slug; /reports and /audit-logs pages
+plus dashboard sections; no new permissions or migrations. Phase 10
+(communication/events) adds announcements (draft/scheduled/published/archived
+with audience targeting and synchronous notification fan-out), per-user
+notifications, internal messages, events, and gallery albums with R2-backed
+images; queue producer bindings are declared for the future async email path.
+Phase 9 (admissions) added the staff-only application pipeline with R2 document
+storage, assessments/interviews and transactional enrollment conversion; the
+public application form is deferred to the Phase 14 public website. Phase 8
+(finance) ships with manual payment verification and metadata-only receipts; the
+payment gateway/webhook integration and PDF receipts are deferred to later
+phases. PDF report cards/PDF audit certificates, Excel/.xlsx exports,
+admissions-pipeline report, row-level scoping for teachers, queue consumer
+handler, and gallery thumbnails are also deferred.
 
 ## Overview
 
@@ -91,7 +107,19 @@ School_Management_System/
 
 ## Phase status
 
-Phases 0–6 are complete (foundation, auth/RBAC, academic structure,
-people/enrollment, timetable/attendance, assignments/resources).
-Phase 7 (exams/results) has not started. See README §41/§51 for the
-authoritative phase record.
+Phases 0–10 are complete (foundation, auth/RBAC, academic structure,
+people/enrollment, timetable/attendance, assignments/resources,
+exams/results, finance, admissions, communication/events). Money is
+PostgreSQL NUMERIC(12,2) transported as strings and computed in integer
+cents. Phase 8 payments are recorded/verified manually — no gateway or
+webhook yet, and `providerReference`/`idempotencyKey` columns are
+reserved; receipts are metadata-only (`objectKey` null). Phase 9
+admissions are staff intake only; document bytes live in R2 under
+`admissions/documents/` with metadata in PostgreSQL, and
+accepted/waitlisted applications convert to student + enrollment in one
+transaction. Phase 10 communication adds announcements with synchronous
+notification fan-out, internal messages, events and gallery albums with
+R2-backed images; queue producer bindings are declared but no consumer
+handler exists yet. The public application form, PDF report-card
+generation, PDF receipts, gallery thumbnails and async email are deferred
+to later phases. See README §41/§51 for the authoritative phase record.
