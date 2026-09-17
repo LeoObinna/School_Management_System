@@ -14,8 +14,10 @@ import {
 import {
   generateReportCard,
   getActor,
+  getReportCard,
 } from '~/server/services/exams'
 import { writeAudit } from '~/server/utils/audit'
+import { storeReportCardPdf } from '~/server/utils/pdf/report-card'
 
 export default defineEventHandler(async (event) => {
   const auth = requirePermission(event, 'report_cards.generate')
@@ -32,6 +34,13 @@ export default defineEventHandler(async (event) => {
     { ...data, studentId: id },
     actor,
   )
+
+  // Render + store the PDF in R2. Plain Node dev (no R2_BUCKET
+  // binding) raises 503 from putObject — storeReportCardPdf swallows
+  // that and leaves objectKey null; the download endpoint returns 404.
+  // Any other error bubbles up.
+  await storeReportCardPdf(event, card)
+
   await writeAudit(event, {
     userId: auth.user.id,
     action: 'report_card.generate',
@@ -40,5 +49,6 @@ export default defineEventHandler(async (event) => {
     description: `Generated report card for ${card.studentName} (${card.termName}).`,
   })
   setResponseStatus(event, 201)
-  return card
+  // Re-fetch so the response reflects the persisted objectKey.
+  return getReportCard(card.id, actor)
 })

@@ -2026,3 +2026,18 @@ export async function publishReportCard(
   }
   return getReportCard(id, actor)
 }
+
+// Persists the R2 object key for a generated/published report card PDF.
+// Called by the generate and publish route handlers after the PDF has
+// been written to R2. Plain Node dev has no R2 binding; the route
+// leaves `objectKey` null in that case (download endpoint returns 404).
+export async function setReportCardObjectKey(
+  id: string,
+  objectKey: string,
+): Promise<void> {
+  const client = await db()
+  await client
+    .update(reportCards)
+    .set({ objectKey, updatedAt: new Date() })
+    .where(eq(reportCards.id, id))
+}

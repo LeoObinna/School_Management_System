@@ -82,10 +82,12 @@ id = "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID"
 binding = "R2_BUCKET"
 bucket_name = "sms-production"
 
-# Queues (Phase 10). Producer binding only — notification fan-out
-# currently runs synchronously inside the publish transaction. The
-# producer is reserved for the Phase 12 async email path; no queue
-# consumer is declared yet because there is no `queue()` handler.
+# Queues (Phase 12 Part B). Announcement publish enqueues one
+# `announcement.published` message; the Worker consumes it via Nitro's
+# cloudflare:queue hook (server/plugins/cloudflare-queue.ts) and inserts
+# per-recipient notification rows idempotently. Batching is small so
+# fan-out latency stays low; a failed message is redelivered with
+# backoff, and a malformed (poison) message is acked by the consumer.
 # Provision once per environment:
 #   wrangler queues create sms-notifications-staging
 #   wrangler queues create sms-notifications-production
@@ -93,12 +95,27 @@ bucket_name = "sms-production"
 binding = "NOTIFICATION_QUEUE"
 queue = "sms-notifications-local"
 
+[[queues.consumers]]
+queue = "sms-notifications-local"
+max_batch_size = 10
+max_batch_timeout = 5
+
 [[env.staging.queues.producers]]
 binding = "NOTIFICATION_QUEUE"
 queue = "sms-notifications-staging"
 
+[[env.staging.queues.consumers]]
+queue = "sms-notifications-staging"
+max_batch_size = 10
+max_batch_timeout = 5
+
 [[env.production.queues.producers]]
 binding = "NOTIFICATION_QUEUE"
 queue = "sms-notifications-production"
+
+[[env.production.queues.consumers]]
+queue = "sms-notifications-production"
+max_batch_size = 10
+max_batch_timeout = 5
 
 # Cron Triggers / Durable Objects will be added here when their phases land.

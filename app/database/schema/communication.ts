@@ -13,7 +13,9 @@ import {
   uuid,
   boolean,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { users } from './core'
 import { teachers } from './people'
 import { classes, subjects } from './academics'
@@ -70,12 +72,27 @@ export const notifications = pgTable(
     link: text('link'),
     status: notificationStatusEnum('status').default('unread').notNull(),
     readAt: timestamp('read_at', { withTimezone: true }),
+    // Correlation id for announcement fan-out (Phase 12 Part B). Set on
+    // notifications produced by the async queue consumer; together with
+    // the partial unique index it makes at-least-once delivery
+    // idempotent (retries cannot create duplicate rows). Null for
+    // notification types without an announcement.
+    announcementId: uuid('announcement_id').references(
+      () => announcements.id,
+      { onDelete: 'cascade' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
   (t) => ({
     userIdx: index('notifications_user_idx').on(t.userId, t.status),
+    // Idempotency for queue-driven announcement fan-out.
+    announcementIdempotencyIdx: uniqueIndex(
+      'notifications_user_announcement_idx',
+    )
+      .on(t.userId, t.announcementId)
+      .where(sql`announcement_id IS NOT NULL`),
   }),
 )
 

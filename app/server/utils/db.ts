@@ -44,6 +44,34 @@ function buildDatabase(connectionString: string, max: number) {
 /** Exact runtime Drizzle type (includes $client used by the health route). */
 export type SmsDatabase = ReturnType<typeof buildDatabase>
 
+export interface WorkerDatabase {
+  db: SmsDatabase
+  sql: ReturnType<typeof postgres>
+}
+
+/**
+ * Builds a short-lived Drizzle client for a Worker invocation that is
+ * NOT a fetch request — e.g. a Cloudflare Queue consumer
+ * (`cloudflare:queue` hook) where no H3 event/request-scoped client
+ * exists. Uses the same single-connection settings as the request path
+ * (Hyperdrive owns upstream pooling); the caller MUST close it with
+ * `sql.end()` once the batch is handled.
+ */
+export function createWorkerDatabase(connectionString: string): WorkerDatabase {
+  if (!connectionString) {
+    throw new Error(
+      'createWorkerDatabase() requires a HYPERDRIVE connection string.',
+    )
+  }
+  const sql = postgres(connectionString, {
+    max: 1,
+    idle_timeout: 10,
+    connect_timeout: 10,
+  })
+  const db = drizzle(sql, { schema })
+  return { db, sql }
+}
+
 // --- Plain Node dev: one process-wide client -------------------------------
 let nodeInstance: SmsDatabase | null = null
 

@@ -2,9 +2,13 @@
  * Communication domain service (README §21, Phase 10).
  *
  * Announcements support draft/scheduled/published/archived and audience
- * targeting. Publishing an announcement synchronously creates notification
- * rows for every matching user (Queue-based async email is deferred to
- * Phase 12). Messages are internal user-to-user.
+ * targeting. Publishing an announcement enqueues an
+ * `announcement.published` message on NOTIFICATION_QUEUE; the Worker
+ * queue consumer (server/plugins/cloudflare-queue.ts →
+ * services/notification-dispatch.ts) creates the per-recipient
+ * notification rows asynchronously and idempotently (Phase 12 Part B).
+ * In plain Node dev without a queue binding, fan-out runs inline.
+ * Messages are internal user-to-user.
  */
 import {
   and,
@@ -45,6 +49,14 @@ import type {
   Notification,
   Paginated,
 } from '../../shared/types'
+import {
+  countAnnouncementRecipients,
+  dispatchAnnouncement,
+} from './notification-dispatch'
+import {
+  sendNotification,
+  type NotificationQueueLike,
+} from '../utils/notifications-queue'
 
 async function db(): Promise<SmsDb> {
   return (await import('../utils/db')).db
@@ -52,18 +64,6 @@ async function db(): Promise<SmsDb> {
 
 export interface CommunicationActor {
   userId: string
-}
-
-// ---------------------------------------------------------------------------
-// Audience → role mapping (announcement fan-out)
-// ---------------------------------------------------------------------------
-const AUDIENCE_ROLES: Record<Audience, string[] | null> = {
-  all: null,
-  admins: ['super_admin', 'admin'],
-  staff: ['super_admin', 'admin'],
-  teachers: ['teacher'],
-  students: ['student'],
-  parents: ['parent'],
 }
 
 // drizzle's and() is typed as SQL | undefined; collapse to SQL.
@@ -225,6 +225,7 @@ export async function deleteAnnouncement(
 export async function publishAnnouncement(
   id: string,
   actor: CommunicationActor,
+  queue: NotificationQueueLike | null,
 ): Promise<{ announcement: AnnouncementListItem; notified: number }> {
   const client = await db()
   const row = await announcementOrThrow(client, id)
@@ -235,10 +236,10 @@ export async function publishAnnouncement(
   }
 
   const audience = row.audience as Audience
-  const roleSlugs = AUDIENCE_ROLES[audience]
-  const link = `/announcements`
 
-  return client.transaction(async (tx) => {
+  // 1. Flip to published. Notification fan-out is intentionally outside
+  //    this transaction: it runs asynchronously through the queue.
+  await client.transaction(async (tx) => {
     await tx
       .update(announcements)
       .set({
@@ -247,36 +248,27 @@ export async function publishAnnouncement(
         updatedAt: new Date(),
       })
       .where(eq(announcements.id, id))
-
-    // Synchronous notification fan-out: insert one row per matching
-    // active user. Queue-based async email is deferred to Phase 12.
-    const audienceClause =
-      roleSlugs === null
-        ? sql`AND u.is_active = true AND u.deleted_at IS NULL`
-        : sql`AND u.is_active = true AND u.deleted_at IS NULL AND u.id IN (
-            SELECT ur.user_id FROM user_roles ur
-            JOIN roles r ON ur.role_id = r.id
-            WHERE r.slug IN (${sql.join(
-              roleSlugs.map((s) => sql`${s}`),
-              sql`, `,
-            )})
-          )`
-
-    const inserted = await tx.execute(sql`
-      INSERT INTO notifications (user_id, type, title, body, link, status)
-      SELECT u.id, 'announcement', ${row.title}, ${row.body}, ${link}, 'unread'
-      FROM users u
-      WHERE 1=1 ${audienceClause}
-    `)
-
-    const notified =
-      Number((inserted as unknown as { count?: number }).count) ||
-      (inserted as unknown as { rowCount?: number }).rowCount ||
-      0
-
-    const updated = await getAnnouncement(id)
-    return { announcement: updated, notified }
   })
+
+  // 2. Recipient count is reported immediately (`notified` in the API
+  //    response); the per-recipient rows are created by the consumer.
+  const notified = await countAnnouncementRecipients(client, audience)
+
+  // 3. Enqueue fan-out. Under Workers the message goes to
+  //    NOTIFICATION_QUEUE and the queue() consumer inserts the rows
+  //    idempotently. In plain Node dev there is no binding, so fan out
+  //    inline to preserve current behaviour.
+  if (queue) {
+    await sendNotification(queue, {
+      kind: 'announcement.published',
+      announcementId: id,
+    })
+  } else {
+    await dispatchAnnouncement(client, id)
+  }
+
+  const updated = await getAnnouncement(id)
+  return { announcement: updated, notified }
 }
 
 export async function archiveAnnouncement(

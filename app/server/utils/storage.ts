@@ -77,7 +77,7 @@ export function buildObjectKey(
 export async function putObject(
   event: H3Event,
   key: string,
-  body: ArrayBuffer,
+  body: ArrayBuffer | ArrayBufferView,
   contentType: string,
 ): Promise<void> {
   const bucket = getR2Bucket(event)
