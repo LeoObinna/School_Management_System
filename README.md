@@ -770,7 +770,9 @@ npm run cf:dev    # build + wrangler dev (Workers + binding emulation)
 ### Remote / managed services
 
 -   Staging and production PostgreSQL run on a managed provider
-    (planned: PlanetScale PostgreSQL), reached from Workers via separate
+    (selected 2026-09-20: Neon PostgreSQL, replacing the earlier
+    PlanetScale plan — free tier, direct host for Hyperdrive),
+    reached from Workers via separate
     Cloudflare Hyperdrive configs. Nothing is provisioned remotely
     during local development.
 -   R2 objects, Queues and the Worker runtime are Cloudflare-managed.
@@ -1012,16 +1014,27 @@ Local Mac ── wrangler ──► Cloudflare Workers (staging / production)
 One-time provisioning (resources are not created by deploys):
 
 ``` text
-wrangler hyperdrive create sms-pg-staging    --connection-string="$STAGING_DIRECT_PG_URL"
-wrangler hyperdrive create sms-pg-production --connection-string="$PROD_DIRECT_PG_URL"
+wrangler hyperdrive create sms-pg-staging    --caching-disabled --connection-string="$STAGING_DIRECT_PG_URL"
+wrangler hyperdrive create sms-pg-production --caching-disabled --connection-string="$PROD_DIRECT_PG_URL"
 wrangler r2 bucket create sms-staging
 wrangler r2 bucket create sms-production
+wrangler queues create sms-notifications-staging
+wrangler queues create sms-notifications-production
 wrangler secret put SESSION_SECRET -e staging
 wrangler secret put SESSION_SECRET -e production
 ```
 
 Put the returned Hyperdrive ids into `app/wrangler.toml` (replacing the
-`REPLACE_WITH_*` placeholders).
+`REPLACE_WITH_*` placeholders). Use the managed provider's DIRECT
+endpoint (Neon: host without `-pooler`) and disable Hyperdrive read
+caching so the app's read-after-write paths stay correct.
+
+STAGING STATUS (2026-09-20): complete and live — Neon `sms_staging`,
+Hyperdrive `sms-pg-staging` (id in `wrangler.toml`), R2/Queue/secret
+provisioned, Worker deployed at the `sms-staging` workers.dev URL.
+Production is intentionally not provisioned yet (acceptance gate).
+A full database reset drops BOTH `public` and the Drizzle journal
+schema `drizzle` before re-running migrations.
 
 Daily commands, run from `app/`:
 
@@ -1486,7 +1499,7 @@ transaction that creates the student (staff-supplied admission
 number), the active enrollment and, optionally, a guardian parent
 record. Numbers are `APP-YYYY-NNNN`; all routes are staff-only
 (admin/super_admin permissions) and live on `/admissions`. The public,
-unauthenticated application form is deferred to Phase 14, and R2
+unauthenticated application form is deferred to Phase 18, and R2
 upload/download returns 503 under plain Node dev (use `npm run cf:dev`
 or a deployed environment). See `docs/API.md` Phase 9.
 
@@ -1503,7 +1516,7 @@ download, 25 MB limit). Queue producer bindings declared in
 `wrangler.toml`; the consumer + `queue()` handler landed in Phase 12
 Part B. Learning resources deferred (Phase 7 territory);
 thumbnail/optimization pipeline deferred to Phase 12; public
-events/gallery website deferred to Phase 14. Gallery upload/download
+events/gallery website deferred to Phase 18. Gallery upload/download
 returns 503 under plain Node dev (use `npm run cf:dev`). See
 `docs/API.md` Phase 10.
 
@@ -1530,7 +1543,7 @@ teachers (Part A), queue consumer handler (Part B), PDF report cards
 audit certificates (Part C / Option B), and on-Worker WASM gallery
 image thumbnails (Part C / Option C). See `docs/API.md` Phase 11.
 
-### Phase 12 --- Hardening
+### Phase 12 --- Hardening  ✅ COMPLETE
 
 Security, authorization, file security, rate limits, queues,
 performance, accessibility and staging review.
@@ -1738,14 +1751,138 @@ Remaining Phase 12 workstreams deferred:
 
 See `docs/API.md` Phase 12 (Parts A–C / Options A–C).
 
-### Phase 13 --- Production readiness
+### Phase 13 --- Production readiness  (roadmap approved 2026-09-20; NOT STARTED)
 
 Cloudflare Workers, TLS/WAF, managed PostgreSQL, Hyperdrive, R2, Queues,
 Cron Triggers, backups, monitoring, deployment and rollback.
 
-### Phase 14 --- Public website
+- [staging DONE 2026-09-20; production pending acceptance] Provision
+  managed PostgreSQL on Neon (provider switched from PlanetScale on
+  2026-09-20) and run `npm run db:migrate` against the direct managed-PG
+  URL from the local Mac (never via Hyperdrive). Staging resources live:
+  Neon `sms_staging`, Hyperdrive `sms-pg-staging` (read caching
+  disabled), R2 bucket `sms-staging`, Queue `sms-notifications-staging`,
+  `SESSION_SECRET` on Worker `sms-staging` (deployed, login verified).
+- [staging partial] Real Hyperdrive IDs in `wrangler.toml`
+  staging/production blocks (staging id set; production placeholder
+  remains); queue producer/consumer live in staging; R2 lifecycle rules
+  and Cron Triggers still to add.
+- Manual `npm run deploy:staging`; TLS/WAF on the real domain; stable
+  `SESSION_SECRET` (wrangler secret); never place secrets in
+  `wrangler.toml`.
+- Shared KV/Durable-Object rate limiter and server-side session
+  revocation list (carried over from Phase 12 deferred workstreams).
+- Backups, monitoring/alerting, and a verified deploy + rollback drill.
 
-Only after the SMS is stable and production-ready.
+Exit criteria: staging reachable with managed PostgreSQL/R2, full test
+suite green, demo seed data only (never real student data),
+deploy/rollback verified. Do not start Phase 14 without explicit
+project-owner go-ahead.
+
+### Phase 14 --- SMS completion: admin foundation  (roadmap 2026-09-20; NOT STARTED)
+
+Closes the authenticated-SMS gaps in the product spec (admin
+dashboard) and stores school identity/branding as **data** — never
+hard-coded.
+
+- User account, role and permission administration
+  (`GET/POST/PUT /api/v1/users`, role assignment, permission
+  management + admin UI; today roles exist only in the database/seed).
+- School settings module and UI: school name, motto, address/location,
+  email, phone, logo, brand colors, and bank details (bank name,
+  account number, account name). All downstream documents/templates
+  read from settings.
+- Documents module (staff document management, R2-backed, authorized
+  streaming, no public bucket URLs).
+- Inventory module (books/equipment ledger).
+- Expanded financial reports (per fee purpose, per class, per term).
+
+### Phase 15 --- Payments: Paystack + QR codes  (roadmap 2026-09-20; NOT STARTED)
+
+- Paystack integration: initialize → checkout → verify → signed,
+  idempotent webhook; use the already-anticipated
+  `provider_reference`/`idempotency_key` fields. No trust of
+  client-supplied payment status.
+- Branded PDF receipts generated server-side, with bank details
+  sourced from School Settings.
+- QR codes: static office QR (bank details) plus a dynamic QR per
+  student/invoice carrying the payment reference; shown in the parent
+  portal and on receipts.
+- Surface fee purposes (tuition, sports, excursion, library, etc.) in
+  the UI; they remain configurable data, never hard-coded.
+
+### Phase 16 --- Dedicated role portals  (roadmap 2026-09-20; NOT STARTED)
+
+Reuses the existing APIs; primarily new frontend plus the few missing
+modules.
+
+- Role-split portal shells: `/portal/student`, `/portal/parent`,
+  `/portal/teacher`.
+- Student: dashboard (current class, timetable, upcoming assignment
+  deadlines, recent grades, attendance), learning resources, and
+  online registration/enrollment.
+- Parent: child switcher, termly + cumulative progress, attendance
+  dashboard, fees (outstanding balance, history, Paystack checkout,
+  QR, bank details), report-card PDF download, and a "message my
+  child's teacher" flow over the existing messaging API.
+- Teacher: class dashboard, checkbox attendance recorder, bulk **CSV**
+  score upload (parse → validate → preview → commit), lesson-note
+  management (new table + CRUD), performance tracking, and grade
+  submission → report-card generation.
+
+### Phase 17 --- Communication channels  (roadmap 2026-09-20; NOT STARTED)
+
+- Wire the existing `email.send` queue message kind to a real email
+  provider (e.g. Resend): announcement, fee-reminder and
+  result-published templates.
+- Nigerian SMS gateway (e.g. Termii) for urgent notices.
+- Newsletter subscription storage and per-user notification
+  preferences.
+- Scheduled digest via Cron Triggers.
+
+### Phase 18 --- Public website  (renumbered from the old Phase 14 stub; roadmap 2026-09-20; NOT STARTED)
+
+Only after the SMS is stable and production-ready. Delivers all
+public-facing sections of the product spec.
+
+- Design system driven by School Settings: primary blue `#1a237e`,
+  gold `#C9A84C`, red `#B22234`, cream background `#F8F4E8`, dark text
+  `#1a1a2e`; the "VICTORIOUS / CHILDREN SCHOOL / OJODU • LAGOS"
+  lockup with the italic tagline "Not to Equal, But to Excel".
+- Homepage: hero with name/motto/location, image carousel or
+  background video, quick actions (Apply Now, Pay Fees, Check Results,
+  Student Portal), school statistics, "Why Victorious Children
+  School", latest news/announcements, quick links, footer with
+  contact/bank details/social links.
+- About: history/founding story, vision/mission/core values,
+  philosophy, staff profiles and leadership, photo gallery.
+- Public admissions: rate-limit + bot-protect the public multi-step
+  application wizard; admission status checker by application ID;
+  downloadable PDF forms and prospectus generated from settings.
+- Academics: Nigerian curriculum overview, Primary (Grades 1–6) and
+  Secondary (JSS 1 – SSS 3) sections with per-class subject lists,
+  academic calendar, examination schedules.
+- Public result checker (student ID + term; published results only;
+  rate-limited).
+- Activities: public photo/video gallery, sports/clubs, events
+  calendar, achievements/awards.
+- Public news/blog and notice board with filtered calendar.
+- Contact: Google Maps embed, department-routed contact form, phone/
+  email/emergency contacts, FAQ, complaints/suggestions form.
+
+Public endpoints must not expose private files, real student data, or
+unpublished results.
+
+### Phase 19 --- Launch  (roadmap 2026-09-20; NOT STARTED)
+
+- Real content population; privacy review of every public endpoint.
+- WAF/rate-limit rules; DNS split between public site and
+  authenticated portal (see §4); staging soak; go-live plus rollback.
+
+All phases keep the standing rules: zod validation, server-side
+authorization, Vitest coverage, `docs/API.md` + README updates, and
+manual Wrangler deploys only (no GitHub Actions/Pages Git/Workers
+Builds).
 
 ## 42. Phase prompt for TRAE
 
@@ -1920,13 +2057,18 @@ while **retaining PostgreSQL** as the primary database.
 -   PostgreSQL remains primary. It must never be silently replaced by
     D1. Historical academic records and durable, auditable financial
     records remain mandatory.
--   The public school website remains deferred until the SMS is stable.
--   Current phase: **Phase 11 — Reports/audit ✅ COMPLETE**
-    (Phases 0–11 done; public website deferred to Phase 14; payment
-    gateway/webhook, PDF receipts, PDF report cards/PDF audit
-    certificates, Excel/.xlsx exports, admissions-pipeline report,
-    queue consumer handler, row-level scoping for teachers, and
-    gallery thumbnails also deferred).
+-   The public school website is sequenced as Phase 18 in the approved
+    2026-09-20 roadmap and remains deferred until the SMS is stable and
+    production-ready.
+-   Current phase: **Phases 0–12 ✅ COMPLETE; Phase 13 — Production
+    readiness NOT STARTED (awaiting project-owner go-ahead)**.
+    The approved forward roadmap (2026-09-20) is: Phase 13 production
+    readiness; Phase 14 admin foundation (users/roles, school settings,
+    documents, inventory, financial reports); Phase 15 Paystack + QR
+    payments; Phase 16 dedicated student/parent/teacher portals;
+    Phase 17 email/SMS communication channels; Phase 18 public website;
+    Phase 19 launch. Payment gateway/webhook remain deferred to
+    Phase 15.
 
 ## 48. Architecture decision (summary)
 
@@ -2114,4 +2256,68 @@ documentation, not a second specification.
                     exports, admissions-pipeline report, row-level
                     scoping for teachers, queue consumer handler
                     deferred to Phase 12.
+2026-09-20  Roadmap Forward plan approved and recorded (Phases
+                    13–19); no code changes. Phase 13 production
+                    readiness; Phase 14 SMS admin foundation
+                    (users/roles, school settings with school identity
+                    + bank details as data, documents, inventory,
+                    financial reports); Phase 15 Paystack + QR
+                    payments + branded PDF receipts; Phase 16
+                    dedicated student/parent/teacher portals (incl.
+                    CSV score upload, lesson notes); Phase 17 email/
+                    SMS channels + newsletter; Phase 18 public website
+                    (renumbered from the former Phase 14 stub; covers
+                    homepage, about, public admissions wizard + status
+                    checker, academics, public result checker,
+                    activities, news, contact, with brand colors
+                    #1a237e/#C9A84C/#B22234/#F8F4E8 and logo lockup);
+                    Phase 19 launch. Phase 13 not started — awaiting
+                    explicit project-owner go-ahead.
+2026-09-20  Phase 13 (partial) Staging cutover LIVE: managed PostgreSQL
+                    provisioned on Neon free tier (db sms_staging,
+                    Postgres 18.6, DIRECT host ep-calm-shape-…c-6.
+                    us-east-2 — not the -pooler endpoint); schema reset
+                    note: drizzle journals migrations in a separate
+                    "drizzle" schema, so a full DB reset must drop
+                    both public and drizzle. Cloudflare resources:
+                    Hyperdrive config sms-pg-staging
+                    (f9399aef-…, caching DISABLED for read-after-write),
+                    R2 bucket sms-staging (no r2.dev public access),
+                    Queue sms-notifications-staging (producer+consumer
+                    wired by deploy), SESSION_SECRET wrangler secret;
+                    migrations + synthetic seed applied from the Mac via
+                    the direct URL. Worker sms-staging deployed
+                    (https://sms-staging.victoriouschildrenschool1.
+                    workers.dev): health database=true, login 200 and
+                    /auth/me returns admin role/permissions.
+                    Critical runtime fix: PBKDF2 iteration count lowered
+                    210000 -> 100000 because deployed Cloudflare Workers
+                    WebCrypto rejects PBKDF2 above 100k (verify swallowed
+                    the error as failed login; Node dev and local
+                    workerd do not enforce it, so only production
+                    diagnosis exposed it); test updated to pin 100000;
+                    all 378 tests pass, type-check clean. Production not
+                    provisioned — pending staging acceptance.
+2026-09-20  Security Secret-leak hardening: app/.env DATABASE_URL had
+                    been pointed at the staging Neon URL, and Nuxt
+                    serialized the build-time process.env values in
+                    runtimeConfig INTO the Worker bundle — the Neon
+                    password and local SESSION_SECRET were present in
+                    deployed script versions. Fix: nuxt.config.ts now
+                    ships EMPTY runtimeConfig defaults; new Nitro
+                    'request' hook in server/plugins/cloudflare.ts
+                    bridges SESSION_SECRET/DATABASE_URL/
+                    EXPOSE_RESET_TOKENS per request from Cloudflare
+                    bindings (Workers) or process.env/app/.env (Node
+                    dev). Verified on staging: config secret == binding
+                    secret, databaseUrl empty, 318 bundle chunks contain
+                    no secrets, 378 tests + type-check pass, login/
+                    auth/me 200. Root .env.example is now a comment-only
+                    pointer (no KEY=VALUE); app/.env.example documents
+                    STAGING_DATABASE_URL with placeholders. ACTION FOR
+                    OWNER: rotate the Neon staging password (it existed
+                    in older Worker bundles), update app/.env and
+                    `wrangler hyperdrive update sms-pg-staging
+                    --connection-string=…`; local SESSION_SECRET already
+                    rotated.
 ```

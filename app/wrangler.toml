@@ -59,7 +59,9 @@ bucket_name = "sms-local"
 
 [[env.staging.hyperdrive]]
 binding = "HYPERDRIVE"
-id = "REPLACE_WITH_STAGING_HYPERDRIVE_ID"
+# sms-pg-staging -> Neon sms_staging direct host (ep-calm-shape-…,
+# no -pooler), read caching disabled for read-after-write correctness.
+id = "f9399aef36f14ea4b41a1a5052c70f87"
 
 [[env.staging.r2_buckets]]
 binding = "R2_BUCKET"

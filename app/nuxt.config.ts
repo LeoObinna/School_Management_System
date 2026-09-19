@@ -58,12 +58,19 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
-    // Server-only secrets (not exposed to client)
-    databaseUrl: process.env.DATABASE_URL || '',
-    sessionSecret: process.env.SESSION_SECRET || 'change-me-in-production',
+    // Server-only secrets. These MUST stay empty here: Nuxt serializes
+    // runtimeConfig defaults INTO the deployed Worker bundle, so reading
+    // process.env at build time would ship DATABASE_URL/SESSION_SECRET
+    // to anyone who can fetch the Worker script. Values are injected
+    // PER REQUEST at runtime instead — see
+    // server/plugins/cloudflare.ts (Cloudflare bindings in Workers,
+    // process.env loaded from app/.env in plain Node dev).
+    databaseUrl: '',
+    sessionSecret: '',
     // Dev-only: surface password-reset tokens from the API until the
-    // Queues-backed mailer exists (Phase 10). NEVER enable in staging/prod.
-    exposeResetTokens: process.env.EXPOSE_RESET_TOKENS === 'true',
+    // Queues-backed mailer exists (Phase 10). NEVER enabled in
+    // staging/prod. Resolved per request in the cloudflare plugin.
+    exposeResetTokens: false,
     // Public config exposed to client
     public: {
       apiBaseUrl: '/api/v1',

@@ -21,7 +21,14 @@ import {
 
 const ALGORITHM = 'PBKDF2'
 const DIGEST = 'SHA-512'
-const ITERATIONS = 210_000 // OWASP PBKDF2-HMAC-SHA-512 guidance
+// Cloudflare Workers caps WebCrypto PBKDF2 at 100,000 iterations: a
+// higher deriveBits count throws in the deployed runtime ("iteration
+// counts above 100000 are not supported"), which verifyPassword would
+// swallow as a failed login and hashPassword as a 500. Plain Node dev
+// and local workerd do not enforce the cap, so this MUST stay at or
+// below 100,000 — a stronger KDF (argon2 via WASM) can be introduced
+// later and verified transparently thanks to the parameterised format.
+const ITERATIONS = 100_000
 const KEY_BYTES = 64
 const SALT_BYTES = 16
 const PREFIX = 'pbkdf2'

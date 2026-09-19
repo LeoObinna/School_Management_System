@@ -29,7 +29,9 @@ describe('password hashing (PBKDF2)', () => {
     const [scheme, digest, iterations] = hash.split('$')
     expect(scheme).toBe('pbkdf2')
     expect(digest).toBe('sha512')
-    expect(Number(iterations)).toBeGreaterThan(100_000)
+    // Cloudflare Workers rejects PBKDF2 above 100k iterations, so the
+    // app must use exactly the platform ceiling (see password.ts).
+    expect(Number(iterations)).toBe(100_000)
   })
 
   it('returns false for malformed or unsupported hashes', async () => {
