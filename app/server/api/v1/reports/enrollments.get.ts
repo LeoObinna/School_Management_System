@@ -1,18 +1,21 @@
 /**
  * GET /api/v1/reports/enrollments
- * JSON by default (reports.view); ?format=csv requires reports.export.
+ * JSON by default (reports.view); ?format=csv|xlsx requires reports.export.
  * Returns one row per (class, status) tuple with the live count.
  */
-import { defineEventHandler, getQuery, setHeader } from 'h3'
+import { defineEventHandler, getQuery } from 'h3'
 import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseQueryData } from '~/server/utils/validation'
 import { enrollmentReportQuerySchema } from '~/shared/schemas'
 import { getEnrollmentReport } from '~/server/services/reports'
+import {
+  parseFormat,
+  sendCsv,
+  sendWorkbook,
+  type ExportRow,
+} from '~/server/utils/exports'
 
-function csvCell(value: string | number | null): string {
-  const s = value === null ? '' : String(value)
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
+const HEADERS = ['Class', 'Status', 'Count']
 
 export default defineEventHandler(async (event) => {
   requirePermission(event, 'reports.view')
@@ -20,25 +23,20 @@ export default defineEventHandler(async (event) => {
     enrollmentReportQuerySchema,
     getQuery(event),
   )
-  const format = String(getQuery(event).format ?? 'json')
-  if (format === 'csv') {
+  const format = parseFormat(event)
+  if (format !== 'json') {
     requirePermission(event, 'reports.export')
   }
   const data = await getEnrollmentReport(query)
 
-  if (format === 'csv') {
-    const header = ['Class', 'Status', 'Count']
-    const lines = data.map((r) =>
-      [r.className, r.status, r.count].map(csvCell).join(','),
-    )
-    setHeader(event, 'content-type', 'text/csv; charset=utf-8')
-    setHeader(
-      event,
-      'content-disposition',
-      'attachment; filename="enrollment-report.csv"',
-    )
-    return [header.join(','), ...lines].join('\n')
+  if (format === 'json') {
+    return { data }
   }
 
-  return { data }
+  const rows: ExportRow[] = data.map((r) => [r.className, r.status, r.count])
+
+  if (format === 'csv') {
+    return sendCsv(event, 'enrollment-report.csv', HEADERS, rows)
+  }
+  return sendWorkbook(event, 'enrollment-report.xlsx', HEADERS, rows)
 })

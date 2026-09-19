@@ -1298,3 +1298,60 @@ export interface EnrollmentReportRow {
     | 'withdrawn'
   count: number
 }
+
+// Admissions pipeline report (README §27): one row per stage in
+// workflow order, including stages with zero applications.
+export interface AdmissionsPipelineRow {
+  status:
+    | 'applied'
+    | 'documents_submitted'
+    | 'under_review'
+    | 'assessment_scheduled'
+    | 'assessed'
+    | 'accepted'
+    | 'rejected'
+    | 'waitlisted'
+    | 'admitted'
+    | 'enrolled'
+    | 'withdrawn'
+  count: number
+}
+
+export interface AdmissionsPipelineReport {
+  data: AdmissionsPipelineRow[]
+  total: number
+  sessionId: string | null
+  intendedClassId: string | null
+}
+
+// One row of the exam-scores grades export (long format).
+export interface ExamScoreExportRow {
+  admissionNumber: string | null
+  studentName: string
+  subjectCode: string | null
+  subjectName: string
+  maxScore: string
+  score: string
+  grade: string | null
+}
+
+// Aggregate backing the PDF audit certificate: totals + per-action
+// breakdown for the certificate's filter window.
+export interface AuditCertificateActionCount {
+  action: string
+  count: number
+}
+
+export interface AuditCertificateSummary {
+  total: number
+  byAction: AuditCertificateActionCount[]
+  earliestAt: string | null
+  latestAt: string | null
+  filters: {
+    dateFrom: string | null
+    dateTo: string | null
+    action: string | null
+    resource: string | null
+    userId: string | null
+  }
+}

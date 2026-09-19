@@ -97,3 +97,32 @@ export const auditLogListQuerySchema = paginationQuerySchema.extend({
   dateTo: dateStringSchema.optional(),
 })
 export type AuditLogListQuery = z.infer<typeof auditLogListQuerySchema>
+
+// Supported export formats for report/list endpoints. Parsed at the
+// route layer via parseFormat(); the export permission is enforced
+// there for every non-JSON format.
+export const exportFormatSchema = z.enum(['json', 'csv', 'xlsx'])
+export type ExportFormat = z.infer<typeof exportFormatSchema>
+
+// Admissions pipeline report (one count row per pipeline stage).
+export const admissionsPipelineQuerySchema = z.object({
+  sessionId: uuidSchema.optional(),
+  intendedClassId: uuidSchema.optional(),
+})
+export type AdmissionsPipelineQuery = z.infer<
+  typeof admissionsPipelineQuerySchema
+>
+
+// Audit certificate (non-paginated aggregate over the same filters as
+// auditLogListQuerySchema; `search` is intentionally excluded so the
+// certificate always reflects a well-defined filter window).
+export const auditCertificateQuerySchema = z.object({
+  action: z.string().trim().max(100).optional(),
+  resource: z.string().trim().max(100).optional(),
+  userId: uuidSchema.optional(),
+  dateFrom: dateStringSchema.optional(),
+  dateTo: dateStringSchema.optional(),
+})
+export type AuditCertificateQuery = z.infer<
+  typeof auditCertificateQuerySchema
+>

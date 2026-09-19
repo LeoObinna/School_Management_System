@@ -76,6 +76,7 @@ import type {
   AssessmentType,
   ExamDetail,
   ExamListItem,
+  ExamScoreExportRow,
   ExamSubjectDetail,
   GradingScaleDetail,
   MySchoolContext,
@@ -700,6 +701,55 @@ export async function getExam(id: string): Promise<ExamDetail> {
     termName: row.termName,
     subjects: toJsonList<ExamSubjectDetail>(subjectRows),
   }
+}
+
+// Flat, long-format exam-score rows for the XLSX grades export
+// (Phase 12 Part C Option B). One row per (student, exam subject);
+// students without a recorded score are not included. NUMERIC
+// score/maxScore come back as strings (no float coercion).
+export async function getExamScoresForExport(
+  examId: string,
+): Promise<ExamScoreExportRow[]> {
+  const client = await db()
+  const [exam] = await client
+    .select({ id: exams.id })
+    .from(exams)
+    .where(eq(exams.id, examId))
+    .limit(1)
+  if (!exam) {
+    throw smsNotFound('Exam not found.')
+  }
+
+  const rows = await client
+    .select({
+      admissionNumber: students.admissionNumber,
+      firstName: students.firstName,
+      lastName: students.lastName,
+      subjectCode: subjects.code,
+      subjectName: subjects.name,
+      maxScore: examSubjects.maxScore,
+      score: examScores.score,
+      grade: examScores.grade,
+    })
+    .from(examScores)
+    .innerJoin(
+      examSubjects,
+      eq(examScores.examSubjectId, examSubjects.id),
+    )
+    .innerJoin(subjects, eq(examSubjects.subjectId, subjects.id))
+    .innerJoin(students, eq(examScores.studentId, students.id))
+    .where(eq(examSubjects.examId, examId))
+    .orderBy(asc(students.admissionNumber), asc(subjects.name))
+
+  return rows.map((r) => ({
+    admissionNumber: r.admissionNumber,
+    studentName: [r.firstName, r.lastName].filter(Boolean).join(' ').trim(),
+    subjectCode: r.subjectCode,
+    subjectName: r.subjectName,
+    maxScore: r.maxScore,
+    score: r.score,
+    grade: r.grade,
+  }))
 }
 
 export async function createExam(input: ExamCreate): Promise<ExamDetail> {

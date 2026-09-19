@@ -10,6 +10,7 @@
  */
 import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
+  admissionApplications,
   announcements,
   auditLogs,
   attendanceRecords,
@@ -28,14 +29,19 @@ import {
 import type { SmsDb } from '../utils/pagination'
 import { toJsonModel } from '../utils/serialize'
 import type {
+  AdmissionsPipelineReport,
+  AdmissionsPipelineRow,
   AttendanceReportClassRow,
+  AuditCertificateSummary,
   AuditLog,
   AuditLogListItem,
   EnrollmentReportRow,
   OverviewReport,
 } from '../../shared/types'
 import type {
+  AdmissionsPipelineQuery,
   AttendanceOverviewReportQuery,
+  AuditCertificateQuery,
   AuditLogListQuery,
   EnrollmentReportQuery,
   OverviewQuery,
@@ -278,6 +284,40 @@ export async function getEnrollmentReport(
   }))
 }
 
+// Shared WHERE builder for the audit-log list and the audit
+// certificate aggregate (same filters; the list additionally allows
+// free-text search via the `search` field).
+function auditLogConditions(
+  query: AuditLogListQuery | AuditCertificateQuery,
+): Array<SQL | undefined> {
+  const conditions: Array<SQL | undefined> = [
+    query.action ? eq(auditLogs.action, query.action) : undefined,
+    query.resource ? eq(auditLogs.resource, query.resource) : undefined,
+    query.userId ? eq(auditLogs.userId, query.userId) : undefined,
+  ]
+  if (query.dateFrom) {
+    conditions.push(
+      sql`${auditLogs.createdAt} >= ${query.dateFrom}::timestamptz`,
+    )
+  }
+  if (query.dateTo) {
+    // Inclusive end of day.
+    conditions.push(
+      sql`${auditLogs.createdAt} <= (${query.dateTo}::date + interval '1 day')`,
+    )
+  }
+  if ('search' in query && query.search) {
+    const pattern = `%${query.search.replace(/[\\%_]/g, '\\$&')}%`
+    conditions.push(
+      or(
+        ilike(auditLogs.description, pattern),
+        ilike(auditLogs.action, pattern),
+      ) ?? undefined,
+    )
+  }
+  return conditions
+}
+
 // ---------------------------------------------------------------------------
 // Audit log list (manual pagination + LEFT JOIN users)
 // ---------------------------------------------------------------------------
@@ -294,28 +334,7 @@ export async function listAuditLogs(
 }> {
   const client = await db()
 
-  const where: Array<SQL | undefined> = [
-    query.action ? eq(auditLogs.action, query.action) : undefined,
-    query.resource ? eq(auditLogs.resource, query.resource) : undefined,
-    query.userId ? eq(auditLogs.userId, query.userId) : undefined,
-  ]
-  if (query.dateFrom) {
-    where.push(sql`${auditLogs.createdAt} >= ${query.dateFrom}::timestamptz`)
-  }
-  if (query.dateTo) {
-    // Inclusive end of day.
-    where.push(sql`${auditLogs.createdAt} <= (${query.dateTo}::date + interval '1 day')`)
-  }
-  if (query.search) {
-    const pattern = `%${query.search.replace(/[\\%_]/g, '\\$&')}%`
-    where.push(
-      or(
-        ilike(auditLogs.description, pattern),
-        ilike(auditLogs.action, pattern),
-      ) ?? undefined,
-    )
-  }
-  const filter = all(where)
+  const filter = all(auditLogConditions(query))
 
   const totalRows = await client
     .select({ n: sql<number>`count(*)::int` })
@@ -363,3 +382,126 @@ export async function listAuditLogs(
 export const ENROLLMENT_STATUSES_LIST = ENROLLMENT_STATUSES
 export const ANNOUNCEMENT_STATUSES_LIST = ANNOUNCEMENT_STATUSES
 export const ATTENDANCE_STATUSES_LIST = ATTENDANCE_STATUSES
+
+// ---------------------------------------------------------------------------
+// Admissions pipeline report (README §27)
+// ---------------------------------------------------------------------------
+
+// Workflow order, matching admissionStatusEnum. Stages with no
+// applications are still returned with a zero count so the report
+// always has the same shape.
+export const ADMISSION_PIPELINE_STAGES = [
+  'applied',
+  'documents_submitted',
+  'under_review',
+  'assessment_scheduled',
+  'assessed',
+  'accepted',
+  'rejected',
+  'waitlisted',
+  'admitted',
+  'enrolled',
+  'withdrawn',
+] as const
+
+// Pure mapper: aligns raw GROUP BY counts onto the full ordered stage
+// list, zero-filling missing stages.
+export function orderPipelineRows(
+  counts: ReadonlyArray<{ status: string; count: number }>,
+): AdmissionsPipelineRow[] {
+  const byStatus = new Map(counts.map((r) => [r.status, Number(r.count)]))
+  return ADMISSION_PIPELINE_STAGES.map((status) => ({
+    status,
+    count: byStatus.get(status) ?? 0,
+  }))
+}
+
+export async function getAdmissionsPipeline(
+  query: AdmissionsPipelineQuery,
+): Promise<AdmissionsPipelineReport> {
+  const client = await db()
+  const where: SQL[] = []
+  if (query.sessionId) {
+    where.push(eq(admissionApplications.sessionId, query.sessionId))
+  }
+  if (query.intendedClassId) {
+    where.push(
+      eq(admissionApplications.intendedClassId, query.intendedClassId),
+    )
+  }
+
+  const rows = await client
+    .select({
+      status: admissionApplications.status,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(admissionApplications)
+    .where(where.length ? and(...where) : undefined)
+    .groupBy(admissionApplications.status)
+
+  const data = orderPipelineRows(
+    rows.map((r) => ({ status: r.status, count: r.n })),
+  )
+  return {
+    data,
+    total: data.reduce((sum, r) => sum + r.count, 0),
+    sessionId: query.sessionId ?? null,
+    intendedClassId: query.intendedClassId ?? null,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Audit certificate aggregate (Phase 12 Part C Option B)
+// ---------------------------------------------------------------------------
+
+function timestampToIso(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  const d = new Date(String(value))
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+export async function getAuditCertificateSummary(
+  query: AuditCertificateQuery,
+): Promise<AuditCertificateSummary> {
+  const client = await db()
+  const filter = all(auditLogConditions(query))
+
+  const [agg] = await client
+    .select({
+      total: sql<number>`count(*)::int`,
+      earliest: sql<Date | null>`min(${auditLogs.createdAt})`,
+      latest: sql<Date | null>`max(${auditLogs.createdAt})`,
+    })
+    .from(auditLogs)
+    .where(filter)
+
+  const actionRows = await client
+    .select({
+      action: auditLogs.action,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(auditLogs)
+    .where(filter)
+    .groupBy(auditLogs.action)
+
+  const byAction = actionRows
+    .map((r) => ({ action: r.action, count: Number(r.n) }))
+    .sort((a, b) => b.count - a.count || a.action.localeCompare(b.action))
+
+  return {
+    total: Number(agg?.total) || 0,
+    byAction,
+    earliestAt: timestampToIso(agg?.earliest),
+    latestAt: timestampToIso(agg?.latest),
+    filters: {
+      dateFrom: query.dateFrom ?? null,
+      dateTo: query.dateTo ?? null,
+      action: query.action ?? null,
+      resource: query.resource ?? null,
+      userId: query.userId ?? null,
+    },
+  }
+}
