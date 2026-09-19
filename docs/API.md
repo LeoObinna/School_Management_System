@@ -1066,3 +1066,39 @@ Exam score sheets (xlsx only — no csv):
   reference string. It is rendered on demand from live aggregates and
   is **not** persisted to R2.
 
+## Phase 12 — Hardening (Part C / Option C)
+
+### Gallery thumbnails
+
+- `GET /api/v1/gallery/albums/:id/images/:imageId/thumbnail` —
+  requires `gallery.view` (the same permission as the full image).
+  Streams a derived JPEG thumbnail (`image/jpeg`, disposition
+  `inline`, `Cache-Control: private, max-age=31536000, immutable`).
+
+Behavior:
+
+- Thumbnails are generated on-Worker with WASM codecs
+  (`@jsquash` mozjpeg/PNG/libwebp/resize). Raster JPEG, PNG and WebP
+  sources wider than 480 px are downscaled (lanczos3, quality 82) and
+  re-encoded as JPEG. Images at or below the cap are never upscaled.
+  GIF and SVG are intentionally not thumbnailed.
+- **Eager generation at upload**: when a supported image is posted to
+  `POST /api/v1/gallery/albums/:id/images`, the thumbnail is produced
+  best-effort and stored in R2 alongside the original at a
+  deterministic key (`<object-key>.thumb.jpg`, recorded in
+  `thumb_object_key`). Any failure is swallowed; the upload still
+  succeeds.
+- **Lazy backfill on GET**: rows with a null `thumb_object_key`
+  (legacy rows or eager-generation failures) are backfilled on the
+  first authorized thumbnail request.
+- **404 fallback**: when no thumbnail can exist (GIF/SVG), the source
+  bytes are missing, or processing fails, the endpoint returns `404`
+  with `{ "error": "No thumbnail is available for this image." }`; the
+  gallery UI then loads the original image URL. A stored key whose R2
+  object is missing triggers one regeneration attempt before 404.
+- The original R2 object remains the source of truth; the thumbnail is
+  an immutable, regenerable cache and is deleted together with its
+  image (and with album deletion).
+- Generation adds WASM CPU time to uploads of supported images; source
+  dimensions are capped at 10,000 px to bound memory use.
+

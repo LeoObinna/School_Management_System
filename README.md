@@ -1527,8 +1527,8 @@ announcement.publish, admission.advance, user.update). No new
 permissions or migrations. Delivered in Phase 12: row-level scoping for
 teachers (Part A), queue consumer handler (Part B), PDF report cards
 (Part C / Option A), xlsx exports + admissions-pipeline report + PDF
-audit certificates (Part C / Option B). Still deferred in Phase 12:
-gallery image thumbnails. See `docs/API.md` Phase 11.
+audit certificates (Part C / Option B), and on-Worker WASM gallery
+image thumbnails (Part C / Option C). See `docs/API.md` Phase 11.
 
 ### Phase 12 --- Hardening
 
@@ -1650,8 +1650,7 @@ performance, accessibility and staging review.
 Known limitations: standard Latin fonts only (Unicode font embedding
 deferred); PDF storage requires the R2 binding; PDF regenerated only
 on generate/publish (editing a published card's remarks without
-re-publishing leaves a stale PDF). Option C (gallery thumbnails)
-remains deferred.
+re-publishing leaves a stale PDF).
 
 **Part C / Option B --- xlsx exports, admissions pipeline, audit certificate  ✅ COMPLETE**
 
@@ -1690,16 +1689,54 @@ remains deferred.
 
 Part B does NOT add email delivery yet — queue messages create in-app
 notification rows only; an email provider integration remains future
-work. Remaining Phase 12 workstreams deferred:
+work.
 
-- Part C Option C: gallery image thumbnails (Workers has no native
-  image processing; needs a Cloudflare Images binding or wasm
-  pipeline — explicit permission required per user preference).
+**Part C / Option C --- gallery image thumbnails  ✅ COMPLETE**
+
+- JPEG/PNG/WebP gallery uploads are decoded, width-capped and
+  re-encoded **on the Worker** with `@jsquash` WASM codecs (mozjpeg,
+  squoosh PNG, libwebp, squoosh resize): 480 px max width, lanczos3,
+  JPEG quality 82; images already at/under the cap are never
+  upscaled. GIF (animation) and SVG (resolution-independent) are
+  deliberately not thumbnailed; source dimensions are capped at
+  10,000 px to bound WASM memory/CPU.
+- The codecs (~1 MB raw wasm) are base64-inlined into five lazily
+  dynamic-imported chunks by a custom Rollup/Vite plugin
+  (`build/jsquash-wasm-loader.ts`, also wired into Vitest with
+  `test.server.deps.inline` for `@jsquash`) — no wrangler wasm rules,
+  external image service, or Cloudflare Images binding.
+- Eager best-effort generation at multipart upload; the thumb is
+  stored in R2 at a deterministic key (`<objectKey>.thumb.jpg`) in the
+  pre-existing nullable `thumb_object_key` column — no migration.
+  Failures leave the key null and never block the upload.
+- New `GET /api/v1/gallery/albums/:id/images/:imageId/thumbnail`
+  (`gallery.view`): inline JPEG with
+  `private, max-age=31536000, immutable`; lazy backfill on first view
+  for legacy/failed rows; one regeneration attempt if the advertised
+  R2 object is missing; `404` otherwise so the gallery grid falls
+  back per-image to the original URL. Thumbs are deleted with their
+  image and on album deletion. No new permission slugs.
+- Tests: 9 new
+  (`server/utils/images/__tests__/thumbnail.test.ts`) run the real
+  WASM — PNG/JPEG/WebP downscale round-trips, aspect-ratio-preserving
+  custom widths, no-op for small sources, null for unsupported/
+  corrupt/empty input, deterministic key helper. Suite 378/378 pass;
+  typecheck clean; build succeeds; `wrangler deploy --dry-run` ok
+  (codec chunks contain zero `node:` specifiers and no unresolved
+  imports); `db:seed` idempotent.
+
+Known limitations: GIF/SVG show the original (no thumb); plain Node
+`nuxt dev` has no R2 binding so generation needs `npm run cf:dev` or
+staging/prod (upload still succeeds with a null key); supported-image
+uploads now include bounded WASM processing time.
+
+Remaining Phase 12 workstreams deferred:
+
 - Shared KV/Durable-Object rate limiter and server-side session
   revocation list (infra-dependent; candidate for Phase 13).
 - Performance, accessibility and staging review.
 
-See `docs/API.md` Phase 12 (Parts A–C / Options A–B).
+See `docs/API.md` Phase 12 (Parts A–C / Options A–C).
 
 ### Phase 13 --- Production readiness
 
@@ -1833,16 +1870,16 @@ Staging        Worker sms-staging + sms-staging R2 + staging Hyperdrive/PG
 Production     Worker sms-production + sms-production R2 + prod Hyperdrive/PG
                (provisioned but not deployed until staging is accepted)
 Website        deferred
-Current phase  Phase 12 Parts A–C / Options A–B ✅ COMPLETE (Phases 0–11
+Current phase  Phase 12 Parts A–C / Options A–C ✅ COMPLETE (Phases 0–11
                done; Part A security/auth hardening: file magic-byte
                sniffing + timetable/attendance/exams row-level scoping;
                Part B queue consumer + async idempotent announcement
                fan-out; Part C Option A PDF report cards with R2
                storage + authorized download; Part C Option B xlsx
                exports, admissions-pipeline report and on-demand PDF
-               audit certificates; Option C [gallery thumbnails],
-               email delivery, payment gateway/webhook still
-               deferred).
+               audit certificates; Part C Option C on-Worker WASM
+               gallery image thumbnails; email delivery, payment
+               gateway/webhook still deferred).
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
