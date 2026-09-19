@@ -1526,9 +1526,9 @@ invoice.create, attendance.mark, payment.verify,
 announcement.publish, admission.advance, user.update). No new
 permissions or migrations. Delivered in Phase 12: row-level scoping for
 teachers (Part A), queue consumer handler (Part B), PDF report cards
-(Part C / Option A). Still deferred in Phase 12: PDF audit
-certificates, Excel/.xlsx exports, admissions-pipeline report, gallery
-image thumbnails. See `docs/API.md` Phase 11.
+(Part C / Option A), xlsx exports + admissions-pipeline report + PDF
+audit certificates (Part C / Option B). Still deferred in Phase 12:
+gallery image thumbnails. See `docs/API.md` Phase 11.
 
 ### Phase 12 --- Hardening
 
@@ -1650,16 +1650,48 @@ performance, accessibility and staging review.
 Known limitations: standard Latin fonts only (Unicode font embedding
 deferred); PDF storage requires the R2 binding; PDF regenerated only
 on generate/publish (editing a published card's remarks without
-re-publishing leaves a stale PDF). Options B (xlsx exports + PDF audit
-certificates + admissions report) and C (gallery thumbnails) remain
-deferred.
+re-publishing leaves a stale PDF). Option C (gallery thumbnails)
+remains deferred.
+
+**Part C / Option B --- xlsx exports, admissions pipeline, audit certificate  ✅ COMPLETE**
+
+- The five existing CSV exports
+  (`reports/attendance`, `reports/enrollments`, `audit-logs`,
+  `students`, `finance/outstanding`) now accept
+  `?format=json|csv|xlsx` through a shared edge-safe helper
+  (`server/utils/exports.ts`): RFC-4180 CSV (single implementation —
+  the five routes had diverged), and xlsx via `write-excel-file`'s
+  **universal** subpath with fflate bundled inline (no Node built-ins,
+  no Web Workers; verified in the Worker bundle). Bold header row;
+  NUMERIC money/score values stay text cells to preserve precision.
+  Unknown `format` values now `422` instead of silently returning JSON.
+- New exam score sheet: `GET /api/v1/exams/:id?format=xlsx`
+  (`getExamScoresForExport`, xlsx only — other formats 422), columns
+  admission number/student/subject code/name/max/score/grade, gated by
+  `exams.view` + `reports.export`.
+- New `GET /api/v1/reports/admissions` pipeline report (json/csv/xlsx):
+  per-stage counts in workflow order with zero-fill for all 11
+  admission statuses, optional session/class filters, trailing Total
+  row in file formats; gated by `admissions.view` + `reports.export`.
+- New `GET /api/v1/reports/audit-certificate` streams an on-demand A4
+  PDF (`pdf-lib`, pure `renderAuditCertificatePdf`) over audit-log
+  aggregates: actor + generation time, exact filter scope,
+  total/earliest/latest, paginated per-action breakdown table,
+  append-only statement and reference. Gated by `audit_logs.view` +
+  `reports.export`; not persisted to R2. No migrations or new
+  permission slugs.
+- Tests: 20 new — export util (CSV escaping, format validation, xlsx
+  round-trip with `read-excel-file/node`, decimal strings kept as
+  text), pipeline ordering/zero-fill/enum coverage, and 8 certificate
+  PDF tests (stream-inflate/hex-decode assertions, pagination). Suite
+  369/369 pass; typecheck clean; build succeeds; `wrangler deploy
+  --dry-run` ok (xlsx chunk contains zero `node:` specifiers);
+  `db:seed` idempotent.
 
 Part B does NOT add email delivery yet — queue messages create in-app
 notification rows only; an email provider integration remains future
 work. Remaining Phase 12 workstreams deferred:
 
-- Part C Option B: Excel/.xlsx exports (grades, attendance, admissions
-  report) + PDF audit certificates + admissions-pipeline report.
 - Part C Option C: gallery image thumbnails (Workers has no native
   image processing; needs a Cloudflare Images binding or wasm
   pipeline — explicit permission required per user preference).
@@ -1667,7 +1699,7 @@ work. Remaining Phase 12 workstreams deferred:
   revocation list (infra-dependent; candidate for Phase 13).
 - Performance, accessibility and staging review.
 
-See `docs/API.md` Phase 12 (Parts A–C / Option A).
+See `docs/API.md` Phase 12 (Parts A–C / Options A–B).
 
 ### Phase 13 --- Production readiness
 
@@ -1801,13 +1833,14 @@ Staging        Worker sms-staging + sms-staging R2 + staging Hyperdrive/PG
 Production     Worker sms-production + sms-production R2 + prod Hyperdrive/PG
                (provisioned but not deployed until staging is accepted)
 Website        deferred
-Current phase  Phase 12 Parts A–C / Option A ✅ COMPLETE (Phases 0–11
+Current phase  Phase 12 Parts A–C / Options A–B ✅ COMPLETE (Phases 0–11
                done; Part A security/auth hardening: file magic-byte
                sniffing + timetable/attendance/exams row-level scoping;
                Part B queue consumer + async idempotent announcement
                fan-out; Part C Option A PDF report cards with R2
-               storage + authorized download; Options B/C
-               [xlsx/PDF-audit/admissions exports, gallery thumbnails],
+               storage + authorized download; Part C Option B xlsx
+               exports, admissions-pipeline report and on-demand PDF
+               audit certificates; Option C [gallery thumbnails],
                email delivery, payment gateway/webhook still
                deferred).
 ```

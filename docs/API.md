@@ -1010,3 +1010,59 @@ FlateDecode-compressed streams and decode the `<hex> Tj` text operands
 - The PDF is regenerated only on generate/publish — editing a
   published card's remarks without re-publishing leaves a stale PDF
   (matches the publish-gated access model).
+
+## Phase 12 — Hardening (Part C / Option B)
+
+### xlsx exports
+
+Every existing CSV report endpoint now accepts
+`?format=json|csv|xlsx` (unknown values return `422` instead of
+silently falling back to JSON):
+
+| Endpoint | Permissions (non-json) |
+|---|---|
+| `GET /api/v1/reports/attendance` | `reports.view` + `reports.export` |
+| `GET /api/v1/reports/enrollments` | `reports.view` + `reports.export` |
+| `GET /api/v1/reports/admissions` | `admissions.view` + `reports.export` |
+| `GET /api/v1/audit-logs` | `audit_logs.view` + `reports.export` |
+| `GET /api/v1/students` | `students.view` + `students.export` |
+| `GET /api/v1/finance/outstanding` | `invoices.view` + `finance.export` |
+
+xlsx workbooks are generated edge-side by `write-excel-file`
+(universal build — no Node/`fs`/Web Worker dependencies; fflate is
+bundled inline) and sent as
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+The header row is bold; money/score values remain **text cells** so
+NUMERIC precision is never lossy-converted in Excel.
+
+Exam score sheets (xlsx only — no csv):
+
+- `GET /api/v1/exams/:id?format=xlsx` — requires `exams.view` plus
+  `reports.export`. Columns: admission number, student name, subject
+  code, subject name, max score, score, grade; ordered by admission
+  number then subject name. `json`/no format returns the normal exam
+  document; any other format value is a `422`.
+
+### Admissions pipeline report
+
+- `GET /api/v1/reports/admissions` — `admissions.view`
+  (`reports.export` for csv/xlsx). Optional `sessionId`,
+  `intendedClassId`. Returns one row per pipeline stage in workflow
+  order (`applied → documents_submitted → under_review →
+  assessment_scheduled → assessed → accepted → rejected →
+  waitlisted → admitted → enrolled → withdrawn`) with a zero-filled
+  count, plus a `total`. The xlsx/csv render appends a `Total` row.
+
+### Audit certificate
+
+- `GET /api/v1/reports/audit-certificate` — requires both
+  `audit_logs.view` and `reports.export`; streams an A4 PDF
+  (`application/pdf`, inline). Optional filters: `action`,
+  `resource`, `userId`, `dateFrom`, `dateTo` (same date semantics as
+  the audit-log list). The certificate contains the generation
+  timestamp and requesting actor, the exact scope/filter window, the
+  total/earliest/latest record counts, a per-action breakdown table
+  (paginated), an append-only statement, and a point-in-time
+  reference string. It is rendered on demand from live aggregates and
+  is **not** persisted to R2.
+
