@@ -1,5 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import tailwindcss from '@tailwindcss/vite'
+import { jsquashWasmLoader } from './build/jsquash-wasm-loader'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -27,6 +28,11 @@ export default defineNuxtConfig({
     experimental: {
       asyncContext: true,
     },
+    // Inline the @jsquash WASM codecs (gallery thumbnails) as compiled
+    // WebAssembly.Module exports; see build/jsquash-wasm-loader.ts.
+    rollupConfig: {
+      plugins: [jsquashWasmLoader()],
+    },
   },
 
   // Pinia is configured via ~/plugins/pinia.ts (manual setup for Nuxt 4
@@ -35,7 +41,7 @@ export default defineNuxtConfig({
 
   // Tailwind CSS v4 via the Vite plugin
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss(), jsquashWasmLoader()],
   },
 
   css: ['~/assets/css/main.css'],

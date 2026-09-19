@@ -95,6 +95,23 @@ export async function deleteObject(
 }
 
 /**
+ * Reads an object fully into memory. Returns null when the object or
+ * its body is missing (callers distinguish this from a 503 no-binding
+ * error themselves).
+ */
+export async function getObjectBytes(
+  event: H3Event,
+  key: string,
+): Promise<Uint8Array | null> {
+  const bucket = getR2Bucket(event)
+  const object = await bucket.get(key)
+  if (!object || !object.body) return null
+  // `new Response(stream)` reads any web ReadableStream without relying
+  // on the arrayBuffer() extension present on R2's concrete stream.
+  return new Uint8Array(await new Response(object.body).arrayBuffer())
+}
+
+/**
  * Streams a private R2 object through the authorized API response.
  * Objects are never public; callers must complete authorization first.
  */
@@ -103,6 +120,10 @@ export async function streamObject(
   key: string,
   downloadName: string,
   fallbackContentType?: string | null,
+  options: {
+    disposition?: 'attachment' | 'inline'
+    cacheControl?: string
+  } = {},
 ): Promise<ReadableStream> {
   const bucket = getR2Bucket(event)
   const object = await bucket.get(key)
@@ -119,11 +140,16 @@ export async function streamObject(
     'application/octet-stream'
   const asciiName = downloadName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
   setHeader(event, 'Content-Type', contentType)
+  const disposition = options.disposition ?? 'attachment'
   setHeader(
     event,
     'Content-Disposition',
-    `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
+    `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
   )
-  setHeader(event, 'Cache-Control', 'private, max-age=0, no-store')
+  setHeader(
+    event,
+    'Cache-Control',
+    options.cacheControl ?? 'private, max-age=0, no-store',
+  )
   return object.body
 }

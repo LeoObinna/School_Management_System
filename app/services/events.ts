@@ -63,4 +63,8 @@ export const galleryApi = {
     ),
   imageUrl: (albumId: string, imageId: string) =>
     apiUrl(`/gallery/albums/${albumId}/images/${imageId}`),
+  thumbnailUrl: (albumId: string, imageId: string) =>
+    apiUrl(
+      `/gallery/albums/${albumId}/images/${imageId}/thumbnail`,
+    ),
 }

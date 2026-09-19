@@ -381,16 +381,22 @@ export async function updateAlbum(
 
 export async function deleteAlbum(
   id: string,
-): Promise<{ objectKeys: string[] }> {
+): Promise<{ objectKeys: string[]; thumbObjectKeys: string[] }> {
   const client = await db()
   await albumOrThrow(client, id)
   const imageRows = await client
-    .select({ objectKey: galleryImages.objectKey })
+    .select({
+      objectKey: galleryImages.objectKey,
+      thumbObjectKey: galleryImages.thumbObjectKey,
+    })
     .from(galleryImages)
     .where(eq(galleryImages.albumId, id))
   const objectKeys = imageRows.map((r) => r.objectKey)
+  const thumbObjectKeys = imageRows
+    .map((r) => r.thumbObjectKey)
+    .filter((k): k is string => k !== null)
   await client.delete(galleryAlbums).where(eq(galleryAlbums.id, id))
-  return { objectKeys }
+  return { objectKeys, thumbObjectKeys }
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +405,7 @@ export async function deleteAlbum(
 
 export interface StoredImageInput {
   objectKey: string
+  thumbObjectKey?: string | null
   fileName: string
   mimeType: string
   sizeBytes: number
@@ -414,12 +421,28 @@ export async function addImage(
   await client.insert(galleryImages).values({
     albumId,
     objectKey: input.objectKey,
+    thumbObjectKey: input.thumbObjectKey ?? null,
     fileName: input.fileName,
     mimeType: input.mimeType,
     sizeBytes: input.sizeBytes,
     caption: input.caption ?? null,
   })
   return getAlbum(albumId)
+}
+
+/**
+ * Records (or clears) the derived thumbnail object key for one image.
+ * Used by the eager upload path and by lazy on-demand backfill.
+ */
+export async function setImageThumbObjectKey(
+  imageId: string,
+  thumbObjectKey: string | null,
+): Promise<void> {
+  const client = await db()
+  await client
+    .update(galleryImages)
+    .set({ thumbObjectKey })
+    .where(eq(galleryImages.id, imageId))
 }
 
 export async function getImageForDownload(
@@ -444,7 +467,11 @@ export async function getImageForDownload(
 export async function deleteImage(
   albumId: string,
   imageId: string,
-): Promise<{ detail: GalleryAlbumDetail; objectKey: string }> {
+): Promise<{
+  detail: GalleryAlbumDetail
+  objectKey: string
+  thumbObjectKey: string | null
+}> {
   const client = await db()
   const [row] = await client
     .select()
@@ -459,5 +486,9 @@ export async function deleteImage(
   if (!row) throw smsNotFound('Image not found.')
   await client.delete(galleryImages).where(eq(galleryImages.id, imageId))
   const detail = await getAlbum(albumId)
-  return { detail, objectKey: row.objectKey }
+  return {
+    detail,
+    objectKey: row.objectKey,
+    thumbObjectKey: row.thumbObjectKey,
+  }
 }

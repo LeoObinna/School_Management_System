@@ -10,9 +10,9 @@ import { writeAudit } from '~/server/utils/audit'
 export default defineEventHandler(async (event) => {
   const auth = requirePermission(event, 'gallery.manage')
   const { id } = parseInput(idParamSchema, { id: getRouterParam(event, 'id') })
-  const { objectKeys } = await deleteAlbum(id)
+  const { objectKeys, thumbObjectKeys } = await deleteAlbum(id)
   // Best-effort R2 cleanup; failures do not break the request.
-  for (const key of objectKeys) {
+  for (const key of [...objectKeys, ...thumbObjectKeys]) {
     try {
       await deleteObject(event, key)
     } catch {

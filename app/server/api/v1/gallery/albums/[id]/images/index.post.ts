@@ -10,7 +10,12 @@ import {
   deleteObject,
   putObject,
 } from '~/server/utils/storage'
-import { smsFieldError } from '~/server/utils/http-errors'
+import {
+  generateThumbnail,
+  isThumbnailable,
+  THUMBNAIL_MIME,
+  thumbObjectKeyFor,
+} from '~/server/utils/images/thumbnail'
 import { writeAudit } from '~/server/utils/audit'
 
 export default defineEventHandler(async (event) => {
@@ -29,11 +34,32 @@ export default defineEventHandler(async (event) => {
     meta.fileName,
     crypto.randomUUID(),
   )
-  await putObject(event, objectKey, await file.arrayBuffer(), meta.mimeType)
+  const originalBytes = new Uint8Array(await file.arrayBuffer())
+  await putObject(event, objectKey, originalBytes, meta.mimeType)
+
+  // Best-effort derived thumbnail. Never blocks the upload; a null
+  // result leaves thumb_object_key null and the GET route backfills or
+  // the UI falls back to the original image.
+  let thumbObjectKey: string | null = null
+  if (isThumbnailable(meta.mimeType)) {
+    try {
+      const thumbnail = await generateThumbnail(originalBytes, meta.mimeType)
+      if (thumbnail) {
+        thumbObjectKey = thumbObjectKeyFor(objectKey)
+        await putObject(event, thumbObjectKey, thumbnail.bytes, THUMBNAIL_MIME)
+      }
+    } catch {
+      thumbObjectKey = null
+    }
+  }
+
+  const storedKeys = [objectKey]
+  if (thumbObjectKey) storedKeys.push(thumbObjectKey)
 
   try {
     const album = await addImage(id, {
       objectKey,
+      thumbObjectKey,
       fileName: meta.fileName,
       mimeType: meta.mimeType,
       sizeBytes: meta.sizeBytes,
@@ -50,7 +76,9 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 201)
     return album
   } catch (e) {
-    await deleteObject(event, objectKey)
+    await Promise.all(
+      storedKeys.map((key) => deleteObject(event, key).catch(() => {})),
+    )
     throw e
   }
 })

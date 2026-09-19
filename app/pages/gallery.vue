@@ -59,6 +59,27 @@ function fmtDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : '—'
 }
 
+// Per-image thumbnail failure domain: a missing/failed thumbnail falls
+// back to the original object URL for that image only (never resets the
+// whole grid). Image ids are UUIDs, so stale entries are harmless, but
+// the map is reset whenever a different album is opened.
+const failedThumbs = ref<Record<string, true>>({})
+
+function tileSrc(albumId: string, image: GalleryImage): string {
+  return failedThumbs.value[image.id]
+    ? galleryApi.imageUrl(albumId, image.id)
+    : galleryApi.thumbnailUrl(albumId, image.id)
+}
+
+function onThumbError(image: GalleryImage): void {
+  if (!failedThumbs.value[image.id]) {
+    failedThumbs.value = {
+      ...failedThumbs.value,
+      [image.id]: true,
+    }
+  }
+}
+
 function fmtBytes(value: number | null): string {
   if (!value) return ''
   if (value < 1024) return `${value} B`
@@ -157,6 +178,7 @@ async function openDetail(album: GalleryAlbumListItem) {
   detailOpen.value = true
   detailLoading.value = true
   selected.value = null
+  failedThumbs.value = {}
   try {
     selected.value = await galleryApi.getAlbum(album.id)
   } catch (e) {
@@ -391,10 +413,13 @@ async function deleteImage(image: GalleryImage) {
             class="overflow-hidden rounded-md border border-gray-200 bg-gray-50"
           >
             <img
-              :src="galleryApi.imageUrl(selected.id, image.id)"
+              :src="tileSrc(selected.id, image)"
               :alt="image.caption || image.fileName"
               loading="lazy"
+              decoding="async"
+              width="480"
               class="h-32 w-full object-cover"
+              @error="onThumbError(image)"
             />
             <div class="p-2 text-xs">
               <p class="truncate font-medium text-gray-800">{{ image.fileName }}</p>

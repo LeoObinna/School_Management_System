@@ -17,11 +17,14 @@ export default defineEventHandler(async (event) => {
     id: getRouterParam(event, 'id'),
     imageId: getRouterParam(event, 'imageId'),
   })
-  const { detail, objectKey } = await deleteImage(id, imageId)
-  try {
-    await deleteObject(event, objectKey)
-  } catch {
-    // R2 may be unavailable in plain Node dev (503); ignore.
+  const { detail, objectKey, thumbObjectKey } = await deleteImage(id, imageId)
+  for (const key of [objectKey, thumbObjectKey]) {
+    if (!key) continue
+    try {
+      await deleteObject(event, key)
+    } catch {
+      // R2 may be unavailable in plain Node dev (503); ignore.
+    }
   }
   await writeAudit(event, {
     userId: auth.user.id,
