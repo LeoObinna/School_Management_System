@@ -113,7 +113,17 @@ const form = reactive({
   body: '',
   audience: 'all' as Audience,
   status: 'draft' as AnnouncementStatus,
+  // datetime-local value (browser local zone); sent as UTC ISO.
+  scheduledFor: '',
 })
+
+/** Converts a UTC ISO instant to a datetime-local value in local time. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 function resetForm() {
   Object.assign(form, {
@@ -121,6 +131,7 @@ function resetForm() {
     body: '',
     audience: 'all',
     status: 'draft',
+    scheduledFor: '',
   })
 }
 
@@ -138,6 +149,7 @@ function openEdit(row: AnnouncementListItem) {
     body: row.body ?? '',
     audience: row.audience,
     status: row.status,
+    scheduledFor: row.scheduledFor ? toLocalInput(row.scheduledFor) : '',
   })
   formError.value = null
   formModalOpen.value = true
@@ -151,6 +163,9 @@ async function submitForm() {
     body: form.body.trim() || null,
     audience: form.audience,
     status: form.status,
+    ...(form.status === 'scheduled' && form.scheduledFor
+      ? { scheduledFor: new Date(form.scheduledFor).toISOString() }
+      : {}),
   }
   try {
     if (editingId.value) {
@@ -326,7 +341,10 @@ async function deleteAnnouncement(row: AnnouncementListItem) {
               {{ a.authorName ?? '—' }}
             </td>
             <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-500">
-              {{ fmtDate(a.publishedAt) }}
+              <template v-if="a.status === 'scheduled' && a.scheduledFor">
+                <span class="text-blue-700">⏳ {{ fmtDate(a.scheduledFor) }}</span>
+              </template>
+              <template v-else>{{ fmtDate(a.publishedAt) }}</template>
             </td>
             <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-500">
               {{ fmtDate(a.createdAt) }}
@@ -447,6 +465,18 @@ async function deleteAnnouncement(row: AnnouncementListItem) {
             </select>
           </label>
         </div>
+        <label v-if="form.status === 'scheduled'" class="block text-sm">
+          <span class="block font-medium text-gray-700">Publish at (local time) *</span>
+          <input
+            v-model="form.scheduledFor"
+            type="datetime-local"
+            required
+            class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 sm:w-72"
+          />
+          <span class="mt-1 block text-xs text-gray-500">
+            Published automatically by the 5-minute scheduled job at/after this time.
+          </span>
+        </label>
         <div class="flex justify-end gap-2 pt-2">
           <button
             type="button"

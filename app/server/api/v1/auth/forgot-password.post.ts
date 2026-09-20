@@ -9,13 +9,14 @@
  *
  * The response is identical whether or not the email exists.
  */
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readBody, getRequestIP, setResponseHeader, createError } from 'h3'
 import { and, eq, isNull } from 'drizzle-orm'
 import { users } from '~/database/schema'
 import { forgotPasswordSchema } from '~/shared/schemas'
 import type { MessageResponse } from '~/shared/types'
 import { signToken, RESET_TOKEN_TTL_SECONDS } from '~/server/utils/auth/tokens'
 import { passwordFingerprint } from '~/server/utils/auth/password'
+import { checkRateLimit } from '~/server/utils/auth/throttle'
 import { writeAudit } from '~/server/utils/audit'
 import { parseBody } from '~/server/utils/validation'
 
@@ -25,6 +26,19 @@ const GENERIC_MESSAGE =
 export default defineEventHandler(async (event): Promise<
   MessageResponse & { resetToken?: string }
 > => {
+  // IP-based throttle: limit reset-email bombing / user enumeration
+  // scans (5 requests per 15 minutes per IP, shared via EDGE_KV).
+  const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
+  const limit = await checkRateLimit(event, 'forgot-password', ip)
+  if (!limit.allowed) {
+    setResponseHeader(event, 'Retry-After', limit.retryAfterSeconds)
+    throw createError({
+      statusCode: 429,
+      statusMessage: 'Too Many Requests',
+      message: 'Too many reset requests. Please try again later.',
+    })
+  }
+
   const data = parseBody(forgotPasswordSchema, await readBody(event))
   const config = useRuntimeConfig(event)
 

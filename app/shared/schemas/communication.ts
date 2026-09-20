@@ -31,13 +31,28 @@ export const NOTIFICATION_STATUSES = ['unread', 'read'] as const
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------
-export const announcementCreateSchema = z.object({
-  title: z.string().trim().min(1).max(255),
-  body: z.string().trim().max(20000).nullable().optional(),
-  audience: z.enum(AUDIENCES).optional(),
-  classId: uuidSchema.nullable().optional(),
-  status: z.enum(PUBLICATION_STATUSES).optional(),
-})
+export const announcementCreateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(255),
+    body: z.string().trim().max(20000).nullable().optional(),
+    audience: z.enum(AUDIENCES).optional(),
+    classId: uuidSchema.nullable().optional(),
+    status: z.enum(PUBLICATION_STATUSES).optional(),
+    // Required when status='scheduled'; ignored (stored as null) for
+    // other statuses. Future-instant check lives in the service.
+    scheduledFor: z.string().datetime().nullable().optional(),
+  })
+  .refine((obj) => obj.status !== 'scheduled' || Boolean(obj.scheduledFor), {
+    message: 'scheduledFor is required when status is "scheduled".',
+    path: ['scheduledFor'],
+  })
+  .refine(
+    (obj) => obj.scheduledFor === undefined || obj.status === 'scheduled',
+    {
+      message: 'scheduledFor can only be set when status is "scheduled".',
+      path: ['scheduledFor'],
+    },
+  )
 
 export const announcementUpdateSchema = z
   .object({
@@ -46,9 +61,16 @@ export const announcementUpdateSchema = z
     audience: z.enum(AUDIENCES).optional(),
     classId: uuidSchema.nullable().optional(),
     status: z.enum(PUBLICATION_STATUSES).optional(),
+    scheduledFor: z.string().datetime().nullable().optional(),
   })
   .refine((obj) => Object.keys(obj).length > 0, {
     message: 'At least one field is required',
+  })
+  .refine((obj) => obj.status !== 'scheduled' || obj.scheduledFor !== undefined, {
+    // Switching to 'scheduled' must carry a timestamp in the same
+    // request; the service also accepts a timestamp already stored.
+    message: 'scheduledFor is required when status is "scheduled".',
+    path: ['scheduledFor'],
   })
 
 export const announcementListQuerySchema = paginationQuerySchema.extend({

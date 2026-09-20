@@ -39,12 +39,62 @@ describe('announcementCreateSchema', () => {
       announcementCreateSchema.parse({ title: 'Test', audience: 'visitors' }),
     ).toThrow()
   })
+
+  it('accepts a scheduled announcement with a future timestamp', () => {
+    const result = announcementCreateSchema.parse({
+      title: 'Holiday closure',
+      status: 'scheduled',
+      scheduledFor: '2099-12-20T08:00:00.000Z',
+    })
+    expect(result.status).toBe('scheduled')
+    expect(result.scheduledFor).toBe('2099-12-20T08:00:00.000Z')
+  })
+
+  it('rejects a scheduled announcement without scheduledFor', () => {
+    expect(() =>
+      announcementCreateSchema.parse({ title: 'Later', status: 'scheduled' }),
+    ).toThrow(/scheduledFor is required/)
+  })
+
+  it('rejects scheduledFor on a non-scheduled announcement', () => {
+    expect(() =>
+      announcementCreateSchema.parse({
+        title: 'Now',
+        status: 'draft',
+        scheduledFor: '2099-12-20T08:00:00.000Z',
+      }),
+    ).toThrow(/can only be set when status/)
+  })
+
+  it('rejects a non-ISO scheduledFor value', () => {
+    expect(() =>
+      announcementCreateSchema.parse({
+        title: 'Later',
+        status: 'scheduled',
+        scheduledFor: 'next monday',
+      }),
+    ).toThrow()
+  })
 })
 
 describe('announcementUpdateSchema', () => {
   it('accepts a partial update', () => {
     const result = announcementUpdateSchema.parse({ title: 'Updated title' })
     expect(result.title).toBe('Updated title')
+  })
+
+  it('requires scheduledFor when switching to scheduled status', () => {
+    expect(() =>
+      announcementUpdateSchema.parse({ status: 'scheduled' }),
+    ).toThrow(/scheduledFor is required/)
+  })
+
+  it('accepts switching to scheduled with a timestamp', () => {
+    const result = announcementUpdateSchema.parse({
+      status: 'scheduled',
+      scheduledFor: '2099-12-20T08:00:00.000Z',
+    })
+    expect(result.status).toBe('scheduled')
   })
 
   it('rejects an empty update', () => {

@@ -27,6 +27,18 @@ export default defineNuxtConfig({
     // call useEvent() outside the route handler, including in Workers.
     experimental: {
       asyncContext: true,
+      // Enables Nitro Tasks scanning (server/tasks/**) so the Cron
+      // Trigger can dispatch publish-scheduled-announcements.
+      tasks: true,
+    },
+    // Cron Triggers (Phase 13): the every-5-minute schedule in
+    // wrangler.toml dispatches the task defined in
+    // server/tasks/publish-scheduled-announcements.ts. Nitro registers
+    // tasks by their file-derived name (filename without extension),
+    // so the entry MUST match exactly. The task publishes announcements
+    // whose status='scheduled' and scheduled_for is due.
+    scheduledTasks: {
+      '*/5 * * * *': ['publish-scheduled-announcements'],
     },
     // Inline the @jsquash WASM codecs (gallery thumbnails) as compiled
     // WebAssembly.Module exports; see build/jsquash-wasm-loader.ts.

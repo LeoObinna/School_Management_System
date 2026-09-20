@@ -40,6 +40,9 @@ export const announcements = pgTable(
       onDelete: 'set null',
     }), // optional targeting
     status: publicationStatusEnum('status').default('draft').notNull(),
+    // Future publish instant for status='scheduled'. The every-5-minute
+    // Cron Task publishes due rows (Phase 13); null for draft/published.
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
     authorId: uuid('author_id').references(() => users.id, {
       onDelete: 'set null',
     }),

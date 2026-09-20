@@ -17,6 +17,7 @@ import {
   passwordFingerprint,
 } from '~/server/utils/auth/password'
 import { base64UrlToBytes, timingSafeEqual } from '~/server/utils/auth/encoding'
+import { revokeAllSessions } from '~/server/utils/auth/revocation'
 import { writeAudit } from '~/server/utils/audit'
 import { parseBody } from '~/server/utils/validation'
 
@@ -76,15 +77,18 @@ export default defineEventHandler(async (event): Promise<MessageResponse> => {
     .set({ password: newHash, updatedAt: new Date() })
     .where(eq(users.id, user.id))
 
+  // Invalidate every existing session immediately (Phase 13 KV
+  // not-before marker); the user must sign in again with the new
+  // password. Inert in Node dev where EDGE_KV is not bound.
+  await revokeAllSessions(event, user.id)
+
   await writeAudit(event, {
     userId: user.id,
     action: 'auth.password_reset.completed',
     resource: 'auth',
     resourceId: user.id,
-    description: 'Password reset completed.',
+    description: 'Password reset completed; existing sessions revoked.',
   })
 
-  // Note: cookie-only sessions (README §25) remain valid until they
-  // expire; a KV-backed session store (later) enables immediate revoke.
   return { message: 'Password updated. You can now sign in.' }
 })

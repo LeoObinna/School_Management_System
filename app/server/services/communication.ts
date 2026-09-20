@@ -15,6 +15,7 @@ import {
   desc,
   eq,
   ilike,
+  lte,
   or,
   sql,
   type SQL,
@@ -163,10 +164,51 @@ export async function getAnnouncement(
   }
 }
 
+/**
+ * Resolves the scheduled_for value for a create/update, enforcing:
+ * scheduled status needs a timestamp, and freshly supplied timestamps
+ * must be in the future. Returns null for every non-scheduled status.
+ */
+function resolveScheduledFor(
+  status: string,
+  supplied: string | null | undefined,
+  existing: Date | null,
+): Date | null {
+  if (status !== 'scheduled') {
+    return null
+  }
+  if (supplied !== undefined) {
+    if (!supplied) {
+      throw smsFieldError(
+        'scheduledFor',
+        'A future scheduledFor is required for a scheduled announcement.',
+      )
+    }
+    const when = new Date(supplied)
+    if (when.getTime() <= Date.now()) {
+      throw smsFieldError('scheduledFor', 'Scheduled time must be in the future.')
+    }
+    return when
+  }
+  if (existing) {
+    return existing
+  }
+  throw smsFieldError(
+    'scheduledFor',
+    'A future scheduledFor is required for a scheduled announcement.',
+  )
+}
+
 export async function createAnnouncement(
   input: AnnouncementCreate,
   actor: CommunicationActor,
 ): Promise<AnnouncementListItem> {
+  const status = input.status ?? 'draft'
+  const scheduledFor =
+    status === 'scheduled' && input.scheduledFor !== undefined
+      ? resolveScheduledFor(status, input.scheduledFor, null)
+      : null
+
   const client = await db()
   const [row] = await client
     .insert(announcements)
@@ -175,10 +217,10 @@ export async function createAnnouncement(
       body: input.body ?? null,
       audience: input.audience ?? 'all',
       classId: input.classId ?? null,
-      status: input.status ?? 'draft',
+      status,
+      scheduledFor,
       authorId: actor.userId,
-      publishedAt:
-        input.status === 'published' ? new Date() : null,
+      publishedAt: status === 'published' ? new Date() : null,
     })
     .returning()
   return getAnnouncement(row!.id)
@@ -195,6 +237,12 @@ export async function updateAnnouncement(
       `Only draft or scheduled announcements can be edited. Current status is "${row.status}".`,
     )
   }
+  const nextStatus = input.status ?? row.status
+  const scheduledFor = resolveScheduledFor(
+    nextStatus,
+    input.scheduledFor,
+    row.scheduledFor,
+  )
   await client
     .update(announcements)
     .set({
@@ -203,6 +251,7 @@ export async function updateAnnouncement(
       ...(input.audience !== undefined && { audience: input.audience }),
       ...(input.classId !== undefined && { classId: input.classId }),
       ...(input.status !== undefined && { status: input.status }),
+      scheduledFor,
       updatedAt: new Date(),
     })
     .where(eq(announcements.id, id))
@@ -244,6 +293,7 @@ export async function publishAnnouncement(
       .update(announcements)
       .set({
         status: 'published',
+        scheduledFor: null,
         publishedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -269,6 +319,85 @@ export async function publishAnnouncement(
 
   const updated = await getAnnouncement(id)
   return { announcement: updated, notified }
+}
+
+/**
+ * Cron entry point (Phase 13): publishes announcements whose status is
+ * 'scheduled' and scheduled_for is due. Runs every 5 minutes via a
+ * Nitro scheduled Task (Cron Trigger) and processes at most 50 rows per
+ * run.
+ *
+ * Takes an explicit Drizzle client because cron invocations have no
+ * request event for the request-scoped db() proxy. The conditional
+ * UPDATE (status must still be 'scheduled') is the claim: overlapping
+ * cron runs or a manual publish racing the cron cannot double-publish.
+ * Fan-out then reuses the exact queue path as a manual publish; the
+ * consumer's partial unique index makes notification creation
+ * idempotent regardless.
+ */
+export async function publishDueAnnouncements(
+  client: SmsDb,
+  queue: NotificationQueueLike | null,
+  now: Date = new Date(),
+): Promise<{ published: number; notified: number }> {
+  const due = await client
+    .select({
+      id: announcements.id,
+      audience: announcements.audience,
+    })
+    .from(announcements)
+    .where(
+      and(
+        eq(announcements.status, 'scheduled'),
+        lte(announcements.scheduledFor, now),
+      ),
+    )
+    .orderBy(announcements.scheduledFor)
+    .limit(50)
+
+  let published = 0
+  let notified = 0
+
+  for (const item of due) {
+    const claimed = await client
+      .update(announcements)
+      .set({
+        status: 'published',
+        scheduledFor: null,
+        publishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(announcements.id, item.id),
+          eq(announcements.status, 'scheduled'),
+        ),
+      )
+      .returning({ id: announcements.id })
+
+    if (claimed.length === 0) {
+      // Lost the race (manual publish or a parallel cron run).
+      continue
+    }
+
+    published += 1
+    const recipients = await countAnnouncementRecipients(
+      client,
+      item.audience as Audience,
+    )
+    notified += recipients
+
+    if (queue) {
+      await sendNotification(queue, {
+        kind: 'announcement.published',
+        announcementId: item.id,
+      })
+    } else {
+      await dispatchAnnouncement(client, item.id)
+    }
+  }
+
+  return { published, notified }
 }
 
 export async function archiveAnnouncement(

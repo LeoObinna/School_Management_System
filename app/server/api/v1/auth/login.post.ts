@@ -18,7 +18,7 @@ import { users } from '~/database/schema'
 import { loginSchema } from '~/shared/schemas'
 import { verifyPassword } from '~/server/utils/auth/password'
 import { issueSession } from '~/server/utils/auth/session-service'
-import { loginThrottler } from '~/server/utils/auth/throttle'
+import { checkRateLimit, clearRateLimit } from '~/server/utils/auth/throttle'
 import { writeAudit } from '~/server/utils/audit'
 import { parseBody } from '~/server/utils/validation'
 
@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
 
   const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
   const throttleKey = `${ip}:${data.email}`
-  const limit = loginThrottler.check(throttleKey)
+  const limit = await checkRateLimit(event, 'login', throttleKey)
   if (!limit.allowed) {
     setResponseHeader(event, 'Retry-After', limit.retryAfterSeconds)
     throw createError({
@@ -73,7 +73,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  loginThrottler.reset(throttleKey)
+  await clearRateLimit(event, 'login', throttleKey)
   await writeAudit(event, {
     userId: user.id,
     action: 'auth.login.success',

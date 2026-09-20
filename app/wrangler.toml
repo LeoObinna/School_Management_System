@@ -48,11 +48,28 @@ localConnectionString = "postgresql://mac:local@127.0.0.1:5432/sms_dev"
 binding = "R2_BUCKET"
 bucket_name = "sms-local"
 
+# KV is emulated locally by `wrangler dev` (state under .wrangler/).
+# EDGE_KV backs the distributed login rate limiter and the server-side
+# session revocation list (Phase 13). The id below only names the local
+# simulation; named environments supply real namespace ids.
+[[kv_namespaces]]
+binding = "EDGE_KV"
+id = "00000000000000000000000000000000"
+
+# Cron Triggers (Phase 13). Every 5 minutes the Worker publishes
+# announcements whose status is 'scheduled' and scheduled_for is due,
+# reusing the normal queue-backed notification fan-out. Crons are
+# inert under plain `nuxt dev`; `wrangler dev --test-scheduled` hits
+# them locally via /__scheduled.
+[triggers]
+crons = ["*/5 * * * *"]
+
 # ===========================================================================
 # Staging — deployed Worker name: sms-staging
 # Provision once:
 #   wrangler hyperdrive create sms-pg-staging --connection-string="$STAGING_DB_URL"
 #   wrangler r2 bucket create sms-staging
+#   wrangler kv namespace create sms-edge-staging
 #   wrangler secret put SESSION_SECRET -e staging
 # ===========================================================================
 [env.staging]
@@ -67,11 +84,20 @@ id = "f9399aef36f14ea4b41a1a5052c70f87"
 binding = "R2_BUCKET"
 bucket_name = "sms-staging"
 
+# Paste the id returned by `wrangler kv namespace create sms-edge-staging`.
+[[env.staging.kv_namespaces]]
+binding = "EDGE_KV"
+id = "4e6311207ab94649a6f08f00f572d14f"
+
+[env.staging.triggers]
+crons = ["*/5 * * * *"]
+
 # ===========================================================================
 # Production — deployed Worker name: sms-production
 # Provision once:
 #   wrangler hyperdrive create sms-pg-production --connection-string="$PROD_DB_URL"
 #   wrangler r2 bucket create sms-production
+#   wrangler kv namespace create sms-edge-production
 #   wrangler secret put SESSION_SECRET -e production
 # ===========================================================================
 [env.production]
@@ -83,6 +109,14 @@ id = "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID"
 [[env.production.r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "sms-production"
+
+# Paste the id returned by `wrangler kv namespace create sms-edge-production`.
+[[env.production.kv_namespaces]]
+binding = "EDGE_KV"
+id = "REPLACE_WITH_PRODUCTION_EDGE_KV_ID"
+
+[env.production.triggers]
+crons = ["*/5 * * * *"]
 
 # Queues (Phase 12 Part B). Announcement publish enqueues one
 # `announcement.published` message; the Worker consumes it via Nitro's
@@ -119,5 +153,3 @@ queue = "sms-notifications-production"
 queue = "sms-notifications-production"
 max_batch_size = 10
 max_batch_timeout = 5
-
-# Cron Triggers / Durable Objects will be added here when their phases land.

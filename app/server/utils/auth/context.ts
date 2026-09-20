@@ -11,6 +11,7 @@ import type { H3Event } from 'h3'
 import { sql } from 'drizzle-orm'
 import { verifyToken, type SessionClaims } from './tokens'
 import { getSessionToken } from './cookies'
+import { isSessionRevoked } from './revocation'
 
 export interface AuthContext {
   user: {
@@ -72,6 +73,19 @@ export async function loadAuthContext(
     claims = null
   }
   if (!claims) {
+    event.context.auth = null
+    return null
+  }
+
+  // Server-side revocation list (logout / password reset). No KV
+  // binding in Node dev, where revocation is inert by design.
+  try {
+    if (await isSessionRevoked(event, claims)) {
+      event.context.auth = null
+      return null
+    }
+  } catch {
+    // Defensive: isSessionRevoked already fails closed internally.
     event.context.auth = null
     return null
   }

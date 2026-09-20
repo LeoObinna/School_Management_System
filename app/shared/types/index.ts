@@ -1133,6 +1133,7 @@ export interface Announcement {
   audience: Audience
   classId: string | null
   status: AnnouncementStatus
+  scheduledFor: string | null
   authorId: string | null
   publishedAt: string | null
   createdAt: string
