@@ -2320,4 +2320,90 @@ documentation, not a second specification.
                     `wrangler hyperdrive update sms-pg-staging
                     --connection-string=…`; local SESSION_SECRET already
                     rotated.
+2026-09-21  Phase 0 (D1) Project owner approved the v2.0 D1 spec package
+                    ( Victorious_Children_School_Cloudflare_D1_AI_Package/
+                    → docs/spec/v2/). POLICY REVERSAL: D1 is now the
+                    authoritative database; PostgreSQL/Neon/Hyperdrive
+                    will be decommissioned ONLY after a D1 staging
+                    deployment passes acceptance. The live PG-backed
+                    staging Worker remains as fallback until then.
+                    Type conventions: money = INTEGER kobo (₦150,000 =
+                    15,000,000); scores/weights/boundaries = INTEGER
+                    fixed-point ×100; timestamps TEXT ISO-8601 UTC;
+                    dates YYYY-MM-DD; times HH:MM:SS; IDs TEXT
+                    app-generated UUIDs; enums TEXT+CHECK. RBAC stays
+                    5-table (104 slugs); sessions stay stateless signed
+                    cookies + KV revocation. Phase 0 deliverable
+                    MIGRATION_GAP_REPORT.md approved at repo root.
+2026-09-22  Safety   Pre-D1 safety checkpoint: restored master README
+                    (had been overwritten with the package README),
+                    restored ADR+feasibility docs (still referenced by
+                    PROJECT_RULES), placed the 7 canonical v2.0 specs +
+                    TRAE_STRICT_COMPLIANCE_PROMPT under docs/spec/v2/,
+                    untracked .DS_Store, committed pending Phase 14A
+                    school-settings work and Phase 13 API doc updates.
+                    Tagged pre-d1 on the last pre-migration commit and
+                    branched feat/d1-migration for the in-progress
+                    migration work. No destructive Hyperdrive/PG removal
+                    yet — that starts only after Phase 1 (config-only
+                    D1 binding addition with Hyperdrive kept as
+                    fallback) is itself accepted.
 ```
+
+## 52. v2.0 D1 spec package (2026-09-21)
+
+The v2.0 spec package is the **authoritative** directive for the
+D1 migration. It supersedes earlier PostgreSQL-retention statements in
+this README and in `PROJECT_RULES.md` per the project owner's
+2026-09-21 decision (see §51 change log). The package lives under
+version control at:
+
+-   [docs/spec/v2/README.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/README.md) — master rules
+-   [docs/spec/v2/01_PRD.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/01_PRD.md) — product requirements
+-   [docs/spec/v2/02_TRD.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/02_TRD.md) — technical architecture
+-   [docs/spec/v2/03_UI_UX_DESIGN_BRIEF.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/03_UI_UX_DESIGN_BRIEF.md) — visual/interaction requirements
+-   [docs/spec/v2/04_APPFLOW.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/04_APPFLOW.md) — workflows
+-   [docs/spec/v2/05_BACKEND_SCHEMA.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/05_BACKEND_SCHEMA.md) — D1 schema
+-   [docs/spec/v2/06_IMPLEMENTATION_PLAN.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/06_IMPLEMENTATION_PLAN.md) — implementation/migration
+-   [docs/spec/v2/07_MIGRATION_GAP_REPORT_TEMPLATE.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/07_MIGRATION_GAP_REPORT_TEMPLATE.md) — first-repository-inspection template
+-   [docs/spec/v2/TRAE_STRICT_COMPLIANCE_PROMPT.md](file:///Users/mac/Documents/School_Management_System/docs/spec/v2/TRAE_STRICT_COMPLIANCE_PROMPT.md) — TRAE operating contract
+
+Authority order (per package README §4): explicit project-owner
+decision → this README → PRD → TRD → UI/UX → AppFlow → Backend Schema
+→ Implementation Plan.
+
+Phase 0 deliverable: [MIGRATION_GAP_REPORT.md](file:///Users/mac/Documents/School_Management_System/MIGRATION_GAP_REPORT.md) at repo root (approved 2026-09-21).
+
+### Migration status
+
+-   **D1 authoritative; PostgreSQL decommissioned only AFTER D1
+    staging passes acceptance.** The live PG-backed staging Worker
+    (`sms-staging`) remains as fallback until then.
+-   Money = INTEGER kobo (₦150,000 = 15,000,000); scores/weights/
+    boundaries = INTEGER fixed-point ×100; timestamps TEXT ISO-8601
+    UTC; dates `YYYY-MM-DD`; times `HH:MM:SS`; IDs TEXT app-generated
+    UUIDs; enums TEXT + CHECK.
+-   Existing 5-table RBAC (multi-role, 104 permission slugs) is kept
+    (no flattening to `users.role`).
+-   Sessions stay stateless signed cookies + KV revocation (no D1
+    sessions table).
+-   Drizzle generates SQLite DDL; `wrangler d1 migrations` is the
+    single applier/tracker.
+
+### Migration phases (from MIGRATION_GAP_REPORT.md §16)
+
+1.  Architecture reset (config only — D1 binding alongside Hyperdrive,
+    no behavior deletion).
+2.  Schema rewrite (52 PG tables → SQLite DDL; 16 pgEnums → TEXT +
+    CHECK; 201 PG-specific call sites adapted).
+3.  Query dialect migration (40 `ilike` → `LIKE`; 17 interactive
+    transactions → D1 batch; ~20 PG raw-SQL fragments rewritten).
+4.  Paystack net-new (init + webhook + verify + ledger).
+5.  Public website net-new (deferred until SMS foundation stable).
+6.  D1 staging acceptance → PG decommission.
+7.  Production cutover.
+
+Each phase follows: `Inspect → Plan → Implement → Test → Review →
+Document → Commit`. Destructive changes (Hyperdrive removal, PG
+schema deletion) require explicit project-owner approval at the
+phase boundary.
