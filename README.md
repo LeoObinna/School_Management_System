@@ -2,35 +2,42 @@
 
 ## Victorious Children School --- School Management System (SMS)
 
-### Nuxt 4 + TypeScript + Vue 3 + Nitro + Cloudflare Workers + PostgreSQL + Cloudflare R2
+### Nuxt 4 + TypeScript + Vue 3 + Nitro + Cloudflare Workers + D1 + R2 + KV
 
 > **MASTER SOURCE OF TRUTH.** Build the authenticated SMS first. Build
 > the public school website later.
 >
 > This README is the single authoritative project specification. The
-> supporting documents `ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`,
-> `ARCHITECTURE_DECISION_RECORD.md`, and `MIGRATION_PLAN.md` record the
-> reasoning and migration history; they do not override this README.
+> v2.0 D1 spec package at `docs/spec/v2/` (placed 2026-09-21) is the
+> canonical directive for the D1 migration and supersedes earlier
+> PostgreSQL-retention statements in this README per the project
+> owner's 2026-09-21 decision (see §51 change log and §52). The
+> supporting historical documents
+> `ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`,
+> `ARCHITECTURE_DECISION_RECORD.md`, and `MIGRATION_PLAN.md` record
+> the reasoning and migration history; they do not override this README.
 
 ## 1. Final architecture
 
 This project uses the following approved stack:
 
 -   Frontend + server: Nuxt 4 (Vue 3, TypeScript, Nitro server routes).
--   Database: PostgreSQL (source of truth; never D1 for primary data).
--   ORM: Drizzle ORM (type-safe PostgreSQL).
+-   Database: Cloudflare D1 (authoritative per v2.0 spec, 2026-09-21).
+    PostgreSQL/Neon/Hyperdrive retained as live staging fallback ONLY
+    until D1 staging passes acceptance (Phase 6).
+-   ORM: Drizzle ORM (PostgreSQL temporarily; D1 from Phase 2).
 -   Validation: zod schemas shared between client and server.
 -   Compute: Cloudflare Workers + Workers Static Assets (Nitro
     `cloudflare-module` preset, deployed manually with Wrangler).
--   Files: Cloudflare R2 through Worker bindings / S3-compatible access.
+-   Files: Cloudflare R2 through Worker bindings only (no S3 keys).
 -   Background jobs: Cloudflare Queues; scheduled tasks: Cron Triggers.
--   Database pooling: Cloudflare Hyperdrive (Workers to PostgreSQL).
+-   Edge state: Cloudflare KV (rate limiter + session revocation;
+    non-authoritative).
 -   Edge/security: Cloudflare DNS, TLS, WAF, rate limiting.
 -   Source control: Git + GitHub.
 -   AI IDE: TRAE CN.
 -   Testing: Vitest, @vue/test-utils, Playwright (future E2E).
--   Production: Cloudflare Workers + managed PostgreSQL (Neon/Supabase)
-    behind Cloudflare.
+-   Production: Cloudflare Workers + D1 + R2 + KV behind Cloudflare.
 
 Architecture:
 
@@ -43,14 +50,29 @@ Nuxt 4 — Vue 3 + TypeScript (pages/components)
    v
 Nitro server routes /api/v1 (auth, RBAC, validation, domain logic)
    |
-   +---- PostgreSQL (source of truth, via Hyperdrive)
+   +---- Cloudflare D1 (authoritative; via env.DB binding)
+   |       PostgreSQL via Hyperdrive (env.HYPERDRIVE) — FALLBACK ONLY
+   |       until Phase 6 D1 staging acceptance
    +---- Cloudflare R2 (objects/files)
+   +---- Cloudflare KV (rate limit + session revocation; non-authoritative)
    +---- Cloudflare Queues (background jobs)
 ```
 
-Do not introduce React/Next.js, Laravel, D1 as a primary database,
-MySQL/MongoDB, or a second backend framework without an explicitly
-approved Architecture Decision Record.
+Do not introduce React/Next.js, Laravel, MySQL/MongoDB, Supabase,
+Firebase, PlanetScale, Docker, Codespaces, or a second backend
+framework without an explicitly approved Architecture Decision
+Record. PostgreSQL/Neon/Hyperdrive are permitted ONLY as the live
+staging fallback until Phase 6; they are decommissioned once D1
+staging passes acceptance.
+
+### Type conventions (v2.0 D1 spec, 2026-09-21)
+
+-   Money: INTEGER kobo (₦150,000 = 15,000,000).
+-   Scores / weights / grade boundaries: INTEGER fixed-point ×100.
+-   Timestamps: TEXT ISO-8601 UTC.
+-   Dates: `YYYY-MM-DD`. Times: `HH:MM:SS`.
+-   IDs: TEXT app-generated UUIDs.
+-   Enums: TEXT + CHECK constraint (not pgEnum).
 
 ## 2. Product boundary
 
@@ -175,8 +197,9 @@ Use zod schemas for validation (shared in shared/schemas/).
 Use Nitro server middleware for authentication and RBAC.
 Use server/services/ for multi-step domain workflows.
 Use database transactions for multi-write operations.
-Use PostgreSQL as the source of truth — never D1 for primary data.
-Use R2 for objects, PostgreSQL for file metadata.
+Use D1 as the authoritative source of truth (policy reversed 2026-09-21;
+see §52; PostgreSQL retained as live staging fallback until Phase 6).
+Use R2 for objects, D1 for file metadata.
 Keep server routes thin; domain logic lives in server/services/.
 Never hard-code secrets or school policy.
 Never trust client authorization claims.
@@ -415,7 +438,8 @@ audit_logs
 
 Rules:
 
--   PostgreSQL is the source of truth.
+-   D1 is the authoritative source of truth (per v2.0 spec, 2026-09-21;
+    PostgreSQL retained as live staging fallback until Phase 6 — see §52).
 -   Use foreign keys and meaningful unique constraints.
 -   Index real query paths.
 -   Use exact decimal types for money.
@@ -1970,7 +1994,8 @@ configuration, deployment and rollback procedures.
 1.  SMS first; public website later.
 2.  Nuxt 4 + Vue 3 + TypeScript is the approved application stack.
 3.  Nitro server routes (Cloudflare Workers) are the approved backend/API.
-4.  PostgreSQL is the primary database (never D1 for primary data).
+4.  D1 is the primary database (per v2.0 spec, 2026-09-21; PostgreSQL
+    retained as live staging fallback until Phase 6 — see §52).
 5.  Cloudflare Queues handle background jobs; the DB is the source of truth.
 6.  Cloudflare R2 is object storage.
 7.  Cloudflare is the compute, edge and security layer.
@@ -2054,9 +2079,9 @@ while **retaining PostgreSQL** as the primary database.
     feature parity. No destructive migration is authorized.
 -   No production system exists yet, so there is no production data at
     risk; the original Laravel backend was never scaffolded.
--   PostgreSQL remains primary. It must never be silently replaced by
-    D1. Historical academic records and durable, auditable financial
-    records remain mandatory.
+-   D1 is now primary (per v2.0 spec, 2026-09-21; see §52). Historical
+    academic records and durable, auditable financial records remain
+    mandatory and are preserved through the PG→D1 migration.
 -   The public school website is sequenced as Phase 18 in the approved
     2026-09-20 roadmap and remains deferred until the SMS is stable and
     production-ready.
@@ -2348,6 +2373,28 @@ documentation, not a second specification.
                     yet — that starts only after Phase 1 (config-only
                     D1 binding addition with Hyperdrive kept as
                     fallback) is itself accepted.
+2026-09-22  Phase 1  D1 architecture reset (config only, no behavior
+                    deletion): added [[d1_databases]] binding `DB`
+                    blocks to app/wrangler.toml (top-level local + env.
+                    staging + env.production) alongside the existing
+                    [[hyperdrive]] blocks (kept as fallback until
+                    Phase 6). db.ts gained a Drizzle D1 driver path
+                    (drizzle-orm/d1, structural D1Database type to
+                    avoid @cloudflare/workers-types direct dep),
+                    createWorkerD1Database() helper, getRequestD1Client
+                    per-request holder, closeRequestDatabase no-op for
+                    D1, and an SMS_USE_D1 env-var dispatch switch
+                    (false in Phase 1 — Hyperdrive still serves live
+                    staging). Queue consumer + publish-scheduled-
+                    announcements cron got D1 fallback when HYPERDRIVE
+                    is absent and env.DB is present (inert until
+                    Phase 2). app/.env.example documents the SMS_USE_D1
+                    switch and flags DATABASE_URL/STAGING_DATABASE_URL
+                    as legacy fallback. PROJECT_RULES flipped to
+                    D1-authoritative with PG-fallback. README §1,
+                    §12, §45, §48, §52 updated for D1. Behavior of the
+                    live staging Worker is UNCHANGED — Hyperdrive
+                    primary, D1 path inert.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

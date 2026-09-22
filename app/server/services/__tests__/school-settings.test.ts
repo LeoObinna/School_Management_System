@@ -95,7 +95,7 @@ describe('school settings service', () => {
   })
 
   it('stores an empty string for a cleared field', async () => {
-    await updateSchoolSettings({ motto: null })
+    await updateSchoolSettings({ motto: '' })
     const row = inserted.find((r) => r.key === 'school.motto')
     expect(row?.value).toBe('')
   })

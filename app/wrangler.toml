@@ -28,6 +28,13 @@ binding = "ASSETS"
 # LOCAL MODE ONLY — never use `wrangler dev --remote` before production
 # cutover (it would hit real remote resources).
 #
+# Phase 1 (D1 migration, 2026-09-22) declared the D1 binding `DB`
+# alongside the legacy HYPERDRIVE binding. Both bindings exist on every
+# environment; db.ts dispatches to Hyperdrive until Phase 2 rewires the
+# schema to SQLite/D1 and flips the default. Hyperdrive is decommissioned
+# ONLY after a D1 staging deployment passes acceptance — until then the
+# live PG-backed staging Worker stays as fallback.
+#
 # Hyperdrive local emulation with ZERO cloud resources: the binding is
 # declared for local `wrangler dev` and `localConnectionString` points at
 # the local Postgres.app database sms_dev. The `id` is a non-functional
@@ -40,6 +47,17 @@ binding = "ASSETS"
 binding = "HYPERDRIVE"
 id = "00000000-0000-0000-0000-000000000000"
 localConnectionString = "postgresql://mac:local@127.0.0.1:5432/sms_dev"
+
+# D1 local emulation with ZERO cloud resources: `wrangler dev` creates a
+# local SQLite file under .wrangler/state/v3/d1/ for the binding. The
+# `database_id` is a non-functional placeholder (no remote D1 exists in
+# local mode). Apply D1 migrations locally with:
+#   npx wrangler d1 migrations apply DB --local
+# (do NOT use --remote before staging acceptance — see Phase 6).
+[[d1_databases]]
+binding = "DB"
+database_name = "sms-local"
+database_id = "00000000-0000-0000-0000-000000000000"
 
 # R2 is emulated on local disk by `wrangler dev` (state under .wrangler/);
 # the bucket name only names the local simulation. Nothing is created or
@@ -68,6 +86,7 @@ crons = ["*/5 * * * *"]
 # Staging — deployed Worker name: sms-staging
 # Provision once:
 #   wrangler hyperdrive create sms-pg-staging --connection-string="$STAGING_DB_URL"
+#   wrangler d1 create sms-staging
 #   wrangler r2 bucket create sms-staging
 #   wrangler kv namespace create sms-edge-staging
 #   wrangler secret put SESSION_SECRET -e staging
@@ -78,7 +97,20 @@ crons = ["*/5 * * * *"]
 binding = "HYPERDRIVE"
 # sms-pg-staging -> Neon sms_staging direct host (ep-calm-shape-…,
 # no -pooler), read caching disabled for read-after-write correctness.
+# Retained as FALLBACK until D1 staging passes acceptance (Phase 6);
+# db.ts still dispatches here by default. Do not delete until then.
 id = "f9399aef36f14ea4b41a1a5052c70f87"
+
+# D1 staging database. Replace the placeholder id with the value
+# returned by `wrangler d1 create sms-staging` before the first D1
+# deploy. Inert until Phase 2 rewires db.ts to dispatch on env.DB:
+# the binding is declared so the staging Worker can serve both
+# databases during the migration, and so `wrangler d1 migrations
+# apply DB -e staging --remote` is available for Phase 2 schema work.
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "sms-staging"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
 
 [[env.staging.r2_buckets]]
 binding = "R2_BUCKET"
@@ -96,6 +128,7 @@ crons = ["*/5 * * * *"]
 # Production — deployed Worker name: sms-production
 # Provision once:
 #   wrangler hyperdrive create sms-pg-production --connection-string="$PROD_DB_URL"
+#   wrangler d1 create sms-production
 #   wrangler r2 bucket create sms-production
 #   wrangler kv namespace create sms-edge-production
 #   wrangler secret put SESSION_SECRET -e production
@@ -104,7 +137,20 @@ crons = ["*/5 * * * *"]
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE"
+# Production Hyperdrive — FALLBACK only. Provision only if D1 staging
+# acceptance (Phase 6) surfaces a blocker that forces a PG production.
+# Default Phase 7 plan is to ship D1-only production; remove this
+# block when the cutover completes successfully.
 id = "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID"
+
+# D1 production database. Replace the placeholder id with the value
+# returned by `wrangler d1 create sms-production` before the production
+# cutover (Phase 7). Do NOT provision earlier — production stays
+# untouched until D1 staging acceptance is signed off.
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "sms-production"
+database_id = "REPLACE_WITH_PRODUCTION_D1_ID"
 
 [[env.production.r2_buckets]]
 binding = "R2_BUCKET"
