@@ -101,10 +101,17 @@ const DEMO_USERS: DemoUser[] = [
 
 const SETTINGS: { key: string; value: string; type: string; group: string }[] = [
   { key: 'school.name', value: 'Victorious Children School', type: 'string', group: 'general' },
+  { key: 'school.motto', value: 'Knowledge, Discipline, Excellence', type: 'string', group: 'general' },
   { key: 'school.email', value: 'info@victoriouschildren.school', type: 'string', group: 'general' },
   { key: 'school.phone', value: '', type: 'string', group: 'general' },
-  { key: 'school.address', value: '', type: 'string', group: 'general' },
+  { key: 'school.address', value: 'Ojodu, Lagos', type: 'string', group: 'general' },
+  { key: 'school.logo_key', value: '', type: 'string', group: 'branding' },
+  { key: 'school.primary_color', value: '#1a237e', type: 'string', group: 'branding' },
+  { key: 'school.secondary_color', value: '#1a1a2e', type: 'string', group: 'branding' },
   { key: 'school.currency', value: 'NGN', type: 'string', group: 'finance' },
+  { key: 'school.bank_name', value: '', type: 'string', group: 'finance' },
+  { key: 'school.account_name', value: '', type: 'string', group: 'finance' },
+  { key: 'school.account_number', value: '', type: 'string', group: 'finance' },
   { key: 'school.academic_year_start_month', value: '9', type: 'number', group: 'academics' },
 ]
 

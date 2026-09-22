@@ -1356,3 +1356,28 @@ export interface AuditCertificateSummary {
     userId: string | null
   }
 }
+
+// ---------------------------------------------------------------------------
+// School settings (Phase 14A)
+// ---------------------------------------------------------------------------
+
+/** Settings every authenticated user may read (identity + branding). */
+export interface SchoolPublicSettings {
+  name: string
+  motto: string | null
+  address: string | null
+  email: string | null
+  phone: string | null
+  logoKey: string | null
+  primaryColor: string | null
+  secondaryColor: string | null
+}
+
+/** Full school settings (admin only — adds bank + finance/academic). */
+export interface SchoolSettings extends SchoolPublicSettings {
+  currency: string | null
+  bankName: string | null
+  accountName: string | null
+  accountNumber: string | null
+  academicYearStartMonth: number | null
+}
