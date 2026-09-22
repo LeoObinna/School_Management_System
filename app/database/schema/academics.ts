@@ -5,39 +5,46 @@
  * Sessions/terms/classes/sections/subjects are all configurable data
  * rows — nothing (Nursery/Primary/JSS/SS, A/B/C, term names) is
  * hard-coded in application logic.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted this file from
+ * PostgreSQL to SQLite/D1: `pgTable` → `sqliteTable`, `uuid` → `text`
+ * with `crypto.randomUUID()` runtime default, `varchar` → `text`,
+ * `timestamp` → `text` ISO-8601, `date` → `text` YYYY-MM-DD,
+ * `boolean` → `integer` 0/1 (Drizzle `{ mode: 'boolean' }`).
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
-  boolean,
-  date,
   integer,
   uniqueIndex,
   index,
   primaryKey,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 
 // ---------------------------------------------------------------------------
 // Academic sessions (e.g. 2026/2027 — configurable)
 // ---------------------------------------------------------------------------
-export const academicSessions = pgTable(
+export const academicSessions = sqliteTable(
   'academic_sessions',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
-    startDate: date('start_date'),
-    endDate: date('end_date'),
-    isCurrent: boolean('is_current').default(false).notNull(),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    startDate: text('start_date'),
+    endDate: text('end_date'),
+    isCurrent: integer('is_current', { mode: 'boolean' })
+      .default(false)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
+      .notNull(),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -48,25 +55,31 @@ export const academicSessions = pgTable(
 // ---------------------------------------------------------------------------
 // Terms (belong to a session; names/order are configurable)
 // ---------------------------------------------------------------------------
-export const terms = pgTable(
+export const terms = sqliteTable(
   'terms',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
     sequence: integer('sequence').notNull(), // ordering within a session
-    startDate: date('start_date'),
-    endDate: date('end_date'),
-    isCurrent: boolean('is_current').default(false).notNull(),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    startDate: text('start_date'),
+    endDate: text('end_date'),
+    isCurrent: integer('is_current', { mode: 'boolean' })
+      .default(false)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
+      .notNull(),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -84,20 +97,24 @@ export const terms = pgTable(
 // ---------------------------------------------------------------------------
 // Classes (levels are configurable, e.g. Primary 1, JSS 2)
 // ---------------------------------------------------------------------------
-export const classes = pgTable(
+export const classes = sqliteTable(
   'classes',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
-    level: varchar('level', { length: 100 }), // crèche/nursery/primary/jss/ss category (configurable)
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    level: text('level'), // crèche/nursery/primary/jss/ss category (configurable)
     sequence: integer('sequence').default(0).notNull(),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -108,23 +125,27 @@ export const classes = pgTable(
 // ---------------------------------------------------------------------------
 // Sections (belong to a class; A/B/C are configurable)
 // ---------------------------------------------------------------------------
-export const sections = pgTable(
+export const sections = sqliteTable(
   'sections',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    classId: uuid('class_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
     capacity: integer('capacity'),
-    room: varchar('room', { length: 100 }),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    room: text('room'),
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -138,20 +159,24 @@ export const sections = pgTable(
 // ---------------------------------------------------------------------------
 // Subjects
 // ---------------------------------------------------------------------------
-export const subjects = pgTable(
+export const subjects = sqliteTable(
   'subjects',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 150 }).notNull(),
-    slug: varchar('slug', { length: 150 }).notNull(),
-    code: varchar('code', { length: 50 }),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    code: text('code'),
     description: text('description'),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -162,19 +187,21 @@ export const subjects = pgTable(
 // ---------------------------------------------------------------------------
 // Class <-> Subject (subjects offered by a class)
 // ---------------------------------------------------------------------------
-export const classSubjects = pgTable(
+export const classSubjects = sqliteTable(
   'class_subjects',
   {
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'cascade' }),
-    isCompulsory: boolean('is_compulsory').default(true).notNull(),
+    isCompulsory: integer('is_compulsory', { mode: 'boolean' })
+      .default(true)
+      .notNull(),
     maxScore: integer('max_score'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

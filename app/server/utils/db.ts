@@ -1,6 +1,6 @@
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { drizzle as drizzleD1 } from 'drizzle-orm/d1'
+import { drizzle as drizzleD1, type DrizzleD1Database } from 'drizzle-orm/d1'
 import type { H3Event } from 'h3'
 import { schema } from '../../database/schema'
 
@@ -80,11 +80,45 @@ function buildDatabase(connectionString: string, max: number) {
   return drizzle(sqlClient, { schema })
 }
 
-/** Exact runtime Drizzle type (includes $client used by the health route). */
+/** Exact runtime Drizzle type for the legacy PostgreSQL fallback path. */
 export type SmsDatabase = ReturnType<typeof buildDatabase>
 
-/** Exact runtime Drizzle type for the D1 path. */
-export type SmsD1Database = ReturnType<typeof drizzleD1>
+/** Exact runtime Drizzle type for the D1 path (schema-bound). */
+export type SmsD1Database = DrizzleD1Database<Schema>
+
+/**
+ * Canonical application Drizzle client type used by service code.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) rewrote all 52 tables to
+ * SQLite/D1, so service code is now type-checked against the D1
+ * Drizzle client. A narrow compatibility surface is intersected for
+ * the ONE construct not yet migrated: PostgreSQL-style interactive
+ * transactions (17 call sites across the finance, academics,
+ * admissions, exams and communication services). D1 has no
+ * interactive transactions — these are rewritten to `db.batch(...)`
+ * in Phase 3 (query-dialect migration), at which point this shim and
+ * every `.transaction()` call are removed.
+ *
+ * Runtime note: until Phase 3 flips `useD1()`, the lazy proxy still
+ * resolves to the PostgreSQL client in deployed/local runtimes, so
+ * `.transaction()` continues to execute; the D1 path is exercised
+ * via the local D1 seeder and tests during Phase 2.
+ */
+export type AppDatabase = Omit<SmsD1Database, 'transaction'> & {
+  // TODO Phase 3: replace each interactive transaction with D1 batch.
+  // `Omit` strips D1's native SQLiteTransaction-based signature so the
+  // callback parameter is typed AppDatabase (the shape service helpers
+  // accept); the PG runtime behind the dispatch proxy honours this
+  // signature until Phase 3 rewrites the 17 call sites to db.batch().
+  transaction<T>(transaction: (tx: AppDatabase) => Promise<T>): Promise<T>
+  // TODO Phase 3: PostgreSQL-style raw execution. The four call sites
+  // (health check, session/grants loader, notification dispatch x2)
+  // contain PG-only fragments (`::int`, array_agg/FILTER, ON CONFLICT
+  // WHERE) and are rewritten to D1 `.run()` during the Phase 3
+  // raw-SQL fragment migration. Runtime currently resolves to the PG
+  // client (useD1() stays false), so execute() is present at runtime.
+  execute<T = Record<string, unknown>>(query: unknown): Promise<T[]>
+}
 
 export interface WorkerDatabase {
   db: SmsDatabase
@@ -342,7 +376,7 @@ function resolveDatabase(): SmsDatabase | SmsD1Database {
  * client — per-request under Workers (D1 or Hyperdrive, dispatched by
  * {@link useD1}), process-wide under Node dev.
  */
-export const db: SmsDatabase = new Proxy({} as SmsDatabase, {
+export const db: AppDatabase = new Proxy({} as AppDatabase, {
   get(_target, property, receiver) {
     const target = resolveDatabase() as unknown as Record<PropertyKey, unknown>
     const value = Reflect.get(target, property, receiver)

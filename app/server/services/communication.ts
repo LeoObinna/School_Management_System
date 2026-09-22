@@ -172,8 +172,8 @@ export async function getAnnouncement(
 function resolveScheduledFor(
   status: string,
   supplied: string | null | undefined,
-  existing: Date | null,
-): Date | null {
+  existing: string | null,
+): string | null {
   if (status !== 'scheduled') {
     return null
   }
@@ -188,7 +188,7 @@ function resolveScheduledFor(
     if (when.getTime() <= Date.now()) {
       throw smsFieldError('scheduledFor', 'Scheduled time must be in the future.')
     }
-    return when
+    return when.toISOString()
   }
   if (existing) {
     return existing
@@ -220,7 +220,7 @@ export async function createAnnouncement(
       status,
       scheduledFor,
       authorId: actor.userId,
-      publishedAt: status === 'published' ? new Date() : null,
+      publishedAt: status === 'published' ? new Date().toISOString() : null,
     })
     .returning()
   return getAnnouncement(row!.id)
@@ -252,7 +252,7 @@ export async function updateAnnouncement(
       ...(input.classId !== undefined && { classId: input.classId }),
       ...(input.status !== undefined && { status: input.status }),
       scheduledFor,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(announcements.id, id))
   return getAnnouncement(id)
@@ -294,8 +294,8 @@ export async function publishAnnouncement(
       .set({
         status: 'published',
         scheduledFor: null,
-        publishedAt: new Date(),
-        updatedAt: new Date(),
+        publishedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(announcements.id, id))
   })
@@ -338,7 +338,7 @@ export async function publishAnnouncement(
 export async function publishDueAnnouncements(
   client: SmsDb,
   queue: NotificationQueueLike | null,
-  now: Date = new Date(),
+  now: string = new Date().toISOString(),
 ): Promise<{ published: number; notified: number }> {
   const due = await client
     .select({
@@ -412,7 +412,7 @@ export async function archiveAnnouncement(
   }
   await client
     .update(announcements)
-    .set({ status: 'archived', updatedAt: new Date() })
+    .set({ status: 'archived', updatedAt: new Date().toISOString() })
     .where(eq(announcements.id, id))
   return getAnnouncement(id)
 }
@@ -482,7 +482,7 @@ export async function markNotificationRead(
   if (row.status === 'read') return toJsonModel<Notification>(row)
   const [updated] = await client
     .update(notifications)
-    .set({ status: 'read', readAt: new Date() })
+    .set({ status: 'read', readAt: new Date().toISOString() })
     .where(eq(notifications.id, id))
     .returning()
   return toJsonModel<Notification>(updated!)
@@ -494,7 +494,7 @@ export async function markAllNotificationsRead(
   const client = await db()
   const result = await client
     .update(notifications)
-    .set({ status: 'read', readAt: new Date() })
+    .set({ status: 'read', readAt: new Date().toISOString() })
     .where(
       and(
         eq(notifications.userId, actor.userId),
@@ -710,7 +710,7 @@ export async function markMessageRead(
   if (row.isRead) return toJsonModel<Message>(row)
   const [updated] = await client
     .update(messages)
-    .set({ isRead: true, readAt: new Date() })
+    .set({ isRead: true, readAt: new Date().toISOString() })
     .where(eq(messages.id, id))
     .returning()
   return toJsonModel<Message>(updated!)

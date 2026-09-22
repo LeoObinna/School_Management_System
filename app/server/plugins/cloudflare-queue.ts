@@ -33,6 +33,7 @@ import { dispatchMessage } from '../services/notification-dispatch'
 import {
   createWorkerDatabase,
   createWorkerD1Database,
+  type AppDatabase,
   type D1Database,
   type SmsDatabase,
   type SmsD1Database,
@@ -102,7 +103,9 @@ export default defineNitroPlugin((nitroApp) => {
 async function processBatch(db: AnyDb, batch: { messages: QueueMessageLike[] }) {
   for (const message of batch.messages) {
     try {
-      await dispatchMessage(db as SmsDatabase, message.body)
+      // TODO Phase 3: once queries are D1-native, dispatch directly
+      // against the D1 client without the PG compatibility cast.
+      await dispatchMessage(db as unknown as AppDatabase, message.body)
       message.ack()
     } catch (error) {
       if (error instanceof z.ZodError) {

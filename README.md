@@ -2391,10 +2391,62 @@ documentation, not a second specification.
                     Phase 2). app/.env.example documents the SMS_USE_D1
                     switch and flags DATABASE_URL/STAGING_DATABASE_URL
                     as legacy fallback. PROJECT_RULES flipped to
-                    D1-authoritative with PG-fallback. README §1,
-                    §12, §45, §48, §52 updated for D1. Behavior of the
+                    D1-authoritative with PG-fallback. README §1, §12, §45, §48, §52 updated for D1. Behavior of the
                     live staging Worker is UNCHANGED — Hyperdrive
                     primary, D1 path inert.
+2026-09-22  Phase 2  Schema rewrite PG → SQLite/D1 (no runtime flip;
+                    Hyperdrive still serves live staging). drizzle.config.ts
+                    dialect switched postgresql → sqlite; legacy PG config
+                    retained as drizzle.pg.config.ts; the 4 PG migrations were
+                    git-mv archived under database/migrations/legacy-pg/ and
+                    the first D1 migration (0000_overrated_marvel_apes.sql,
+                    52 tables + indexes + FKs, 125 DDL commands) was generated
+                    into database/migrations/. package.json gained db:d1:migrate
+                    / db:d1:execute / db:d1:seed; db:migrate|push|studio|seed
+                    alias the PG legacy tooling. wrangler.toml D1 blocks gained
+                    migrations_dir = "database/migrations" (local + staging +
+                    production). All 12 schema files converted: pgTable →
+                    sqliteTable; uuid defaultRandom → TEXT primary key with
+                    $defaultFn(crypto.randomUUID()); varchar → text;
+                    timestamp/date/time → plain TEXT (ISO-8601 / YYYY-MM-DD /
+                    HH:MM:SS, no text({mode:'date'})); boolean → INTEGER 0/1;
+                    numeric(12,2) money → INTEGER kobo; numeric(7,2) scores/
+                    weights/boundaries → INTEGER ×100 fixed-point; bigint →
+                    INTEGER. 16 pgEnums replaced by a sqliteEnum() shim
+                    (text + CHECK) that preserves the genderEnum('gender')
+                    calling convention, the literal-union column type and a
+                    pgEnum-compatible .enumValues array. Partial unique index
+                    (notifications user+announcement) preserved via
+                    .where(sql`announcement_id IS NOT NULL`). 5-table RBAC
+                    shape unchanged (D3); no sessions table (D4).
+                    Seeder: new database/seed-d1.ts runs the idempotent demo
+                    catalog against local D1 via getPlatformProxy; seeds/index.ts
+                    is now D1-native (DrizzleD1Database, ISO timestamps, kobo
+                    amounts, ×100 scores) and bulk inserts are chunked to
+                    respect D1's 100-bind-variable limit; seed.ts kept as a
+                    marked PG-legacy fallback (@ts-expect-error; Phase 6).
+                    Service layer is now TYPE-CHECKED against D1: AppDatabase
+                    (SmsDb alias) resolves to DrizzleD1Database<Schema> with two
+                    narrow, TODO-tagged shims — interactive .transaction()
+                    (17 sites) and PG-style .execute() (4 raw-SQL sites) — both
+                    removed in Phase 3. ~108 database-bound Date values were
+                    adapted to ISO strings (runtime-safe: PG implicitly casts
+                    ISO text; same instants preserved). Finance kobo adaptation
+                    is deliberately DEFERRED to Phase 4b (33 @ts-expect-error
+                    markers; converting while PG is live would corrupt amounts)
+                    and ×100 score adaptation to Phase 3 (15 markers); PG SQL
+                    strings (40 ilike, ::int, FILTER, array_agg, interval) left
+                    intact for the Phase 3 dialect migration. Health check moved
+                    from PG-only db.$client to db.execute(sql`SELECT 1`).
+                    Gates: nuxt typecheck EXIT 0 (0 errors), vitest 413/413
+                    across 31 files, nuxt build (cloudflare-module) EXIT 0;
+                    `wrangler d1 migrations apply DB --local` applied all 125
+                    commands; `npm run db:d1:seed` populated local D1
+                    (104 permissions, 5 roles, demo people/academics/finance/
+                    exams/communication rows; verified ₦50,000 → 5,000,000
+                    kobo, 100.00 → 10,000 and grade-A boundary → 7,000) and a
+                    second run proved idempotency. No cloud resources created;
+                    staging/production untouched; SMS_USE_D1 stays false.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

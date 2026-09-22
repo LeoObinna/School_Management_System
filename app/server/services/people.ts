@@ -224,7 +224,7 @@ export async function updateStudent(
 ): Promise<Student> {
   const client = await db()
   await getStudentOrThrow(id)
-  const values = { ...input, updatedAt: new Date() }
+  const values = { ...input, updatedAt: new Date().toISOString() }
   if (values.otherNames === '') {
     values.otherNames = undefined
   }
@@ -251,7 +251,7 @@ export async function archiveStudent(id: string): Promise<Student> {
   await getStudentOrThrow(id)
   const [row] = await client
     .update(students)
-    .set({ status: 'archived', deletedAt: new Date(), updatedAt: new Date() })
+    .set({ status: 'archived', deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .where(and(eq(students.id, id), activeStudent))
     .returning()
   if (!row) {
@@ -322,7 +322,7 @@ export async function updateParent(
 ): Promise<Parent> {
   const client = await db()
   await getParentOrThrow(id)
-  const values = { ...input, updatedAt: new Date() }
+  const values = { ...input, updatedAt: new Date().toISOString() }
   if (values.otherNames === '') {
     values.otherNames = undefined
   }
@@ -342,7 +342,7 @@ export async function deactivateParent(id: string): Promise<Parent> {
   await getParentOrThrow(id)
   const [row] = await client
     .update(parents)
-    .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
+    .set({ isActive: false, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .where(and(eq(parents.id, id), activeParent))
     .returning()
   if (!row) {
@@ -419,7 +419,7 @@ export async function updateTeacher(
 ): Promise<Teacher> {
   const client = await db()
   await getTeacherOrThrow(id)
-  const values = { ...input, updatedAt: new Date() }
+  const values = { ...input, updatedAt: new Date().toISOString() }
   if (values.otherNames === '') {
     values.otherNames = undefined
   }
@@ -446,7 +446,7 @@ export async function deactivateTeacher(id: string): Promise<Teacher> {
   await getTeacherOrThrow(id)
   const [row] = await client
     .update(teachers)
-    .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
+    .set({ isActive: false, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .where(and(eq(teachers.id, id), activeTeacher))
     .returning()
   if (!row) {
@@ -516,7 +516,7 @@ export async function updateStaff(
 ): Promise<StaffProfile> {
   const client = await db()
   await getStaffOrThrow(id)
-  const values = { ...input, updatedAt: new Date() }
+  const values = { ...input, updatedAt: new Date().toISOString() }
   if (values.otherNames === '') {
     values.otherNames = undefined
   }
@@ -536,7 +536,7 @@ export async function deactivateStaff(id: string): Promise<StaffProfile> {
   await getStaffOrThrow(id)
   const [row] = await client
     .update(staffProfiles)
-    .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
+    .set({ isActive: false, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .where(and(eq(staffProfiles.id, id), activeStaff))
     .returning()
   if (!row) {
@@ -862,7 +862,7 @@ export async function updateEnrollment(
         sectionId: input.sectionId ?? null,
         rollNumber: input.rollNumber ?? null,
         notes: input.notes ?? null,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(studentEnrollments.id, id))
       .returning({ id: studentEnrollments.id })

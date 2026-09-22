@@ -1,44 +1,47 @@
 /**
  * Events and gallery tables (README §22).
  *
- * Images are stored in R2; metadata is in PostgreSQL. Thumbnail and
+ * Images are stored in R2; metadata is in D1/SQLite. Thumbnail and
  * image optimization can be processed asynchronously via Queues.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted PG types to
+ * SQLite/D1: `uuid` → `text` IDs, `varchar` → `text`, `timestamp` →
+ * text ISO-8601, `bigint` size_bytes → `integer` (SQLite INTEGER is
+ * 64-bit, JS-safe up to 2^53), `boolean` → integer 0/1.
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
-  bigint,
-  boolean,
+  integer,
   index,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { users } from './core'
 import { audienceEnum } from './enums'
 
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
-export const events = pgTable(
+export const events = sqliteTable(
   'events',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    title: varchar('title', { length: 255 }).notNull(),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    title: text('title').notNull(),
     description: text('description'),
-    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-    endsAt: timestamp('ends_at', { withTimezone: true }),
-    location: varchar('location', { length: 255 }),
+    startsAt: text('starts_at').notNull(),
+    endsAt: text('ends_at'),
+    location: text('location'),
     audience: audienceEnum('audience').default('all').notNull(),
-    status: varchar('status', { length: 20 }).default('published').notNull(),
-    createdById: uuid('created_by_id').references(() => users.id, {
+    status: text('status').default('published').notNull(),
+    createdById: text('created_by_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -49,42 +52,48 @@ export const events = pgTable(
 // ---------------------------------------------------------------------------
 // Gallery albums
 // ---------------------------------------------------------------------------
-export const galleryAlbums = pgTable('gallery_albums', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  title: varchar('title', { length: 255 }).notNull(),
+export const galleryAlbums = sqliteTable('gallery_albums', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  title: text('title').notNull(),
   description: text('description'),
   coverObjectKey: text('cover_object_key'),
-  eventId: uuid('event_id'),
-  isPublished: boolean('is_published').default(true).notNull(),
-  createdById: uuid('created_by_id').references(() => users.id, {
+  eventId: text('event_id'),
+  isPublished: integer('is_published', { mode: 'boolean' })
+    .default(true)
+    .notNull(),
+  createdById: text('created_by_id').references(() => users.id, {
     onDelete: 'set null',
   }),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
+  createdAt: text('created_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .defaultNow()
+  updatedAt: text('updated_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
 })
 
 // ---------------------------------------------------------------------------
 // Gallery images (R2 metadata)
 // ---------------------------------------------------------------------------
-export const galleryImages = pgTable(
+export const galleryImages = sqliteTable(
   'gallery_images',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    albumId: uuid('album_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    albumId: text('album_id')
       .notNull()
       .references(() => galleryAlbums.id, { onDelete: 'cascade' }),
     objectKey: text('object_key').notNull(),
     thumbObjectKey: text('thumb_object_key'),
-    fileName: varchar('file_name', { length: 255 }).notNull(),
-    mimeType: varchar('mime_type', { length: 150 }),
-    sizeBytes: bigint('size_bytes', { mode: 'number' }),
-    caption: varchar('caption', { length: 500 }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    fileName: text('file_name').notNull(),
+    mimeType: text('mime_type'),
+    sizeBytes: integer('size_bytes'),
+    caption: text('caption'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

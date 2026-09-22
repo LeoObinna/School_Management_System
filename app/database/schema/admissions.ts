@@ -6,18 +6,19 @@
  *
  * Documents are R2 objects with metadata here. A successful admission
  * can transition into a students record + enrollment (Phase 9).
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted PG types to
+ * SQLite/D1: `uuid` → `text` IDs, `varchar` → `text`, `timestamp` →
+ * text ISO-8601, `date` → text YYYY-MM-DD, `bigint` size_bytes →
+ * `integer` (SQLite INTEGER is 64-bit).
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
-  date,
-  bigint,
+  integer,
   uniqueIndex,
   index,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { users } from './core'
 import { classes } from './academics'
 import { admissionStatusEnum, genderEnum } from './enums'
@@ -25,39 +26,41 @@ import { admissionStatusEnum, genderEnum } from './enums'
 // ---------------------------------------------------------------------------
 // Admission applications
 // ---------------------------------------------------------------------------
-export const admissionApplications = pgTable(
+export const admissionApplications = sqliteTable(
   'admission_applications',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    applicationNumber: varchar('application_number', { length: 50 }).notNull(),
-    sessionId: uuid('session_id'),
-    intendedClassId: uuid('intended_class_id').references(() => classes.id, {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    applicationNumber: text('application_number').notNull(),
+    sessionId: text('session_id'),
+    intendedClassId: text('intended_class_id').references(() => classes.id, {
       onDelete: 'set null',
     }),
-    firstName: varchar('first_name', { length: 150 }).notNull(),
-    lastName: varchar('last_name', { length: 150 }).notNull(),
-    otherNames: varchar('other_names', { length: 150 }),
+    firstName: text('first_name').notNull(),
+    lastName: text('last_name').notNull(),
+    otherNames: text('other_names'),
     gender: genderEnum('gender'),
-    dateOfBirth: date('date_of_birth'),
-    nationality: varchar('nationality', { length: 100 }),
-    guardianName: varchar('guardian_name', { length: 255 }),
-    guardianPhone: varchar('guardian_phone', { length: 50 }),
-    guardianEmail: varchar('guardian_email', { length: 255 }),
+    dateOfBirth: text('date_of_birth'),
+    nationality: text('nationality'),
+    guardianName: text('guardian_name'),
+    guardianPhone: text('guardian_phone'),
+    guardianEmail: text('guardian_email'),
     address: text('address'),
     status: admissionStatusEnum('status').default('applied').notNull(),
-    previousSchool: varchar('previous_school', { length: 255 }),
+    previousSchool: text('previous_school'),
     decisionNotes: text('decision_notes'),
-    reviewedById: uuid('reviewed_by_id').references(() => users.id, {
+    reviewedById: text('reviewed_by_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
-    decidedAt: timestamp('decided_at', { withTimezone: true }),
-    admittedStudentId: uuid('admitted_student_id'), // linked after conversion
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    reviewedAt: text('reviewed_at'),
+    decidedAt: text('decided_at'),
+    admittedStudentId: text('admitted_student_id'), // linked after conversion
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -71,42 +74,46 @@ export const admissionApplications = pgTable(
 // ---------------------------------------------------------------------------
 // Admission documents (R2 metadata)
 // ---------------------------------------------------------------------------
-export const admissionDocuments = pgTable('admission_documents', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  applicationId: uuid('application_id')
+export const admissionDocuments = sqliteTable('admission_documents', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  applicationId: text('application_id')
     .notNull()
     .references(() => admissionApplications.id, { onDelete: 'cascade' }),
-  documentType: varchar('document_type', { length: 100 }).notNull(),
+  documentType: text('document_type').notNull(),
   objectKey: text('object_key').notNull(),
-  fileName: varchar('file_name', { length: 255 }).notNull(),
-  mimeType: varchar('mime_type', { length: 150 }),
-  sizeBytes: bigint('size_bytes', { mode: 'number' }),
-  uploadedAt: timestamp('uploaded_at', { withTimezone: true })
-    .defaultNow()
+  fileName: text('file_name').notNull(),
+  mimeType: text('mime_type'),
+  sizeBytes: integer('size_bytes'),
+  uploadedAt: text('uploaded_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
 })
 
 // ---------------------------------------------------------------------------
 // Admission assessments / interviews
 // ---------------------------------------------------------------------------
-export const admissionAssessments = pgTable('admission_assessments', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  applicationId: uuid('application_id')
+export const admissionAssessments = sqliteTable('admission_assessments', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  applicationId: text('application_id')
     .notNull()
     .references(() => admissionApplications.id, { onDelete: 'cascade' }),
-  title: varchar('title', { length: 150 }).notNull(),
-  assessmentType: varchar('assessment_type', { length: 100 }), // exam/interview
-  scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
-  score: varchar('score', { length: 50 }),
-  result: varchar('result', { length: 100 }), // pass/fail/consider
-  assessorId: uuid('assessor_id').references(() => users.id, {
+  title: text('title').notNull(),
+  assessmentType: text('assessment_type'), // exam/interview
+  scheduledAt: text('scheduled_at'),
+  score: text('score'),
+  result: text('result'), // pass/fail/consider
+  assessorId: text('assessor_id').references(() => users.id, {
     onDelete: 'set null',
   }),
   notes: text('notes'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
+  createdAt: text('created_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .defaultNow()
+  updatedAt: text('updated_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
 })

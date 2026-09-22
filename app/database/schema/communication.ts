@@ -4,17 +4,20 @@
  * Announcements support draft/scheduled/published/archived and audience
  * targeting. Bulk notification/email dispatch is handled by Cloudflare
  * Queues; notifications rows record per-recipient state.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted PG types to
+ * SQLite/D1: `uuid` → `text` IDs, `varchar` → `text`, `timestamp` →
+ * text ISO-8601, `boolean` → integer 0/1. The partial unique index on
+ * notifications (announcement_id IS NOT NULL) is preserved — SQLite
+ * supports partial indexes via `WHERE` clause in DDL.
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
-  boolean,
+  integer,
   index,
   uniqueIndex,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 import { users } from './core'
 import { teachers } from './people'
@@ -29,29 +32,31 @@ import {
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------
-export const announcements = pgTable(
+export const announcements = sqliteTable(
   'announcements',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    title: varchar('title', { length: 255 }).notNull(),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    title: text('title').notNull(),
     body: text('body'),
     audience: audienceEnum('audience').default('all').notNull(),
-    classId: uuid('class_id').references(() => classes.id, {
+    classId: text('class_id').references(() => classes.id, {
       onDelete: 'set null',
     }), // optional targeting
     status: publicationStatusEnum('status').default('draft').notNull(),
     // Future publish instant for status='scheduled'. The every-5-minute
     // Cron Task publishes due rows (Phase 13); null for draft/published.
-    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
-    authorId: uuid('author_id').references(() => users.id, {
+    scheduledFor: text('scheduled_for'),
+    authorId: text('author_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    publishedAt: text('published_at'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -62,35 +67,38 @@ export const announcements = pgTable(
 // ---------------------------------------------------------------------------
 // Notifications (per recipient)
 // ---------------------------------------------------------------------------
-export const notifications = pgTable(
+export const notifications = sqliteTable(
   'notifications',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    type: varchar('type', { length: 100 }).notNull(),
-    title: varchar('title', { length: 255 }).notNull(),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
     body: text('body'),
     link: text('link'),
     status: notificationStatusEnum('status').default('unread').notNull(),
-    readAt: timestamp('read_at', { withTimezone: true }),
+    readAt: text('read_at'),
     // Correlation id for announcement fan-out (Phase 12 Part B). Set on
     // notifications produced by the async queue consumer; together with
     // the partial unique index it makes at-least-once delivery
     // idempotent (retries cannot create duplicate rows). Null for
     // notification types without an announcement.
-    announcementId: uuid('announcement_id').references(
+    announcementId: text('announcement_id').references(
       () => announcements.id,
       { onDelete: 'cascade' },
     ),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
     userIdx: index('notifications_user_idx').on(t.userId, t.status),
-    // Idempotency for queue-driven announcement fan-out.
+    // Idempotency for queue-driven announcement fan-out (partial
+    // unique index — SQLite supports `CREATE UNIQUE INDEX ... WHERE`).
     announcementIdempotencyIdx: uniqueIndex(
       'notifications_user_announcement_idx',
     )
@@ -102,23 +110,27 @@ export const notifications = pgTable(
 // ---------------------------------------------------------------------------
 // Messages (controlled internal messaging)
 // ---------------------------------------------------------------------------
-export const messages = pgTable(
+export const messages = sqliteTable(
   'messages',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    senderId: uuid('sender_id').references(() => users.id, {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    senderId: text('sender_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    recipientId: uuid('recipient_id')
+    recipientId: text('recipient_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    direction: messageDirectionEnum('direction').default('outbound').notNull(),
-    subject: varchar('subject', { length: 255 }),
+    direction: messageDirectionEnum('direction')
+      .default('outbound')
+      .notNull(),
+    subject: text('subject'),
     body: text('body').notNull(),
-    isRead: boolean('is_read').default(false).notNull(),
-    readAt: timestamp('read_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    isRead: integer('is_read', { mode: 'boolean' }).default(false).notNull(),
+    readAt: text('read_at'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -133,24 +145,28 @@ export const messages = pgTable(
 // ---------------------------------------------------------------------------
 // Learning resources (R2 object metadata)
 // ---------------------------------------------------------------------------
-export const learningResources = pgTable('learning_resources', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  title: varchar('title', { length: 255 }).notNull(),
+export const learningResources = sqliteTable('learning_resources', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  title: text('title').notNull(),
   description: text('description'),
-  classId: uuid('class_id').references(() => classes.id, {
+  classId: text('class_id').references(() => classes.id, {
     onDelete: 'set null',
   }),
-  subjectId: uuid('subject_id').references(() => subjects.id, {
+  subjectId: text('subject_id').references(() => subjects.id, {
     onDelete: 'set null',
   }),
-  uploadedById: uuid('uploaded_by_id').references(() => teachers.id, {
+  uploadedById: text('uploaded_by_id').references(() => teachers.id, {
     onDelete: 'set null',
   }),
   objectKey: text('object_key').notNull(),
-  fileName: varchar('file_name', { length: 255 }).notNull(),
-  mimeType: varchar('mime_type', { length: 150 }),
-  isPublished: boolean('is_published').default(true).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
+  fileName: text('file_name').notNull(),
+  mimeType: text('mime_type'),
+  isPublished: integer('is_published', { mode: 'boolean' })
+    .default(true)
+    .notNull(),
+  createdAt: text('created_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
 })

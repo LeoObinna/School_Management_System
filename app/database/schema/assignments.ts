@@ -2,19 +2,20 @@
  * Assignments, attachments and submissions (README §17).
  *
  * File bytes live in Cloudflare R2; these tables store metadata and
- * relationships in PostgreSQL.
+ * relationships in D1/SQLite.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted PG types to
+ * SQLite/D1: `uuid` → `text` IDs, `varchar` → `text`, `timestamp` →
+ * text ISO-8601, `bigint` size_bytes → `integer` (SQLite INTEGER is
+ * 64-bit, JS-safe up to 2^53), `integer` maxScore stays integer.
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
   integer,
-  bigint,
   uniqueIndex,
   index,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { students, teachers } from './people'
 import { classes, sections, subjects } from './academics'
 import { academicSessions, terms } from './academics'
@@ -23,39 +24,41 @@ import { publicationStatusEnum, submissionStatusEnum } from './enums'
 // ---------------------------------------------------------------------------
 // Assignments
 // ---------------------------------------------------------------------------
-export const assignments = pgTable(
+export const assignments = sqliteTable(
   'assignments',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    teacherId: uuid('teacher_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    teacherId: text('teacher_id')
       .notNull()
       .references(() => teachers.id, { onDelete: 'cascade' }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'set null',
     }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'restrict' }),
-    sessionId: uuid('session_id')
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    termId: uuid('term_id').references(() => terms.id, {
+    termId: text('term_id').references(() => terms.id, {
       onDelete: 'set null',
     }),
-    title: varchar('title', { length: 255 }).notNull(),
+    title: text('title').notNull(),
     instructions: text('instructions'),
     maxScore: integer('max_score').default(100).notNull(),
-    dueDate: timestamp('due_date', { withTimezone: true }),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
+    dueDate: text('due_date'),
+    publishedAt: text('published_at'),
     status: publicationStatusEnum('status').default('draft').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -67,54 +70,58 @@ export const assignments = pgTable(
 // ---------------------------------------------------------------------------
 // Assignment attachments (R2 object metadata)
 // ---------------------------------------------------------------------------
-export const assignmentAttachments = pgTable('assignment_attachments', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  assignmentId: uuid('assignment_id')
+export const assignmentAttachments = sqliteTable('assignment_attachments', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  assignmentId: text('assignment_id')
     .notNull()
     .references(() => assignments.id, { onDelete: 'cascade' }),
   objectKey: text('object_key').notNull(), // R2 key
-  fileName: varchar('file_name', { length: 255 }).notNull(),
-  mimeType: varchar('mime_type', { length: 150 }),
-  sizeBytes: bigint('size_bytes', { mode: 'number' }),
-  uploadedById: uuid('uploaded_by_id').references(() => teachers.id, {
+  fileName: text('file_name').notNull(),
+  mimeType: text('mime_type'),
+  sizeBytes: integer('size_bytes'),
+  uploadedById: text('uploaded_by_id').references(() => teachers.id, {
     onDelete: 'set null',
   }),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
+  createdAt: text('created_at')
+    .$defaultFn(() => new Date().toISOString())
     .notNull(),
 })
 
 // ---------------------------------------------------------------------------
 // Assignment submissions
 // ---------------------------------------------------------------------------
-export const assignmentSubmissions = pgTable(
+export const assignmentSubmissions = sqliteTable(
   'assignment_submissions',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    assignmentId: uuid('assignment_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    assignmentId: text('assignment_id')
       .notNull()
       .references(() => assignments.id, { onDelete: 'cascade' }),
-    studentId: uuid('student_id')
+    studentId: text('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'cascade' }),
     textContent: text('text_content'),
     objectKey: text('object_key'), // R2 key for submitted file
-    fileName: varchar('file_name', { length: 255 }),
-    mimeType: varchar('mime_type', { length: 150 }),
-    sizeBytes: bigint('size_bytes', { mode: 'number' }),
-    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    fileName: text('file_name'),
+    mimeType: text('mime_type'),
+    sizeBytes: integer('size_bytes'),
+    submittedAt: text('submitted_at'),
     status: submissionStatusEnum('status').default('draft').notNull(),
     score: integer('score'),
     feedback: text('feedback'),
-    gradedById: uuid('graded_by_id').references(() => teachers.id, {
+    gradedById: text('graded_by_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
-    gradedAt: timestamp('graded_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    gradedAt: text('graded_at'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

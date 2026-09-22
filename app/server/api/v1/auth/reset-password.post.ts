@@ -74,7 +74,7 @@ export default defineEventHandler(async (event): Promise<MessageResponse> => {
   const newHash = await hashPassword(data.password)
   await db
     .update(users)
-    .set({ password: newHash, updatedAt: new Date() })
+    .set({ password: newHash, updatedAt: new Date().toISOString() })
     .where(eq(users.id, user.id))
 
   // Invalidate every existing session immediately (Phase 13 KV

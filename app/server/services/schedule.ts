@@ -578,7 +578,7 @@ export async function updateTimetableEntry(
   }
   await assertNoConflicts(client, merged, id)
 
-  const values = { ...input, updatedAt: new Date() }
+  const values = { ...input, updatedAt: new Date().toISOString() }
   if (values.room !== undefined) {
     values.room = values.room?.trim() || null
   }
@@ -962,13 +962,13 @@ export async function markAttendance(
       set: {
         status: sql`excluded.status`,
         remark: sql`excluded.remark`,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       },
     })
 
   await client
     .update(attendanceSessions)
-    .set({ markedById, updatedAt: new Date() })
+    .set({ markedById, updatedAt: new Date().toISOString() })
     .where(eq(attendanceSessions.id, id))
 
   return getAttendanceSessionOrThrow(id)
@@ -981,7 +981,7 @@ export async function updateAttendanceSession(
   const client = await db()
   const [row] = await client
     .update(attendanceSessions)
-    .set({ notes: input.notes, updatedAt: new Date() })
+    .set({ notes: input.notes, updatedAt: new Date().toISOString() })
     .where(eq(attendanceSessions.id, id))
     .returning({ id: attendanceSessions.id })
   if (!row) {
@@ -1007,7 +1007,7 @@ export async function submitAttendanceSession(
   }
   await client
     .update(attendanceSessions)
-    .set({ status: 'submitted', updatedAt: new Date() })
+    .set({ status: 'submitted', updatedAt: new Date().toISOString() })
     .where(eq(attendanceSessions.id, id))
   return getAttendanceSessionOrThrow(id)
 }
@@ -1036,8 +1036,8 @@ export async function approveAttendanceSession(
     .set({
       status: 'approved',
       approvedById,
-      approvedAt: new Date(),
-      updatedAt: new Date(),
+      approvedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(attendanceSessions.id, id))
   return getAttendanceSessionOrThrow(id)

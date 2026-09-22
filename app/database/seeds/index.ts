@@ -24,7 +24,7 @@
  * index includes a nullable section).
  */
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import {
   users,
   roles,
@@ -81,9 +81,31 @@ import { audienceEnum } from '../schema'
 import { hashPassword } from '../../server/utils/auth/password'
 import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from './catalog'
 
-export type DB = PostgresJsDatabase<Schema>
+export type DB = DrizzleD1Database<Schema>
 
 const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'password123'
+
+/** D1 stores timestamps as TEXT ISO-8601; use this instead of `new Date()`. */
+const isoNow = () => new Date().toISOString()
+
+/**
+ * D1/SQLite caps bound variables at 100 per statement (PostgreSQL has
+ * no practical limit), so bulk inserts must be chunked. Splits `rows`
+ * into batches sized by the per-row column count, keeping each
+ * statement at most `maxVars` binds (90 leaves headroom).
+ */
+function chunkForBindVars<T>(
+  rows: T[],
+  columnsPerRow: number,
+  maxVars = 90,
+): T[][] {
+  const size = Math.max(1, Math.floor(maxVars / columnsPerRow))
+  const chunks: T[][] = []
+  for (let i = 0; i < rows.length; i += size) {
+    chunks.push(rows.slice(i, i + size))
+  }
+  return chunks
+}
 
 interface DemoUser {
   name: string
@@ -244,14 +266,24 @@ const DEMO_PARENTS = [
 
 export async function seedDatabase(db: DB): Promise<void> {
   // --- Permissions ------------------------------------------------------
-  const permissionRows = await db
-    .insert(permissions)
-    .values(PERMISSIONS.map((p) => ({ name: p.name, slug: p.slug, group: p.group })))
-    .onConflictDoUpdate({
-      target: permissions.slug,
-      set: { name: sql`excluded.name`, group: sql`excluded."group"` },
-    })
-    .returning({ id: permissions.id, slug: permissions.slug })
+  // Chunked for D1's 100-bind limit. Each row binds 5 params: the 3
+  // supplied fields plus Drizzle-applied $defaultFn id and created_at.
+  const permissionRows: { id: string; slug: string }[] = []
+  for (const rows of chunkForBindVars(
+    PERMISSIONS.map((p) => ({ name: p.name, slug: p.slug, group: p.group })),
+    5,
+  )) {
+    permissionRows.push(
+      ...(await db
+        .insert(permissions)
+        .values(rows)
+        .onConflictDoUpdate({
+          target: permissions.slug,
+          set: { name: sql`excluded.name`, group: sql`excluded."group"` },
+        })
+        .returning({ id: permissions.id, slug: permissions.slug })),
+    )
+  }
 
   const permissionIdBySlug = new Map(
     permissionRows.map((r) => [r.slug, r.id]),
@@ -270,7 +302,7 @@ export async function seedDatabase(db: DB): Promise<void> {
     )
     .onConflictDoUpdate({
       target: roles.slug,
-      set: { updatedAt: new Date() },
+      set: { updatedAt: isoNow() },
     })
     .returning({ id: roles.id, slug: roles.slug })
 
@@ -286,7 +318,12 @@ export async function seedDatabase(db: DB): Promise<void> {
       .filter((id): id is string => Boolean(id))
       .map((permissionId) => ({ roleId, permissionId }))
     if (links.length > 0) {
-      await db.insert(rolePermissions).values(links).onConflictDoNothing()
+      // Super-admin links all 104 permissions. Each row binds 3 params
+      // (role_id, permission_id + $defaultFn created_at) — chunk to
+      // stay within D1's 100-bind-per-statement limit.
+      for (const rows of chunkForBindVars(links, 3)) {
+        await db.insert(rolePermissions).values(rows).onConflictDoNothing()
+      }
     }
   }
 
@@ -300,7 +337,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         email: demo.email,
         password: demoPasswordHash,
         isActive: true,
-        emailVerifiedAt: new Date(),
+        emailVerifiedAt: isoNow(),
       })
       .onConflictDoUpdate({
         target: users.email,
@@ -309,7 +346,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         set: {
           name: demo.name,
           password: demoPasswordHash,
-          updatedAt: new Date(),
+          updatedAt: isoNow(),
         },
       })
       .returning({ id: users.id })
@@ -330,7 +367,7 @@ export async function seedDatabase(db: DB): Promise<void> {
       .values(setting)
       .onConflictDoUpdate({
         target: schoolSettings.key,
-        set: { value: setting.value, type: setting.type, updatedAt: new Date() },
+        set: { value: setting.value, type: setting.type, updatedAt: isoNow() },
       })
   }
 
@@ -347,7 +384,7 @@ export async function seedDatabase(db: DB): Promise<void> {
     })
     .onConflictDoUpdate({
       target: academicSessions.slug,
-      set: { isCurrent: true, updatedAt: new Date() },
+      set: { isCurrent: true, updatedAt: isoNow() },
     })
     .returning({ id: academicSessions.id })
 
@@ -371,7 +408,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         })
         .onConflictDoUpdate({
           target: [terms.sessionId, terms.slug],
-          set: { updatedAt: new Date() },
+          set: { updatedAt: isoNow() },
         })
     }
   }
@@ -384,7 +421,7 @@ export async function seedDatabase(db: DB): Promise<void> {
       .values(klass)
       .onConflictDoUpdate({
         target: classes.slug,
-        set: { updatedAt: new Date() },
+        set: { updatedAt: isoNow() },
       })
       .returning({ id: classes.id, slug: classes.slug })
     if (row) classRows.push(row)
@@ -395,7 +432,7 @@ export async function seedDatabase(db: DB): Promise<void> {
       .values({ classId: klass.id, name: 'A', slug: 'a' })
       .onConflictDoUpdate({
         target: [sections.classId, sections.slug],
-        set: { updatedAt: new Date() },
+        set: { updatedAt: isoNow() },
       })
   }
 
@@ -407,7 +444,7 @@ export async function seedDatabase(db: DB): Promise<void> {
       .values(subject)
       .onConflictDoUpdate({
         target: subjects.slug,
-        set: { updatedAt: new Date() },
+        set: { updatedAt: isoNow() },
       })
       .returning({ id: subjects.id })
     if (row) subjectRows.push(row)
@@ -449,7 +486,7 @@ export async function seedDatabase(db: DB): Promise<void> {
       })
       .onConflictDoUpdate({
         target: teachers.staffNumber,
-        set: { userId, email: teacher.email, updatedAt: new Date() },
+        set: { userId, email: teacher.email, updatedAt: isoNow() },
       })
       .returning({ id: teachers.id, staffNumber: teachers.staffNumber })
     if (row) {
@@ -560,7 +597,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         })
         .onConflictDoUpdate({
           target: students.admissionNumber,
-          set: { userId, updatedAt: new Date() },
+          set: { userId, updatedAt: isoNow() },
         })
         .returning({
           id: students.id,
@@ -597,7 +634,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         })
         .onConflictDoUpdate({
           target: parents.email,
-          set: { userId, updatedAt: new Date() },
+          set: { userId, updatedAt: isoNow() },
         })
         .returning({ id: parents.id, email: parents.email })
       if (row) {
@@ -856,8 +893,8 @@ export async function seedDatabase(db: DB): Promise<void> {
           title: input.title,
           instructions: input.instructions,
           status: input.status,
-          dueDate: input.dueDate ? new Date(input.dueDate) : null,
-          publishedAt: input.publishedAt ? new Date(input.publishedAt) : null,
+          dueDate: input.dueDate ?? null,
+          publishedAt: input.publishedAt ?? null,
         })
         .returning({ id: assignments.id })
       return created?.id ?? null
@@ -907,9 +944,9 @@ export async function seedDatabase(db: DB): Promise<void> {
               status: 'graded',
               score: 90,
               feedback: 'Well done — remember to write out all ten items next time.',
-              submittedAt: new Date('2026-09-11T16:30:00Z'),
+              submittedAt: '2026-09-11T16:30:00Z',
               gradedById: markerId,
-              gradedAt: new Date('2026-09-12T08:30:00Z'),
+              gradedAt: '2026-09-12T08:30:00Z',
             })
             .onConflictDoNothing()
         }
@@ -937,7 +974,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         .values({
           name: 'Midterm',
           slug: 'midterm',
-          weight: '30',
+          weight: 3000,
           description: 'Continuous assessment midpoint',
         })
         .returning({ id: assessmentTypes.id })
@@ -964,12 +1001,12 @@ export async function seedDatabase(db: DB): Promise<void> {
     }
     if (scaleId) {
       const gradeRows = [
-        { grade: 'A', minScore: '70', maxScore: '100', remark: 'Excellent' },
-        { grade: 'B', minScore: '60', maxScore: '69.99', remark: 'Very good' },
-        { grade: 'C', minScore: '50', maxScore: '59.99', remark: 'Good' },
-        { grade: 'D', minScore: '45', maxScore: '49.99', remark: 'Pass' },
-        { grade: 'E', minScore: '40', maxScore: '44.99', remark: 'Weak pass' },
-        { grade: 'F', minScore: '0', maxScore: '39.99', remark: 'Fail' },
+        { grade: 'A', minScore: 7000, maxScore: 10000, remark: 'Excellent' },
+        { grade: 'B', minScore: 6000, maxScore: 6999, remark: 'Very good' },
+        { grade: 'C', minScore: 5000, maxScore: 5999, remark: 'Good' },
+        { grade: 'D', minScore: 4500, maxScore: 4999, remark: 'Pass' },
+        { grade: 'E', minScore: 4000, maxScore: 4499, remark: 'Weak pass' },
+        { grade: 'F', minScore: 0, maxScore: 3999, remark: 'Fail' },
       ]
       for (const item of gradeRows) {
         const [existing] = await db
@@ -1029,8 +1066,8 @@ export async function seedDatabase(db: DB): Promise<void> {
       if (examId) {
         // Exam subjects (idempotent on (examId, subjectId)).
         const examSubjectPlan = [
-          { subjectId: subjectRows[0]!.id, maxScore: '100' },
-          { subjectId: subjectRows[1]!.id, maxScore: '100' },
+          { subjectId: subjectRows[0]!.id, maxScore: 10000 },
+          { subjectId: subjectRows[1]!.id, maxScore: 10000 },
         ]
         const examSubjectIds: string[] = []
         for (const plan of examSubjectPlan) {
@@ -1071,8 +1108,8 @@ export async function seedDatabase(db: DB): Promise<void> {
           .limit(1)
         if (demoStudent && examSubjectIds.length === 2 && markerId) {
           const scorePlan = [
-            { examSubjectId: examSubjectIds[0]!, score: '85', grade: 'A' },
-            { examSubjectId: examSubjectIds[1]!, score: '72', grade: 'A' },
+            { examSubjectId: examSubjectIds[0]!, score: 8500, grade: 'A' },
+            { examSubjectId: examSubjectIds[1]!, score: 7200, grade: 'A' },
           ]
           for (const item of scorePlan) {
             const [existing] = await db
@@ -1126,11 +1163,11 @@ export async function seedDatabase(db: DB): Promise<void> {
               sectionId: null,
               status: 'published',
               submittedById: markerId,
-              submittedAt: new Date('2026-12-15T10:00:00Z'),
+              submittedAt: '2026-12-15T10:00:00Z',
               approvedById: adminUser?.id ?? null,
-              approvedAt: new Date('2026-12-16T09:00:00Z'),
+              approvedAt: '2026-12-16T09:00:00Z',
               publishedById: adminUser?.id ?? null,
-              publishedAt: new Date('2026-12-17T12:00:00Z'),
+              publishedAt: '2026-12-17T12:00:00Z',
             })
             .returning({ id: resultPublications.id })
           publicationId = created?.id
@@ -1140,12 +1177,12 @@ export async function seedDatabase(db: DB): Promise<void> {
             .set({
               status: 'published',
               submittedById: markerId,
-              submittedAt: new Date('2026-12-15T10:00:00Z'),
+              submittedAt: '2026-12-15T10:00:00Z',
               approvedById: adminUser?.id ?? null,
-              approvedAt: new Date('2026-12-16T09:00:00Z'),
+              approvedAt: '2026-12-16T09:00:00Z',
               publishedById: adminUser?.id ?? null,
-              publishedAt: new Date('2026-12-17T12:00:00Z'),
-              updatedAt: new Date(),
+              publishedAt: '2026-12-17T12:00:00Z',
+              updatedAt: isoNow(),
             })
             .where(eq(resultPublications.id, existingPub.id))
         }
@@ -1171,8 +1208,8 @@ export async function seedDatabase(db: DB): Promise<void> {
               termId: firstTermRow[0].id,
               classId: primaryId,
               sectionId: null,
-              totalScore: '157',
-              averageScore: '78.5',
+              totalScore: 15700,
+              averageScore: 7850,
               overallGrade: 'A',
               attendanceSummary: 'Present 18/20 days',
               teacherRemark: 'Good progress this term — keep it up.',
@@ -1180,7 +1217,7 @@ export async function seedDatabase(db: DB): Promise<void> {
               objectKey: null,
               status: 'published',
               generatedById: adminUser.id,
-              publishedAt: new Date('2026-12-17T15:00:00Z'),
+              publishedAt: '2026-12-17T15:00:00Z',
             })
           }
         }
@@ -1228,9 +1265,9 @@ export async function seedDatabase(db: DB): Promise<void> {
 
         // Fee items (idempotent on (feeStructureId, name)).
         const itemPlan = [
-          { name: 'Tuition', amount: '50000.00', isOptional: false, dueDate: '2026-01-31' },
-          { name: 'Books', amount: '5000.00', isOptional: false, dueDate: '2026-01-20' },
-          { name: 'Activity Fee', amount: '2500.00', isOptional: true, dueDate: '2026-02-15' },
+          { name: 'Tuition', amount: 5000000, isOptional: false, dueDate: '2026-01-31' },
+          { name: 'Books', amount: 500000, isOptional: false, dueDate: '2026-01-20' },
+          { name: 'Activity Fee', amount: 250000, isOptional: true, dueDate: '2026-02-15' },
         ]
         const feeItemIds: Record<string, string> = {}
         for (const plan of itemPlan) {
@@ -1281,12 +1318,12 @@ export async function seedDatabase(db: DB): Promise<void> {
               termId: firstTermRow[0].id,
               issueDate: '2026-01-10',
               dueDate: '2026-01-31',
-              subtotal: '57500.00',
-              discount: '0.00',
-              tax: '0.00',
-              total: '57500.00',
-              amountPaid: '0.00',
-              balance: '57500.00',
+              subtotal: 5750000,
+              discount: 0,
+              tax: 0,
+              total: 5750000,
+              amountPaid: 0,
+              balance: 5750000,
               status: 'issued',
               notes: 'First term fees — payment partially recorded.',
               createdById: adminUser.id,
@@ -1298,9 +1335,9 @@ export async function seedDatabase(db: DB): Promise<void> {
         // Invoice lines (idempotent per fee item / description).
         if (invoiceId) {
           const linePlan = [
-            { key: 'Tuition', description: 'Tuition', quantity: 1, unitAmount: '50000.00', lineTotal: '50000.00' },
-            { key: 'Books', description: 'Books and stationery', quantity: 1, unitAmount: '5000.00', lineTotal: '5000.00' },
-            { key: 'Activity Fee', description: 'Activity Fee', quantity: 1, unitAmount: '2500.00', lineTotal: '2500.00' },
+            { key: 'Tuition', description: 'Tuition', quantity: 1, unitAmount: 5000000, lineTotal: 5000000 },
+            { key: 'Books', description: 'Books and stationery', quantity: 1, unitAmount: 500000, lineTotal: 500000 },
+            { key: 'Activity Fee', description: 'Activity Fee', quantity: 1, unitAmount: 250000, lineTotal: 250000 },
           ]
           for (const line of linePlan) {
             const linkedFeeItemId = feeItemIds[line.key] ?? null
@@ -1345,11 +1382,11 @@ export async function seedDatabase(db: DB): Promise<void> {
               paymentReference,
               invoiceId,
               studentId: financeStudent.id,
-              amount: '30000.00',
+              amount: 3000000,
               method: 'cash',
               status: 'verified',
-              paidAt: new Date('2026-01-15T10:00:00Z'),
-              verifiedAt: new Date('2026-01-15T10:05:00Z'),
+              paidAt: '2026-01-15T10:00:00Z',
+              verifiedAt: '2026-01-15T10:05:00Z',
               verifiedById: adminUser.id,
               notes: 'Cash paid at the school office.',
             })
@@ -1370,7 +1407,7 @@ export async function seedDatabase(db: DB): Promise<void> {
               paymentId,
               objectKey: null,
               issuedById: adminUser.id,
-              issuedAt: new Date('2026-01-15T10:05:00Z'),
+              issuedAt: '2026-01-15T10:05:00Z',
             })
           }
 
@@ -1379,10 +1416,10 @@ export async function seedDatabase(db: DB): Promise<void> {
             await db
               .update(studentInvoices)
               .set({
-                amountPaid: '30000.00',
-                balance: '27500.00',
+                amountPaid: 3000000,
+                balance: 2750000,
                 status: 'partially_paid',
-                updatedAt: new Date(),
+                updatedAt: isoNow(),
               })
               .where(eq(studentInvoices.id, invoiceId))
           }
@@ -1411,7 +1448,7 @@ export async function seedDatabase(db: DB): Promise<void> {
       type SeedAssessment = {
         title: string
         assessmentType: string
-        scheduledAt: Date
+        scheduledAt: string
         score?: string | null
         result?: string | null
         notes?: string | null
@@ -1440,8 +1477,8 @@ export async function seedDatabase(db: DB): Promise<void> {
           decisionNotes:
             'Historical demo conversion; enrolled as student STU-001.',
           reviewedById: adminUser.id,
-          reviewedAt: new Date('2026-08-20T09:00:00Z'),
-          decidedAt: new Date('2026-08-25T10:00:00Z'),
+          reviewedAt: '2026-08-20T09:00:00Z',
+          decidedAt: '2026-08-25T10:00:00Z',
           admittedStudentId: enrolledStudent?.id ?? null,
           documents: [],
           assessments: [],
@@ -1461,7 +1498,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           previousSchool: 'Bright Start Academy',
           status: 'under_review',
           reviewedById: adminUser.id,
-          reviewedAt: new Date('2026-09-08T11:30:00Z'),
+          reviewedAt: '2026-09-08T11:30:00Z',
           documents: [
             {
               documentType: 'Birth certificate',
@@ -1482,7 +1519,7 @@ export async function seedDatabase(db: DB): Promise<void> {
             {
               title: 'Parent interview',
               assessmentType: 'interview',
-              scheduledAt: new Date('2026-09-18T10:00:00Z'),
+              scheduledAt: '2026-09-18T10:00:00Z',
             },
           ],
         },
@@ -1503,8 +1540,8 @@ export async function seedDatabase(db: DB): Promise<void> {
           decisionNotes:
             'Accepted for Primary 1 pending placement test confirmation.',
           reviewedById: adminUser.id,
-          reviewedAt: new Date('2026-09-01T08:15:00Z'),
-          decidedAt: new Date('2026-09-09T14:00:00Z'),
+          reviewedAt: '2026-09-01T08:15:00Z',
+          decidedAt: '2026-09-09T14:00:00Z',
           documents: [
             {
               documentType: 'Previous report card / transcript',
@@ -1518,7 +1555,7 @@ export async function seedDatabase(db: DB): Promise<void> {
             {
               title: 'Placement test',
               assessmentType: 'test',
-              scheduledAt: new Date('2026-09-05T09:00:00Z'),
+              scheduledAt: '2026-09-05T09:00:00Z',
               score: '82/100',
               result: 'pass',
               notes: 'Strong numeracy; average reading.',
@@ -1559,8 +1596,8 @@ export async function seedDatabase(db: DB): Promise<void> {
           decisionNotes:
             'No Primary 1 seat available for this session; encouraged to reapply next year.',
           reviewedById: adminUser.id,
-          reviewedAt: new Date('2026-08-28T10:00:00Z'),
-          decidedAt: new Date('2026-09-02T16:30:00Z'),
+          reviewedAt: '2026-08-28T10:00:00Z',
+          decidedAt: '2026-09-02T16:30:00Z',
           documents: [],
           assessments: [],
         },
@@ -1637,7 +1674,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           audience: 'all' as const,
           status: 'published' as const,
           authorId: adminUser.id,
-          publishedAt: new Date('2026-09-01T08:00:00Z'),
+          publishedAt: '2026-09-01T08:00:00Z',
         },
         {
           title: 'Staff meeting — Friday 3 PM',
@@ -1645,7 +1682,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           audience: 'staff' as const,
           status: 'published' as const,
           authorId: adminUser.id,
-          publishedAt: new Date('2026-09-08T10:00:00Z'),
+          publishedAt: '2026-09-08T10:00:00Z',
         },
         {
           title: 'Parent-teacher conference draft',
@@ -1660,7 +1697,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           audience: 'all' as const,
           status: 'archived' as const,
           authorId: adminUser.id,
-          publishedAt: new Date('2026-08-15T09:00:00Z'),
+          publishedAt: '2026-08-15T09:00:00Z',
         },
       ]
       for (const a of seedAnnouncements) {
@@ -1675,11 +1712,11 @@ export async function seedDatabase(db: DB): Promise<void> {
 
       // Notifications (idempotent — check by title+userId).
       const seedNotifications = [
-        { userId: adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume on Monday.', link: '/announcements', status: 'read' as const, readAt: new Date('2026-09-02T08:00:00Z') },
+        { userId: adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume on Monday.', link: '/announcements', status: 'read' as const, readAt: '2026-09-02T08:00:00Z' },
         { userId: teacherUser?.id ?? adminUser.id, type: 'announcement', title: 'Staff meeting — Friday 3 PM', body: 'All teaching staff required.', link: '/announcements', status: 'unread' as const },
-        { userId: studentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: new Date('2026-09-03T10:00:00Z') },
+        { userId: studentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: '2026-09-03T10:00:00Z' },
         { userId: parentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'unread' as const },
-        { userId: superadminUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: new Date('2026-09-01T12:00:00Z') },
+        { userId: superadminUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: '2026-09-01T12:00:00Z' },
       ]
       for (const n of seedNotifications) {
         const [existing] = await db
@@ -1699,8 +1736,8 @@ export async function seedDatabase(db: DB): Promise<void> {
       // Messages (idempotent — check by body text).
       const seedMessages = [
         { senderId: adminUser.id, recipientId: teacherUser?.id ?? adminUser.id, direction: 'outbound' as const, subject: 'Lesson plan review', body: 'Please submit your updated lesson plans by Friday.', isRead: false },
-        { senderId: teacherUser?.id ?? adminUser.id, recipientId: parentUser?.id ?? adminUser.id, direction: 'outbound' as const, subject: 'Student progress', body: 'Your child is doing well in mathematics.', isRead: true, readAt: new Date('2026-09-10T14:00:00Z') },
-        { senderId: parentUser?.id ?? adminUser.id, recipientId: adminUser.id, direction: 'outbound' as const, subject: 'Fee enquiry', body: 'When is the next fee payment due?', isRead: true, readAt: new Date('2026-09-09T11:00:00Z') },
+        { senderId: teacherUser?.id ?? adminUser.id, recipientId: parentUser?.id ?? adminUser.id, direction: 'outbound' as const, subject: 'Student progress', body: 'Your child is doing well in mathematics.', isRead: true, readAt: '2026-09-10T14:00:00Z' },
+        { senderId: parentUser?.id ?? adminUser.id, recipientId: adminUser.id, direction: 'outbound' as const, subject: 'Fee enquiry', body: 'When is the next fee payment due?', isRead: true, readAt: '2026-09-09T11:00:00Z' },
       ]
       for (const m of seedMessages) {
         const [existing] = await db
@@ -1716,8 +1753,8 @@ export async function seedDatabase(db: DB): Promise<void> {
       const seedEvents: {
         title: string
         description: string
-        startsAt: Date
-        endsAt: Date | null
+        startsAt: string
+        endsAt: string | null
         location: string
         audience: (typeof audienceEnum.enumValues)[number]
         status: string
@@ -1726,8 +1763,8 @@ export async function seedDatabase(db: DB): Promise<void> {
         {
           title: 'Annual Sports Day 2026',
           description: 'Inter-house athletics competition on the school field.',
-          startsAt: new Date('2026-10-18T09:00:00Z'),
-          endsAt: new Date('2026-10-18T16:00:00Z'),
+          startsAt: '2026-10-18T09:00:00Z',
+          endsAt: '2026-10-18T16:00:00Z',
           location: 'School Sports Field',
           audience: 'all',
           status: 'published',
@@ -1736,8 +1773,8 @@ export async function seedDatabase(db: DB): Promise<void> {
         {
           title: 'Staff curriculum review',
           description: 'Termly curriculum planning meeting for all staff.',
-          startsAt: new Date('2026-09-12T15:00:00Z'),
-          endsAt: new Date('2026-09-12T17:00:00Z'),
+          startsAt: '2026-09-12T15:00:00Z',
+          endsAt: '2026-09-12T17:00:00Z',
           location: 'Staff Room',
           audience: 'staff',
           status: 'published',
@@ -1746,7 +1783,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         {
           title: 'Cultural Festival (draft)',
           description: 'Planning for the end-of-year cultural festival.',
-          startsAt: new Date('2026-12-05T10:00:00Z'),
+          startsAt: '2026-12-05T10:00:00Z',
           endsAt: null,
           location: 'School Hall',
           audience: 'all',
@@ -1838,7 +1875,7 @@ export async function seedDatabase(db: DB): Promise<void> {
         description: string
         ipAddress?: string | null
         metadata?: Record<string, unknown> | null
-        createdAt: Date
+        createdAt: string
       }[] = [
         {
           userId: superadminUser?.id,
@@ -1847,7 +1884,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           resourceId: superadminUser?.id ?? null,
           description: 'Super admin signed in.',
           ipAddress: '127.0.0.1',
-          createdAt: new Date('2026-09-13T08:00:00Z'),
+          createdAt: '2026-09-13T08:00:00Z',
         },
         {
           userId: superadminUser?.id,
@@ -1855,7 +1892,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           resource: 'role',
           description: 'Adjusted teacher role permissions.',
           ipAddress: '127.0.0.1',
-          createdAt: new Date('2026-09-13T16:00:00Z'),
+          createdAt: '2026-09-13T16:00:00Z',
         },
         {
           userId: adminUser.id,
@@ -1865,7 +1902,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           description: 'Created Amara Okafor (STU-001).',
           ipAddress: '10.0.0.5',
           metadata: { admissionNumber: 'STU-001', class: 'Primary 1' },
-          createdAt: new Date('2026-09-14T14:00:00Z'),
+          createdAt: '2026-09-14T14:00:00Z',
         },
         {
           userId: adminUser.id,
@@ -1874,7 +1911,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           resourceId: '00000000-0000-0000-0000-000000000002',
           description: 'Archived STU-002 (graduated).',
           ipAddress: '10.0.0.5',
-          createdAt: new Date('2026-09-14T15:00:00Z'),
+          createdAt: '2026-09-14T15:00:00Z',
         },
         {
           userId: adminUser.id,
@@ -1884,7 +1921,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           description: 'Issued termly tuition invoice.',
           ipAddress: '10.0.0.5',
           metadata: { total: '50000.00', term: 'First' },
-          createdAt: new Date('2026-09-15T11:00:00Z'),
+          createdAt: '2026-09-15T11:00:00Z',
         },
         {
           userId: teacherUser?.id,
@@ -1893,7 +1930,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           resourceId: '00000000-0000-0000-0000-000000000004',
           description: 'Marked Primary 1 attendance.',
           ipAddress: '10.0.0.12',
-          createdAt: new Date('2026-09-15T13:00:00Z'),
+          createdAt: '2026-09-15T13:00:00Z',
         },
         {
           userId: adminUser.id,
@@ -1903,7 +1940,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           description: 'Verified bank transfer NGN 50,000.',
           ipAddress: '10.0.0.5',
           metadata: { method: 'bank_transfer', amount: '50000.00' },
-          createdAt: new Date('2026-09-15T15:30:00Z'),
+          createdAt: '2026-09-15T15:30:00Z',
         },
         {
           userId: superadminUser?.id,
@@ -1912,7 +1949,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           resourceId: '00000000-0000-0000-0000-000000000006',
           description: 'Published welcome announcement.',
           ipAddress: '127.0.0.1',
-          createdAt: new Date('2026-09-16T09:00:00Z'),
+          createdAt: '2026-09-16T09:00:00Z',
         },
         {
           userId: adminUser.id,
@@ -1922,7 +1959,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           description: 'Advanced STU-004 to under_review.',
           ipAddress: '10.0.0.5',
           metadata: { from: 'submitted', to: 'under_review' },
-          createdAt: new Date('2026-09-16T10:00:00Z'),
+          createdAt: '2026-09-16T10:00:00Z',
         },
         {
           userId: superadminUser?.id,
@@ -1931,7 +1968,7 @@ export async function seedDatabase(db: DB): Promise<void> {
           resourceId: '00000000-0000-0000-0000-000000000008',
           description: 'Deactivated former staff account.',
           ipAddress: '127.0.0.1',
-          createdAt: new Date('2026-09-16T11:00:00Z'),
+          createdAt: '2026-09-16T11:00:00Z',
         },
       ]
       for (const a of seedAuditLogs) {

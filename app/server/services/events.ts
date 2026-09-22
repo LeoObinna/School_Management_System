@@ -79,8 +79,8 @@ export async function listEvents(
   const where: Array<SQL | undefined> = [
     query.status ? eq(events.status, query.status) : undefined,
     query.audience ? eq(events.audience, query.audience) : undefined,
-    query.from ? sql`${events.startsAt} >= ${new Date(query.from)}` : undefined,
-    query.to ? sql`${events.startsAt} <= ${new Date(query.to)}` : undefined,
+    query.from ? sql`${events.startsAt} >= ${new Date(query.from).toISOString()}` : undefined,
+    query.to ? sql`${events.startsAt} <= ${new Date(query.to).toISOString()}` : undefined,
   ]
   if (query.search) {
     const pattern = `%${query.search.trim()}%`
@@ -154,8 +154,8 @@ export async function createEvent(
     .values({
       title: input.title,
       description: input.description ?? null,
-      startsAt: new Date(input.startsAt),
-      endsAt: input.endsAt ? new Date(input.endsAt) : null,
+      startsAt: new Date(input.startsAt).toISOString(),
+      endsAt: input.endsAt ? new Date(input.endsAt).toISOString() : null,
       location: input.location ?? null,
       audience: input.audience ?? 'all',
       status: input.status ?? 'published',
@@ -178,14 +178,14 @@ export async function updateEvent(
       ...(input.description !== undefined && {
         description: input.description,
       }),
-      ...(input.startsAt !== undefined && { startsAt: new Date(input.startsAt) }),
+      ...(input.startsAt !== undefined && { startsAt: new Date(input.startsAt).toISOString() }),
       ...(input.endsAt !== undefined && {
-        endsAt: input.endsAt ? new Date(input.endsAt) : null,
+        endsAt: input.endsAt ? new Date(input.endsAt).toISOString() : null,
       }),
       ...(input.location !== undefined && { location: input.location }),
       ...(input.audience !== undefined && { audience: input.audience }),
       ...(input.status !== undefined && { status: input.status }),
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(events.id, id))
   return getEvent(id)
@@ -355,7 +355,7 @@ export async function updateAlbum(
       ...(input.isPublished !== undefined && {
         isPublished: input.isPublished,
       }),
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(galleryAlbums.id, id))
 

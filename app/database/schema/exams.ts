@@ -2,25 +2,26 @@
  * Exams, assessments, grading, results and report cards (README §18).
  *
  * Grading scales and grade boundaries are configurable data rows with
- * NUMERIC ranges — never hard-coded in logic or UI. Money is not used
- * here, but scores and grade boundaries use NUMERIC for exactness.
+ * INTEGER ranges (×100 fixed-point per the v2.0 spec) — never
+ * hard-coded in logic or UI. Money is not used here; scores and grade
+ * boundaries use INTEGER ×100 for exactness.
  *
  * Result workflow: draft -> submitted -> approved -> published.
  * Students/parents only see published results.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted PG types to
+ * SQLite/D1: `numeric` scores → `integer` ×100 fixed-point (e.g.
+ * 85.5 → 8550, 100 → 10000), `uuid` → `text` IDs, `timestamp` →
+ * text ISO-8601, `date` → text YYYY-MM-DD, `boolean` → integer 0/1.
+ * Phase 3 adapts the service layer to read/write ×100 values.
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
-  date,
-  numeric,
-  boolean,
+  integer,
   uniqueIndex,
   index,
-  primaryKey,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { students, teachers } from './people'
 import {
   academicSessions,
@@ -32,23 +33,25 @@ import {
 import { resultStatusEnum } from './enums'
 import { users } from './core'
 
-// Precision helpers for NUMERIC
-const SCORE_PRECISION = { precision: 7, scale: 2 }
-
 // ---------------------------------------------------------------------------
 // Assessment types (configurable: CA/test, assignment, midterm, ...)
 // ---------------------------------------------------------------------------
-export const assessmentTypes = pgTable(
+export const assessmentTypes = sqliteTable(
   'assessment_types',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
-    weight: numeric('weight', SCORE_PRECISION).default('1').notNull(),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    // Weight ×100 (e.g. weight 0.4 → 40, weight 1.0 → 100).
+    weight: integer('weight').default(100).notNull(),
     description: text('description'),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
+      .notNull(),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -59,26 +62,30 @@ export const assessmentTypes = pgTable(
 // ---------------------------------------------------------------------------
 // Exams
 // ---------------------------------------------------------------------------
-export const exams = pgTable(
+export const exams = sqliteTable(
   'exams',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    termId: uuid('term_id').references(() => terms.id, { onDelete: 'cascade' }),
-    classId: uuid('class_id')
+    termId: text('term_id').references(() => terms.id, {
+      onDelete: 'cascade',
+    }),
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    name: varchar('name', { length: 150 }).notNull(),
-    startDate: date('start_date'),
-    endDate: date('end_date'),
-    status: varchar('status', { length: 20 }).default('closed').notNull(), // open/closed
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    name: text('name').notNull(),
+    startDate: text('start_date'),
+    endDate: text('end_date'),
+    status: text('status').default('closed').notNull(), // open/closed
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -89,20 +96,23 @@ export const exams = pgTable(
 // ---------------------------------------------------------------------------
 // Exam subjects (subjects included in an exam)
 // ---------------------------------------------------------------------------
-export const examSubjects = pgTable(
+export const examSubjects = sqliteTable(
   'exam_subjects',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    examId: uuid('exam_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    examId: text('exam_id')
       .notNull()
       .references(() => exams.id, { onDelete: 'cascade' }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'restrict' }),
-    maxScore: numeric('max_score', SCORE_PRECISION).default('100').notNull(),
-    examDate: date('exam_date'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    // Max score ×100 (default 100 → 10000).
+    maxScore: integer('max_score').default(10000).notNull(),
+    examDate: text('exam_date'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -116,20 +126,24 @@ export const examSubjects = pgTable(
 // ---------------------------------------------------------------------------
 // Grading scales (configurable)
 // ---------------------------------------------------------------------------
-export const gradingScales = pgTable(
+export const gradingScales = sqliteTable(
   'grading_scales',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id').references(() => academicSessions.id, {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text('session_id').references(() => academicSessions.id, {
       onDelete: 'cascade',
     }),
-    name: varchar('name', { length: 150 }).notNull(),
-    isActive: boolean('is_active').default(true).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    name: text('name').notNull(),
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -137,21 +151,24 @@ export const gradingScales = pgTable(
   }),
 )
 
-// Grade boundary items (e.g. 70-100 = A). Configurable NUMERIC ranges.
-export const gradingScaleItems = pgTable(
+// Grade boundary items (e.g. 70-100 = A). Configurable INTEGER ×100 ranges.
+export const gradingScaleItems = sqliteTable(
   'grading_scale_items',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    scaleId: uuid('scale_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    scaleId: text('scale_id')
       .notNull()
       .references(() => gradingScales.id, { onDelete: 'cascade' }),
-    grade: varchar('grade', { length: 10 }).notNull(),
-    minScore: numeric('min_score', SCORE_PRECISION).notNull(),
-    maxScore: numeric('max_score', SCORE_PRECISION).notNull(),
-    remark: varchar('remark', { length: 150 }),
-    points: numeric('points', SCORE_PRECISION),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    grade: text('grade').notNull(),
+    // Min/max score ×100 (e.g. 70 → 7000, 100 → 10000).
+    minScore: integer('min_score').notNull(),
+    maxScore: integer('max_score').notNull(),
+    remark: text('remark'),
+    points: integer('points'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -165,33 +182,39 @@ export const gradingScaleItems = pgTable(
 // ---------------------------------------------------------------------------
 // Assessment (continuous-assessment) scores
 // ---------------------------------------------------------------------------
-export const assessmentScores = pgTable(
+export const assessmentScores = sqliteTable(
   'assessment_scores',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    studentId: uuid('student_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    studentId: text('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'cascade' }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'restrict' }),
-    sessionId: uuid('session_id')
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    termId: uuid('term_id').references(() => terms.id, { onDelete: 'cascade' }),
-    assessmentTypeId: uuid('assessment_type_id')
+    termId: text('term_id').references(() => terms.id, {
+      onDelete: 'cascade',
+    }),
+    assessmentTypeId: text('assessment_type_id')
       .notNull()
       .references(() => assessmentTypes.id, { onDelete: 'restrict' }),
-    score: numeric('score', SCORE_PRECISION).notNull(),
-    maxScore: numeric('max_score', SCORE_PRECISION).default('100').notNull(),
-    enteredById: uuid('entered_by_id').references(() => teachers.id, {
+    // Score ×100 (e.g. 85.5 → 8550).
+    score: integer('score').notNull(),
+    // Max score ×100 (default 100 → 10000).
+    maxScore: integer('max_score').default(10000).notNull(),
+    enteredById: text('entered_by_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -213,26 +236,29 @@ export const assessmentScores = pgTable(
 // ---------------------------------------------------------------------------
 // Exam scores
 // ---------------------------------------------------------------------------
-export const examScores = pgTable(
+export const examScores = sqliteTable(
   'exam_scores',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    examSubjectId: uuid('exam_subject_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    examSubjectId: text('exam_subject_id')
       .notNull()
       .references(() => examSubjects.id, { onDelete: 'cascade' }),
-    studentId: uuid('student_id')
+    studentId: text('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'cascade' }),
-    score: numeric('score', SCORE_PRECISION).notNull(),
-    grade: varchar('grade', { length: 10 }), // computed from active scale
-    enteredById: uuid('entered_by_id').references(() => teachers.id, {
+    // Score ×100 (e.g. 85.5 → 8550).
+    score: integer('score').notNull(),
+    grade: text('grade'), // computed from active scale
+    enteredById: text('entered_by_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -247,40 +273,42 @@ export const examScores = pgTable(
 // ---------------------------------------------------------------------------
 // Result publications (workflow state per session/term/class)
 // ---------------------------------------------------------------------------
-export const resultPublications = pgTable(
+export const resultPublications = sqliteTable(
   'result_publications',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    termId: uuid('term_id')
+    termId: text('term_id')
       .notNull()
       .references(() => terms.id, { onDelete: 'cascade' }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'set null',
     }),
     status: resultStatusEnum('status').default('draft').notNull(),
-    submittedById: uuid('submitted_by_id').references(() => teachers.id, {
+    submittedById: text('submitted_by_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
-    submittedAt: timestamp('submitted_at', { withTimezone: true }),
-    approvedById: uuid('approved_by_id').references(() => users.id, {
+    submittedAt: text('submitted_at'),
+    approvedById: text('approved_by_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    approvedAt: timestamp('approved_at', { withTimezone: true }),
-    publishedById: uuid('published_by_id').references(() => users.id, {
+    approvedAt: text('approved_at'),
+    publishedById: text('published_by_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    publishedAt: text('published_at'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -296,42 +324,45 @@ export const resultPublications = pgTable(
 // ---------------------------------------------------------------------------
 // Report cards
 // ---------------------------------------------------------------------------
-export const reportCards = pgTable(
+export const reportCards = sqliteTable(
   'report_cards',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    studentId: uuid('student_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    studentId: text('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'cascade' }),
-    sessionId: uuid('session_id')
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'restrict' }),
-    termId: uuid('term_id')
+    termId: text('term_id')
       .notNull()
       .references(() => terms.id, { onDelete: 'restrict' }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'restrict' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'set null',
     }),
-    totalScore: numeric('total_score', SCORE_PRECISION),
-    averageScore: numeric('average_score', SCORE_PRECISION),
-    overallGrade: varchar('overall_grade', { length: 10 }),
+    // Total/average ×100 (e.g. 850.5 → 85050).
+    totalScore: integer('total_score'),
+    averageScore: integer('average_score'),
+    overallGrade: text('overall_grade'),
     attendanceSummary: text('attendance_summary'),
     teacherRemark: text('teacher_remark'),
     principalRemark: text('principal_remark'),
     objectKey: text('object_key'), // generated PDF in R2
     status: resultStatusEnum('status').default('draft').notNull(),
-    generatedById: uuid('generated_by_id').references(() => users.id, {
+    generatedById: text('generated_by_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    publishedAt: text('published_at'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

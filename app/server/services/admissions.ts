@@ -231,9 +231,9 @@ function blank<T>(value: T | '' | null | undefined): T | null | undefined {
 // ISO datetime strings become Date instances for timestamp columns.
 function scheduledAtValue(
   value: string | null | undefined,
-): Date | null | undefined {
+): string | null | undefined {
   if (value === null) return null
-  return value ? new Date(value) : undefined
+  return value ? new Date(value).toISOString() : undefined
 }
 
 // Recompute pipeline status after an assessment change.
@@ -410,7 +410,7 @@ export async function updateApplication(
 
   const [updated] = await client
     .update(admissionApplications)
-    .set({ ...values, updatedAt: new Date() })
+    .set({ ...values, updatedAt: new Date().toISOString() })
     .where(eq(admissionApplications.id, id))
     .returning()
   if (!updated) throw smsNotFound('Application not found.')
@@ -438,9 +438,9 @@ export async function reviewApplication(
     .set({
       status: 'under_review',
       reviewedById: actor.userId,
-      reviewedAt: new Date(),
+      reviewedAt: new Date().toISOString(),
       decisionNotes: notes !== undefined ? notes : row.decisionNotes,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(admissionApplications.id, id))
   return loadDetail(client, id)
@@ -465,9 +465,9 @@ export async function decideApplication(
       status: decision,
       decisionNotes,
       reviewedById: row.reviewedById ?? actor.userId,
-      reviewedAt: row.reviewedAt ?? new Date(),
-      decidedAt: new Date(),
-      updatedAt: new Date(),
+      reviewedAt: row.reviewedAt ?? new Date().toISOString(),
+      decidedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(admissionApplications.id, id))
   return loadDetail(client, id)
@@ -495,8 +495,8 @@ export async function waitlistApplication(
     .set({
       status: 'waitlisted',
       decisionNotes: notes ?? row.decisionNotes,
-      decidedAt: new Date(),
-      updatedAt: new Date(),
+      decidedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(admissionApplications.id, id))
   return loadDetail(client, id)
@@ -518,7 +518,7 @@ export async function withdrawApplication(
     .set({
       status: 'withdrawn',
       decisionNotes: notes ?? row.decisionNotes,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(admissionApplications.id, id))
   return loadDetail(client, id)
@@ -560,7 +560,7 @@ export async function addAssessment(
     if (derived) {
       await tx
         .update(admissionApplications)
-        .set({ status: derived, updatedAt: new Date() })
+        .set({ status: derived, updatedAt: new Date().toISOString() })
         .where(eq(admissionApplications.id, applicationId))
     }
     return loadDetail(tx, applicationId)
@@ -602,7 +602,7 @@ export async function updateAssessment(
       score: blank(input.score),
       result: blank(input.result),
       notes: blank(input.notes),
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(admissionAssessments.id, assessmentId))
 
@@ -615,7 +615,7 @@ export async function updateAssessment(
   if (derived) {
     await client
       .update(admissionApplications)
-      .set({ status: derived, updatedAt: new Date() })
+      .set({ status: derived, updatedAt: new Date().toISOString() })
       .where(eq(admissionApplications.id, applicationId))
   }
   return loadDetail(client, applicationId)
@@ -669,7 +669,7 @@ export async function addDocument(
     if (app.status === 'applied') {
       await tx
         .update(admissionApplications)
-        .set({ status: 'documents_submitted', updatedAt: new Date() })
+        .set({ status: 'documents_submitted', updatedAt: new Date().toISOString() })
         .where(eq(admissionApplications.id, applicationId))
     }
   })
@@ -866,10 +866,10 @@ export async function enrollApplication(
         .set({
           status: 'enrolled',
           admittedStudentId: student.id,
-          decidedAt: app.decidedAt ?? new Date(),
+          decidedAt: app.decidedAt ?? new Date().toISOString(),
           reviewedById: app.reviewedById ?? actor.userId,
-          reviewedAt: app.reviewedAt ?? new Date(),
-          updatedAt: new Date(),
+          reviewedAt: app.reviewedAt ?? new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         })
         .where(eq(admissionApplications.id, id))
 

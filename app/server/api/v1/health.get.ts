@@ -1,4 +1,5 @@
 import { defineEventHandler } from 'h3'
+import { sql } from 'drizzle-orm'
 import type { HealthResponse } from '~/shared/types'
 
 /**
@@ -13,7 +14,9 @@ export default defineEventHandler(async (): Promise<HealthResponse> => {
     // Lazy import to avoid loading the DB client on every health check
     // when the DB is unavailable.
     const { db } = await import('~/server/utils/db')
-    await db.$client`SELECT 1`
+    // `execute(sql)` is supported by both the legacy PostgreSQL
+    // Drizzle client and the D1/SQLite client (Phase 2 dual path).
+    await db.execute(sql`SELECT 1`)
     database = true
   } catch {
     database = false

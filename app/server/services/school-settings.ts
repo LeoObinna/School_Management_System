@@ -129,7 +129,7 @@ export async function updateSchoolSettings(
   patch: SchoolSettingsUpdate,
 ): Promise<SchoolSettings> {
   const client = await db()
-  const now = new Date()
+  const now = new Date().toISOString()
 
   for (const [field, value] of Object.entries(patch) as [
     keyof SchoolSettings,

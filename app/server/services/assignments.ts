@@ -259,11 +259,11 @@ function flattenAssignment(row: {
   return { ...row.assignment, className: row.className, sectionName: row.sectionName, subjectName: row.subjectName, teacherName: row.teacherName, sessionName: row.sessionName, termName: row.termName }
 }
 
-function toDate(value: string | null | undefined): Date | null | undefined {
+function toDate(value: string | null | undefined): string | null | undefined {
   if (value === undefined) {
     return undefined
   }
-  return value === null ? null : new Date(value)
+  return value === null ? null : new Date(value).toISOString()
 }
 
 export async function listAssignments(
@@ -396,7 +396,7 @@ export async function createAssignment(
   const status = input.status ?? 'draft'
   let publishedAt = toDate(input.publishedAt)
   if (status === 'published' && publishedAt === undefined) {
-    publishedAt = new Date()
+    publishedAt = new Date().toISOString()
   }
 
   try {
@@ -451,7 +451,7 @@ export async function updateAssignment(
   }
   await validateRefs(client, merged)
 
-  const values: Record<string, unknown> = { updatedAt: new Date() }
+  const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
   if (input.title !== undefined) values.title = input.title
   if (input.instructions !== undefined) {
     values.instructions = input.instructions
@@ -471,7 +471,7 @@ export async function updateAssignment(
     const wasPublished =
       existing.status === 'published' || existing.publishedAt !== null
     if (input.status === 'published' && !wasPublished) {
-      values.publishedAt = new Date()
+      values.publishedAt = new Date().toISOString()
     }
     if (input.status === 'draft') {
       values.publishedAt = null
@@ -819,7 +819,7 @@ export async function upsertMySubmission(
     throw smsFieldError('form', 'Nothing to save.')
   }
 
-  const setValues: Record<string, unknown> = { updatedAt: new Date() }
+  const setValues: Record<string, unknown> = { updatedAt: new Date().toISOString() }
   if (input.textContent !== undefined) {
     setValues.textContent = input.textContent
   }
@@ -902,8 +902,8 @@ export async function submitMySubmission(
     .update(assignmentSubmissions)
     .set({
       status: isLate ? 'late' : 'submitted',
-      submittedAt: existing.submittedAt ?? new Date(),
-      updatedAt: new Date(),
+      submittedAt: existing.submittedAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(assignmentSubmissions.id, existing.id))
     .returning()
@@ -946,8 +946,8 @@ export async function gradeSubmission(
       feedback: input.feedback ?? null,
       status: input.status ?? 'graded',
       gradedById: actor.teacherId,
-      gradedAt: new Date(),
-      updatedAt: new Date(),
+      gradedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(assignmentSubmissions.id, existing.id))
     .returning()

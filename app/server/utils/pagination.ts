@@ -6,12 +6,17 @@
  * expression; callers supply ordering and the bound Drizzle client.
  */
 import { sql, type SQL } from 'drizzle-orm'
-import type { PgTable } from 'drizzle-orm/pg-core'
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
-import type { Schema } from '../../database/schema'
+import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
+import type { AppDatabase } from './db'
 import type { Paginated } from '../../shared/types'
 
-export type SmsDb = PostgresJsDatabase<Schema>
+/**
+ * Canonical service-layer Drizzle client type. Alias preserved to
+ * avoid churn across ~40 `client: SmsDb` annotations; it resolves to
+ * the D1/SQLite client (with the temporary transaction shim) defined
+ * in `./db` since the Phase 2 schema rewrite.
+ */
+export type SmsDb = AppDatabase
 
 export interface SmsPageParams {
   page: number
@@ -21,7 +26,7 @@ export interface SmsPageParams {
 export async function smsPaginate<T>(
   db: SmsDb,
   params: {
-    table: PgTable
+    table: SQLiteTable
     where?: SQL
     orderBy?: SQL | SQL[]
     page: number
@@ -32,6 +37,9 @@ export async function smsPaginate<T>(
   const offset = (page - 1) * perPage
 
   const countRows = await db
+    // TODO Phase 3: `::int` is PostgreSQL syntax; switch to
+    // `cast(count(*) as integer)` (valid in both) during the D1
+    // raw-SQL fragment migration.
     .select({ total: sql<number>`count(*)::int` })
     .from(table)
     .where(where)

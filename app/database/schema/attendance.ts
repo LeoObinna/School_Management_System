@@ -5,17 +5,18 @@
  * attendance_records (one row per student). Statuses: present, absent,
  * late, excused. Duplicate records for the same student/context are
  * prevented by a unique constraint (README §15).
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted PG types to
+ * SQLite/D1 (text IDs, text ISO-8601 timestamps, text YYYY-MM-DD
+ * dates, integer 0/1 booleans).
  */
 import {
-  pgTable,
-  varchar,
+  sqliteTable,
   text,
-  timestamp,
-  uuid,
-  date,
+  integer,
   uniqueIndex,
   index,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { students, teachers } from './people'
 import { classes, sections } from './academics'
 import { academicSessions, terms } from './academics'
@@ -27,39 +28,41 @@ import {
 // ---------------------------------------------------------------------------
 // Attendance sessions
 // ---------------------------------------------------------------------------
-export const attendanceSessions = pgTable(
+export const attendanceSessions = sqliteTable(
   'attendance_sessions',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    termId: uuid('term_id').references(() => terms.id, {
+    termId: text('term_id').references(() => terms.id, {
       onDelete: 'set null',
     }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'set null',
     }),
-    date: date('date').notNull(),
+    date: text('date').notNull(),
     status: attendanceSessionStatusEnum('status')
       .default('open')
       .notNull(),
-    markedById: uuid('marked_by_id').references(() => teachers.id, {
+    markedById: text('marked_by_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
-    approvedById: uuid('approved_by_id').references(() => teachers.id, {
+    approvedById: text('approved_by_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
-    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    approvedAt: text('approved_at'),
     notes: text('notes'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -78,23 +81,25 @@ export const attendanceSessions = pgTable(
 // ---------------------------------------------------------------------------
 // Attendance records (one per student per attendance session)
 // ---------------------------------------------------------------------------
-export const attendanceRecords = pgTable(
+export const attendanceRecords = sqliteTable(
   'attendance_records',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    attendanceSessionId: uuid('attendance_session_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    attendanceSessionId: text('attendance_session_id')
       .notNull()
       .references(() => attendanceSessions.id, { onDelete: 'cascade' }),
-    studentId: uuid('student_id')
+    studentId: text('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'cascade' }),
     status: attendanceStatusEnum('status').notNull(),
-    remark: varchar('remark', { length: 255 }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    remark: text('remark'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

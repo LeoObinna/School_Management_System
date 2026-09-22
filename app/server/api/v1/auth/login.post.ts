@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
 
   await db
     .update(users)
-    .set({ lastLoginAt: new Date(), updatedAt: new Date() })
+    .set({ lastLoginAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .where(eq(users.id, user.id))
 
   const session = await issueSession(event, user.id, Boolean(data.remember))

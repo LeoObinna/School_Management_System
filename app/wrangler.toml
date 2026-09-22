@@ -58,6 +58,11 @@ localConnectionString = "postgresql://mac:local@127.0.0.1:5432/sms_dev"
 binding = "DB"
 database_name = "sms-local"
 database_id = "00000000-0000-0000-0000-000000000000"
+# Drizzle-kit (SQLite dialect, see drizzle.config.ts) generates DDL here;
+# wrangler is the single applier/tracker (decision D5):
+#   npx drizzle-kit generate          # author new migrations
+#   npm run db:d1:migrate             # apply locally (--local)
+migrations_dir = "database/migrations"
 
 # R2 is emulated on local disk by `wrangler dev` (state under .wrangler/);
 # the bucket name only names the local simulation. Nothing is created or
@@ -111,6 +116,7 @@ id = "f9399aef36f14ea4b41a1a5052c70f87"
 binding = "DB"
 database_name = "sms-staging"
 database_id = "REPLACE_WITH_STAGING_D1_ID"
+migrations_dir = "database/migrations"
 
 [[env.staging.r2_buckets]]
 binding = "R2_BUCKET"
@@ -151,6 +157,7 @@ id = "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID"
 binding = "DB"
 database_name = "sms-production"
 database_id = "REPLACE_WITH_PRODUCTION_D1_ID"
+migrations_dir = "database/migrations"
 
 [[env.production.r2_buckets]]
 binding = "R2_BUCKET"

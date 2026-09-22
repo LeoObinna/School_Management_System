@@ -1,14 +1,51 @@
 /**
- * PostgreSQL enums shared across the SMS schema.
+ * SQLite TEXT+CHECK enums shared across the SMS schema.
  *
- * These are fixed workflow statuses (not configurable school policy).
- * Configurable data such as class levels, section names, terms and
- * grading ranges are stored as data rows, never hard-coded here.
+ * Phase 2 of the D1 migration (2026-09-22) replaced PostgreSQL
+ * `pgEnum` (a typed PostgreSQL enum column type) with a small
+ * compatibility shim that produces `text(name, { enum: values })`.
+ * Drizzle's SQLite core generates a CHECK constraint from the
+ * `enum` option, so the database-level guarantee is preserved.
+ *
+ * The factory pattern `genderEnum('gender')` is also preserved so
+ * service-layer code that calls these enums as column builders
+ * keeps compiling unchanged. Each export retains its TypeScript
+ * literal-union type so callers can use values as type parameters.
+ *
+ * Fixed workflow statuses only — never hard-coded school policy
+ * (class levels, section names, term names, grading ranges are
+ * stored as data rows).
  */
-import { pgEnum } from 'drizzle-orm/pg-core'
+import { text } from 'drizzle-orm/sqlite-core'
+
+/**
+ * Builds a `text` column factory with a CHECK constraint enforcing
+ * the supplied values. Mirrors the calling convention of Drizzle's
+ * `pgEnum('name', ['a','b'])` factory so call sites do not change.
+ *
+ * Like `pgEnum`, the returned factory exposes an `enumValues` array
+ * (typed as the readonly literal tuple), supporting both runtime
+ * iteration (`[...statusEnum.enumValues]`) and type extraction
+ * (`(typeof statusEnum.enumValues)[number]`).
+ *
+ * Usage:
+ *   export const genderEnum = sqliteEnum(['male','female','other'] as const)
+ *   gender: genderEnum('gender')                              // nullable
+ *   status: studentStatusEnum('status').default('applicant').notNull()
+ */
+function sqliteEnum<T extends string>(values: readonly T[]) {
+  // The enum tuple MUST be cast to `[T, ...T[]]` (not to Drizzle's
+  // declared `[string, ...string[]]`), so the column's inferred data
+  // type stays the literal union (e.g. 'draft'|'published'|…) instead
+  // of widening to plain `string`. The runtime contract is identical —
+  // a non-empty string tuple producing a CHECK constraint.
+  const builder = (name: string) =>
+    text(name, { enum: values as unknown as [T, ...T[]] })
+  return Object.assign(builder, { enumValues: values })
+}
 
 // Student lifecycle (README §14)
-export const studentStatusEnum = pgEnum('student_status', [
+export const studentStatusEnum = sqliteEnum([
   'applicant',
   'admitted',
   'enrolled',
@@ -17,58 +54,59 @@ export const studentStatusEnum = pgEnum('student_status', [
   'transferred',
   'withdrawn',
   'archived',
-])
+] as const)
 
 // Enrollment status
-export const enrollmentStatusEnum = pgEnum('enrollment_status', [
+export const enrollmentStatusEnum = sqliteEnum([
   'active',
   'completed',
   'promoted',
   'repeated',
   'withdrawn',
-])
+] as const)
 
 // Attendance (README §15)
-export const attendanceStatusEnum = pgEnum('attendance_status', [
+export const attendanceStatusEnum = sqliteEnum([
   'present',
   'absent',
   'late',
   'excused',
-])
+] as const)
 
 // Attendance session approval state
-export const attendanceSessionStatusEnum = pgEnum(
-  'attendance_session_status',
-  ['open', 'submitted', 'approved'],
-)
+export const attendanceSessionStatusEnum = sqliteEnum([
+  'open',
+  'submitted',
+  'approved',
+] as const)
 
 // Result workflow (README §18)
-export const resultStatusEnum = pgEnum('result_status', [
+export const resultStatusEnum = sqliteEnum([
   'draft',
   'submitted',
   'approved',
   'published',
-])
+] as const)
 
 // Assignment / resource publication state
-export const publicationStatusEnum = pgEnum('publication_status', [
+export const publicationStatusEnum = sqliteEnum([
   'draft',
   'scheduled',
   'published',
   'archived',
-])
+] as const)
 
 // Submission state
-export const submissionStatusEnum = pgEnum('submission_status', [
+export const submissionStatusEnum = sqliteEnum([
   'draft',
   'submitted',
   'late',
   'graded',
   'returned',
-])
+] as const)
 
 // Admission workflow (README §20)
-export const admissionStatusEnum = pgEnum('admission_status', [
+export const admissionStatusEnum = sqliteEnum([
   'applied',
   'documents_submitted',
   'under_review',
@@ -80,60 +118,57 @@ export const admissionStatusEnum = pgEnum('admission_status', [
   'admitted',
   'enrolled',
   'withdrawn',
-])
+] as const)
 
 // Invoice / payment financial state
-export const invoiceStatusEnum = pgEnum('invoice_status', [
+export const invoiceStatusEnum = sqliteEnum([
   'draft',
   'issued',
   'partially_paid',
   'paid',
   'overdue',
   'void',
-])
+] as const)
 
-export const paymentStatusEnum = pgEnum('payment_status', [
+export const paymentStatusEnum = sqliteEnum([
   'pending',
   'verified',
   'failed',
   'refunded',
-])
+] as const)
 
-export const paymentMethodEnum = pgEnum('payment_method', [
+export const paymentMethodEnum = sqliteEnum([
   'cash',
   'bank_transfer',
   'card',
   'online_gateway',
   'cheque',
   'other',
-])
+] as const)
 
 // Gender
-export const genderEnum = pgEnum('gender', ['male', 'female', 'other'])
+export const genderEnum = sqliteEnum(['male', 'female', 'other'] as const)
 
 // Announcement audience
-export const audienceEnum = pgEnum('audience', [
+export const audienceEnum = sqliteEnum([
   'all',
   'staff',
   'teachers',
   'students',
   'parents',
   'admins',
-])
+] as const)
 
 // Message / notification state
-export const notificationStatusEnum = pgEnum('notification_status', [
-  'unread',
-  'read',
-])
+export const notificationStatusEnum = sqliteEnum(['unread', 'read'] as const)
 
-export const messageDirectionEnum = pgEnum('message_direction', [
+export const messageDirectionEnum = sqliteEnum([
   'inbound',
   'outbound',
-])
+] as const)
 
 // Timetable weekday (1 = Monday ... 7 = Sunday, ISO)
-export const weekdayEnum = pgEnum('weekday', [
+export const weekdayEnum = sqliteEnum([
   'monday',
   'tuesday',
   'wednesday',
@@ -141,4 +176,4 @@ export const weekdayEnum = pgEnum('weekday', [
   'friday',
   'saturday',
   'sunday',
-])
+] as const)

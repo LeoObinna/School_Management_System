@@ -3,43 +3,53 @@
  *
  * users, roles, permissions, join tables, school settings, audit logs.
  * Follows README §12 and the dependency order in README §40.
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted this file from
+ * PostgreSQL (`pgTable` + `uuid`/`varchar`/`timestamp`/`boolean`) to
+ * SQLite/D1 (`sqliteTable` + `text` IDs + `text` ISO-8601 timestamps
+ * + `integer` 0/1 booleans). The 5-table RBAC shape (users, roles,
+ * permissions, role_permissions, user_roles) is preserved verbatim
+ * per migration decision D3 — no flattening to a single users.role
+ * column. Sessions stay stateless signed cookies + KV revocation
+ * (decision D4); there is NO sessions table here.
  */
 import {
-  pgTable,
+  sqliteTable,
   text,
-  varchar,
-  timestamp,
-  uuid,
-  boolean,
+  integer,
   uniqueIndex,
   index,
   primaryKey,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { genderEnum } from './enums'
 
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
-export const users = pgTable(
+export const users = sqliteTable(
   'users',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 255 }).notNull(),
-    email: varchar('email', { length: 255 }).notNull(),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
     password: text('password').notNull(),
-    phone: varchar('phone', { length: 50 }),
+    phone: text('phone'),
     gender: genderEnum('gender'),
     avatarUrl: text('avatar_url'),
-    isActive: boolean('is_active').default(true).notNull(),
-    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
-    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    isActive: integer('is_active', { mode: 'boolean' })
+      .default(true)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    emailVerifiedAt: text('email_verified_at'),
+    lastLoginAt: text('last_login_at'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    deletedAt: text('deleted_at'),
   },
   (t) => ({
     emailIdx: uniqueIndex('users_email_idx').on(t.email),
@@ -49,19 +59,23 @@ export const users = pgTable(
 // ---------------------------------------------------------------------------
 // Roles
 // ---------------------------------------------------------------------------
-export const roles = pgTable(
+export const roles = sqliteTable(
   'roles',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 100 }).notNull(),
-    slug: varchar('slug', { length: 100 }).notNull(),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
     description: text('description'),
-    isSystem: boolean('is_system').default(false).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    isSystem: integer('is_system', { mode: 'boolean' })
+      .default(false)
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -72,16 +86,18 @@ export const roles = pgTable(
 // ---------------------------------------------------------------------------
 // Permissions
 // ---------------------------------------------------------------------------
-export const permissions = pgTable(
+export const permissions = sqliteTable(
   'permissions',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: varchar('name', { length: 200 }).notNull(),
-    slug: varchar('slug', { length: 200 }).notNull(),
-    group: varchar('group', { length: 100 }),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    group: text('group'),
     description: text('description'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -92,17 +108,17 @@ export const permissions = pgTable(
 // ---------------------------------------------------------------------------
 // Role <-> Permission (many-to-many)
 // ---------------------------------------------------------------------------
-export const rolePermissions = pgTable(
+export const rolePermissions = sqliteTable(
   'role_permissions',
   {
-    roleId: uuid('role_id')
+    roleId: text('role_id')
       .notNull()
       .references(() => roles.id, { onDelete: 'cascade' }),
-    permissionId: uuid('permission_id')
+    permissionId: text('permission_id')
       .notNull()
       .references(() => permissions.id, { onDelete: 'cascade' }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -113,17 +129,17 @@ export const rolePermissions = pgTable(
 // ---------------------------------------------------------------------------
 // User <-> Role (many-to-many)
 // ---------------------------------------------------------------------------
-export const userRoles = pgTable(
+export const userRoles = sqliteTable(
   'user_roles',
   {
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    roleId: uuid('role_id')
+    roleId: text('role_id')
       .notNull()
       .references(() => roles.id, { onDelete: 'cascade' }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -135,19 +151,21 @@ export const userRoles = pgTable(
 // ---------------------------------------------------------------------------
 // School settings (key/value)
 // ---------------------------------------------------------------------------
-export const schoolSettings = pgTable(
+export const schoolSettings = sqliteTable(
   'school_settings',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    key: varchar('key', { length: 200 }).notNull(),
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    key: text('key').notNull(),
     value: text('value'),
-    type: varchar('type', { length: 50 }).default('string').notNull(),
-    group: varchar('group', { length: 100 }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    type: text('type').default('string').notNull(),
+    group: text('group'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -158,22 +176,24 @@ export const schoolSettings = pgTable(
 // ---------------------------------------------------------------------------
 // Audit logs
 // ---------------------------------------------------------------------------
-export const auditLogs = pgTable(
+export const auditLogs = sqliteTable(
   'audit_logs',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id').references(() => users.id, {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    action: varchar('action', { length: 100 }).notNull(),
-    resource: varchar('resource', { length: 100 }).notNull(),
-    resourceId: uuid('resource_id'),
+    action: text('action').notNull(),
+    resource: text('resource').notNull(),
+    resourceId: text('resource_id'),
     description: text('description'),
-    ipAddress: varchar('ip_address', { length: 45 }),
+    ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
     metadata: text('metadata'), // JSON string
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

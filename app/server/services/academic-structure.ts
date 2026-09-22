@@ -7,7 +7,7 @@
  * (enforced inside transactions) and history-preserving deactivation.
  */
 import { and, asc, desc, eq, ilike, ne, or, sql, type SQL } from 'drizzle-orm'
-import type { PgColumn } from 'drizzle-orm/pg-core'
+import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import {
   academicSessions,
   terms,
@@ -60,7 +60,7 @@ async function db(): Promise<SmsDb> {
 // ---------------------------------------------------------------------------
 
 /** Escapes a user search term for an ILIKE pattern. */
-function nameFilter(column: PgColumn, search?: string): SQL | undefined {
+function nameFilter(column: SQLiteColumn, search?: string): SQL | undefined {
   if (!search) {
     return undefined
   }
@@ -71,7 +71,7 @@ function nameFilter(column: PgColumn, search?: string): SQL | undefined {
 /** Derives a collision-free slug for `base` against `column`. */
 async function uniqueSlug(
   client: SmsDb,
-  column: PgColumn,
+  column: SQLiteColumn,
   base: string,
   scope?: SQL,
   extra?: SQL,
@@ -210,7 +210,7 @@ export async function updateSession(
         endDate: input.endDate === undefined ? undefined : input.endDate,
         isCurrent: input.isCurrent,
         isActive: input.isActive,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(academicSessions.id, existing.id))
       .returning()
@@ -223,7 +223,7 @@ export async function deactivateSession(id: string): Promise<AcademicSession> {
   await getSessionOrThrow(client, id)
   const [row] = await client
     .update(academicSessions)
-    .set({ isActive: false, isCurrent: false, updatedAt: new Date() })
+    .set({ isActive: false, isCurrent: false, updatedAt: new Date().toISOString() })
     .where(eq(academicSessions.id, id))
     .returning()
   return toJsonModel<AcademicSession>(row)
@@ -370,7 +370,7 @@ export async function updateTerm(id: string, input: TermUpdate): Promise<Term> {
         endDate: input.endDate === undefined ? undefined : input.endDate,
         isCurrent: input.isCurrent,
         isActive: input.isActive,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(terms.id, id))
       .returning()
@@ -383,7 +383,7 @@ export async function deactivateTerm(id: string): Promise<Term> {
   await getTermOrThrow(client, id)
   const [row] = await client
     .update(terms)
-    .set({ isActive: false, isCurrent: false, updatedAt: new Date() })
+    .set({ isActive: false, isCurrent: false, updatedAt: new Date().toISOString() })
     .where(eq(terms.id, id))
     .returning()
   return toJsonModel<Term>(row)
@@ -503,7 +503,7 @@ export async function updateClass(
       level: input.level === undefined ? undefined : input.level || null,
       sequence: input.sequence,
       isActive: input.isActive,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(classes.id, id))
     .returning()
@@ -515,7 +515,7 @@ export async function deactivateClass(id: string): Promise<SchoolClass> {
   await getClassOrThrow(client, id)
   const [row] = await client
     .update(classes)
-    .set({ isActive: false, updatedAt: new Date() })
+    .set({ isActive: false, updatedAt: new Date().toISOString() })
     .where(eq(classes.id, id))
     .returning()
   return toJsonModel<SchoolClass>(row)
@@ -614,7 +614,7 @@ export async function updateSection(
       capacity: input.capacity === undefined ? undefined : input.capacity,
       room: input.room === undefined ? undefined : input.room || null,
       isActive: input.isActive,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(sections.id, id))
     .returning()
@@ -626,7 +626,7 @@ export async function deactivateSection(id: string): Promise<Section> {
   await getSectionOrThrow(client, id)
   const [row] = await client
     .update(sections)
-    .set({ isActive: false, updatedAt: new Date() })
+    .set({ isActive: false, updatedAt: new Date().toISOString() })
     .where(eq(sections.id, id))
     .returning()
   return toJsonModel<Section>(row)
@@ -722,7 +722,7 @@ export async function updateSubject(
           ? undefined
           : input.description || null,
       isActive: input.isActive,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(subjects.id, id))
     .returning()
@@ -734,7 +734,7 @@ export async function deactivateSubject(id: string): Promise<Subject> {
   await getSubjectOrThrow(client, id)
   const [row] = await client
     .update(subjects)
-    .set({ isActive: false, updatedAt: new Date() })
+    .set({ isActive: false, updatedAt: new Date().toISOString() })
     .where(eq(subjects.id, id))
     .returning()
   return toJsonModel<Subject>(row)

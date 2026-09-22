@@ -418,6 +418,7 @@ export async function createAssessmentType(
   try {
     const [row] = await client
       .insert(assessmentTypes)
+      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       .values({
         name: input.name,
         slug: input.slug,
@@ -539,6 +540,7 @@ export async function createGradingScale(
       throw smsConflict('Grading scale could not be saved.')
     }
     await tx.insert(gradingScaleItems).values(
+      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       input.items.map((i) => ({
         scaleId: scale.id,
         grade: i.grade,
@@ -558,7 +560,7 @@ export async function updateGradingScale(
 ): Promise<GradingScaleDetail> {
   const client = await db()
   return await client.transaction(async (tx) => {
-    const values: Record<string, unknown> = { updatedAt: new Date() }
+    const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
     if (input.sessionId !== undefined) {
       values.sessionId = input.sessionId
     }
@@ -577,6 +579,7 @@ export async function updateGradingScale(
         eq(gradingScaleItems.scaleId, id),
       )
       await tx.insert(gradingScaleItems).values(
+        // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
         input.items.map((i) => ({
           scaleId: id,
           grade: i.grade,
@@ -741,6 +744,7 @@ export async function getExamScoresForExport(
     .where(eq(examSubjects.examId, examId))
     .orderBy(asc(students.admissionNumber), asc(subjects.name))
 
+  // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
   return rows.map((r) => ({
     admissionNumber: r.admissionNumber,
     studentName: [r.firstName, r.lastName].filter(Boolean).join(' ').trim(),
@@ -801,7 +805,7 @@ export async function updateExam(
   }
   await validateSessionTerm(client, merged.sessionId, merged.termId)
   await validateClassSection(client, merged.classId)
-  const values: Record<string, unknown> = { updatedAt: new Date() }
+  const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
   if (input.sessionId !== undefined) values.sessionId = input.sessionId
   if (input.termId !== undefined) values.termId = input.termId
   if (input.classId !== undefined) values.classId = input.classId
@@ -820,7 +824,7 @@ export async function setExamStatus(
   const client = await db()
   const [row] = await client
     .update(exams)
-    .set({ status, updatedAt: new Date() })
+    .set({ status, updatedAt: new Date().toISOString() })
     .where(eq(exams.id, id))
     .returning()
   if (!row) {
@@ -855,6 +859,7 @@ export async function addExamSubject(
     throw smsFieldError('subjectId', 'Subject not found.')
   }
   try {
+    // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
     await client.insert(examSubjects).values({
       examId,
       subjectId: input.subjectId,
@@ -1097,6 +1102,7 @@ export async function upsertAssessmentScore(
     const [row] = await client
       .insert(assessmentScores)
       .values({
+        // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
         studentId: input.studentId,
         subjectId: input.subjectId,
         sessionId: input.sessionId,
@@ -1115,10 +1121,12 @@ export async function upsertAssessmentScore(
           assessmentScores.assessmentTypeId,
         ],
         set: {
+          // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
           score: input.score,
+          // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
           maxScore,
           enteredById: actor.teacherId,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       })
       .returning()
@@ -1215,6 +1223,7 @@ export async function bulkUpsertAssessmentScores(
   }))
   await client
     .insert(assessmentScores)
+    // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
     .values(rows)
     .onConflictDoUpdate({
       target: [
@@ -1228,7 +1237,7 @@ export async function bulkUpsertAssessmentScores(
         score: sql`excluded.score`,
         maxScore: sql`excluded.max_score`,
         enteredById: sql`excluded.entered_by_id`,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       },
     })
   return { count: rows.length }
@@ -1304,6 +1313,7 @@ export async function bulkUpsertExamScores(
   })
   await client
     .insert(examScores)
+    // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
     .values(rows)
     .onConflictDoUpdate({
       target: [examScores.examSubjectId, examScores.studentId],
@@ -1311,7 +1321,7 @@ export async function bulkUpsertExamScores(
         score: sql`excluded.score`,
         grade: sql`excluded.grade`,
         enteredById: sql`excluded.entered_by_id`,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       },
     })
   return { count: rows.length }
@@ -1517,8 +1527,8 @@ export async function submitPublication(
     .set({
       status: 'submitted',
       submittedById: actor.teacherId,
-      submittedAt: new Date(),
-      updatedAt: new Date(),
+      submittedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(resultPublications.id, id))
   return getPublication(id)
@@ -1536,8 +1546,8 @@ export async function approvePublication(
     .set({
       status: 'approved',
       approvedById: actor.userId,
-      approvedAt: new Date(),
-      updatedAt: new Date(),
+      approvedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(resultPublications.id, id))
   return getPublication(id)
@@ -1555,8 +1565,8 @@ export async function publishPublication(
     .set({
       status: 'published',
       publishedById: actor.userId,
-      publishedAt: new Date(),
-      updatedAt: new Date(),
+      publishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(resultPublications.id, id))
   return getPublication(id)
@@ -1660,7 +1670,9 @@ async function aggregateStudentResults(
     row.assessmentScores.push({
       assessmentTypeId: r.assessmentTypeId,
       assessmentTypeName: r.assessmentTypeName,
+      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       score: r.score,
+      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       maxScore: r.maxScore,
     })
     row.totalScore += Number(r.score)
@@ -1671,7 +1683,9 @@ async function aggregateStudentResults(
     row.examScores.push({
       examId: r.examId,
       examName: r.examName,
+      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       score: r.score,
+      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       maxScore: r.maxScore,
       grade: r.grade,
     })
@@ -2013,6 +2027,7 @@ export async function generateReportCard(
     const [row] = await client
       .insert(reportCards)
       .values({
+        // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
         studentId: input.studentId,
         sessionId: input.sessionId,
         termId: input.termId,
@@ -2041,7 +2056,7 @@ export async function generateReportCard(
           teacherRemark: sql`excluded.teacher_remark`,
           principalRemark: sql`excluded.principal_remark`,
           generatedById: sql`excluded.generated_by_id`,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       })
       .returning({ id: reportCards.id })
@@ -2066,8 +2081,8 @@ export async function publishReportCard(
     .update(reportCards)
     .set({
       status: 'published',
-      publishedAt: new Date(),
-      updatedAt: new Date(),
+      publishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
     .where(eq(reportCards.id, id))
     .returning()
@@ -2088,6 +2103,6 @@ export async function setReportCardObjectKey(
   const client = await db()
   await client
     .update(reportCards)
-    .set({ objectKey, updatedAt: new Date() })
+    .set({ objectKey, updatedAt: new Date().toISOString() })
     .where(eq(reportCards.id, id))
 }

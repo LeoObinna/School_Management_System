@@ -7,19 +7,21 @@
  * Enrollment preserves full historical context (session, term, class,
  * section). Historical placement is NEVER inferred from the student's
  * current class (README §13).
+ *
+ * Phase 2 of the D1 migration (2026-09-22) converted this file from
+ * PostgreSQL to SQLite/D1: `pgTable` → `sqliteTable`, `uuid` → `text`
+ * with `crypto.randomUUID()` runtime default, `varchar` → `text`,
+ * `timestamp` → `text` ISO-8601, `date` → `text` YYYY-MM-DD,
+ * `time` → `text` HH:MM:SS, `boolean` → `integer` 0/1.
  */
 import {
-  pgTable,
-  varchar,
-  timestamp,
-  uuid,
-  time,
-  date,
-  boolean,
+  sqliteTable,
+  text,
+  integer,
   uniqueIndex,
   index,
   primaryKey,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 import { students, teachers } from './people'
 import {
   academicSessions,
@@ -33,17 +35,17 @@ import { enrollmentStatusEnum, weekdayEnum } from './enums'
 // ---------------------------------------------------------------------------
 // Teacher <-> Subject
 // ---------------------------------------------------------------------------
-export const teacherSubjects = pgTable(
+export const teacherSubjects = sqliteTable(
   'teacher_subjects',
   {
-    teacherId: uuid('teacher_id')
+    teacherId: text('teacher_id')
       .notNull()
       .references(() => teachers.id, { onDelete: 'cascade' }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'cascade' }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -55,30 +57,32 @@ export const teacherSubjects = pgTable(
 // ---------------------------------------------------------------------------
 // Teacher <-> Class (and optionally section) assignment
 // ---------------------------------------------------------------------------
-export const teacherClassAssignments = pgTable(
+export const teacherClassAssignments = sqliteTable(
   'teacher_class_assignments',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    teacherId: uuid('teacher_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    teacherId: text('teacher_id')
       .notNull()
       .references(() => teachers.id, { onDelete: 'cascade' }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'cascade',
     }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'cascade' }),
-    sessionId: uuid('session_id')
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    isPrimaryTeacher: boolean('is_primary_teacher')
+    isPrimaryTeacher: integer('is_primary_teacher', { mode: 'boolean' })
       .default(false)
       .notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -97,34 +101,36 @@ export const teacherClassAssignments = pgTable(
 // ---------------------------------------------------------------------------
 // Student enrollments (historical record)
 // ---------------------------------------------------------------------------
-export const studentEnrollments = pgTable(
+export const studentEnrollments = sqliteTable(
   'student_enrollments',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    studentId: uuid('student_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    studentId: text('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'cascade' }),
-    sessionId: uuid('session_id')
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'restrict' }),
-    termId: uuid('term_id').references(() => terms.id, {
+    termId: text('term_id').references(() => terms.id, {
       onDelete: 'restrict',
     }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'restrict' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'restrict',
     }),
-    rollNumber: varchar('roll_number', { length: 50 }),
-    enrollmentDate: date('enrollment_date').notNull(),
+    rollNumber: text('roll_number'),
+    enrollmentDate: text('enrollment_date').notNull(),
     status: enrollmentStatusEnum('status').default('active').notNull(),
-    notes: varchar('notes', { length: 500 }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    notes: text('notes'),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({
@@ -145,37 +151,39 @@ export const studentEnrollments = pgTable(
 // ---------------------------------------------------------------------------
 // Timetable entries
 // ---------------------------------------------------------------------------
-export const timetableEntries = pgTable(
+export const timetableEntries = sqliteTable(
   'timetable_entries',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id')
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text('session_id')
       .notNull()
       .references(() => academicSessions.id, { onDelete: 'cascade' }),
-    termId: uuid('term_id').references(() => terms.id, {
+    termId: text('term_id').references(() => terms.id, {
       onDelete: 'cascade',
     }),
-    classId: uuid('class_id')
+    classId: text('class_id')
       .notNull()
       .references(() => classes.id, { onDelete: 'cascade' }),
-    sectionId: uuid('section_id').references(() => sections.id, {
+    sectionId: text('section_id').references(() => sections.id, {
       onDelete: 'cascade',
     }),
-    subjectId: uuid('subject_id')
+    subjectId: text('subject_id')
       .notNull()
       .references(() => subjects.id, { onDelete: 'restrict' }),
-    teacherId: uuid('teacher_id')
+    teacherId: text('teacher_id')
       .notNull()
       .references(() => teachers.id, { onDelete: 'restrict' }),
-    room: varchar('room', { length: 100 }),
+    room: text('room'),
     weekday: weekdayEnum('weekday').notNull(),
-    startTime: time('start_time').notNull(),
-    endTime: time('end_time').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
+    startTime: text('start_time').notNull(), // HH:MM:SS
+    endTime: text('end_time').notNull(), // HH:MM:SS
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
+    updatedAt: text('updated_at')
+      .$defaultFn(() => new Date().toISOString())
       .notNull(),
   },
   (t) => ({

@@ -23,6 +23,7 @@ import { publishDueAnnouncements } from '../services/communication'
 import {
   createWorkerDatabase,
   createWorkerD1Database,
+  type AppDatabase,
   type D1Database,
   type SmsDatabase,
   type SmsD1Database,
@@ -88,8 +89,10 @@ async function runPublish(
   db: AnyDb,
   queue: NotificationQueueLike | null,
 ) {
+  // TODO Phase 3: dispatch against the native D1 client without the
+  // PG compatibility cast.
   const result = await publishDueAnnouncements(
-    db as SmsDatabase,
+    db as unknown as AppDatabase,
     queue,
   )
   console.log(
