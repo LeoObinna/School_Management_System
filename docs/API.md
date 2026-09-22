@@ -91,6 +91,27 @@ POST /api/v1/auth/reset-password
 GET  /api/v1/health        # { status: "ok", db: "ok", ... }
 ```
 
+**Rate limiting (Phase 13).** Credential endpoints are throttled with a
+shared sliding window backed by Cloudflare KV (`EDGE_KV`; per-isolate
+in-memory fallback in Node dev): `POST /auth/login` allows 10 attempts
+per 5 minutes per IP+email, and `POST /auth/forgot-password` allows 5
+per 15 minutes per IP. Over-limit requests get `429` with a numeric
+`Retry-After` (delta seconds). A successful login clears its counter.
+
+**Session revocation (Phase 13).** Logout writes a per-session
+revocation marker and password reset writes a per-user not-before
+marker to `EDGE_KV`; cookies replayed after either are rejected. The
+markers self-expire after the maximum session lifetime. Revocation is
+inert under plain Node dev (no KV binding); KV propagation is
+eventual (~60s at the edge).
+
+**Security response headers (Phase 13).** Every response carries
+`Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, frame-ancestor protection,
+`Referrer-Policy`, `Permissions-Policy` and
+`Cross-Origin-Resource-Policy`. A Content-Security-Policy is deployed
+in report-only mode pending a nonce policy for the Nuxt payload.
+
 ## Phase 3 — Academic foundation
 
 Permissions required are listed per route. `.view` permits reads;
@@ -647,14 +668,21 @@ slugs server-side. Clients never submit role lists.
 
 ### Announcements (`/announcements`)
 
+Create/update bodies accept `title`, optional `body`, `audience`,
+optional `classId`, `status` and — only when `status` is `scheduled` —
+`scheduledFor` (ISO 8601 datetime, must be in the future). A scheduled
+announcement is published automatically by the Cron Task
+`publish-scheduled-announcements` (every 5 minutes, Phase 13); manual
+publish via `/publish` always works and clears `scheduledFor`.
+
 | Method | Path | Permission | Audit action | Notes |
 |--------|------|------------|--------------|-------|
-| GET | `/announcements` | `announcements.view` | — | List (audience/scope filters); recipients see only their audiences |
-| POST | `/announcements` | `announcements.manage` | `announcement.create` | Create as `draft` |
+| GET | `/announcements` | `announcements.view` | — | List (audience/scope filters); recipients see only their audiences; response rows include `scheduledFor` |
+| POST | `/announcements` | `announcements.manage` | `announcement.create` | Create as `draft` (default), `scheduled` (future `scheduledFor` required) or `published` |
 | GET | `/announcements/{id}` | `announcements.view` | — | Detail with author and audience |
-| PUT | `/announcements/{id}` | `announcements.manage` | `announcement.update` | Partial update (draft or published) |
-| DELETE | `/announcements/{id}` | `announcements.manage` | `announcement.delete` | Remove metadata |
-| POST | `/announcements/{id}/publish` | `announcements.publish` | `announcement.publish` | draft → published with synchronous notification fan-out to the audience |
+| PUT | `/announcements/{id}` | `announcements.manage` | `announcement.update` | Partial update (draft or scheduled only); switching to `scheduled` requires `scheduledFor`; leaving scheduled status keeps the stored time |
+| DELETE | `/announcements/{id}` | `announcements.manage` | `announcement.delete` | Remove metadata (draft only) |
+| POST | `/announcements/{id}/publish` | `announcements.publish` | `announcement.publish` | draft/scheduled → published; enqueues one `announcement.published` queue message (inline fan-out in Node dev) |
 | POST | `/announcements/{id}/archive` | `announcements.manage` | `announcement.archive` | published → archived |
 
 ### Notifications (`/notifications`)
