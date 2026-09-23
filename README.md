@@ -2568,6 +2568,88 @@ documentation, not a second specification.
                     (immutable). Hyperdrive / postgres dep / seed.ts /
                     legacy-pg migrations remain until Phase 6. No remote
                     D1 provisioned; staging/production untouched.
+2026-09-23  Phase 6  Admin gaps — dashboard widgets, user management,
+                    roles/permissions viewer (PRD §5 + spec 04_APPFLOW
+                    §3 admin flow). Three deliverables: (1) Dashboard
+                    widget on pages/index.vue gated by `reports.view`,
+                    calls GET /reports/overview (already existed) and
+                    renders 6 stat cards (students total/active/archived,
+                    teachers, parents, staff) + 3 mini tables (classes,
+                    sections, subjects) + upcoming events list. (2) User
+                    management surface — 8 routes under
+                    app/server/api/v1/{users,roles}/: GET /users
+                    (paginated, role filter via EXISTS subquery on
+                    user_roles→roles, name/email LIKE search, soft-delete
+                    excluded via deletedAt IS NULL, group_concat(DISTINCT
+                    roles.slug) for the role list), GET /users/:id (joins
+                    loadUserGrants so the effective permission set is
+                    authoritative — super_admin wildcard respected),
+                    POST /users (admin creates a login account; 409 on
+                    duplicate email; needs users.create), PUT /users/:id
+                    (update profile + optional password; 422 on bad
+                    email; needs users.update), DELETE /users/:id
+                    (soft-delete sets deletedAt + isActive=false; needs
+                    users.delete), POST /users/:id/reset-password
+                    (admin-initiated; sets new hash AND revokes all
+                    sessions for that user via sessions DELETE WHERE
+                    user_id = ?; needs users.update), PUT
+                    /users/:id/roles (REPLACE role set — delete all
+                    existing user_roles then insert new set inside a
+                    single D1 batch; refuses empty array and unknown
+                    roleIds via 422; also revokes sessions so the user
+                    re-auths with the new perms; needs users.update).
+                    (3) Roles/permissions viewer — GET /roles (5 roles
+                    with permission counts) + GET /roles/:id (full
+                    permission list grouped by category, read-only —
+                    admins inspect, never edit, the 104-slug catalog).
+                    Files: shared/schemas/users.ts + roles.ts (zod
+                    validation, email regex, password min 8, roleIds
+                    non-empty array); server/services/users.ts (both
+                    user-mgmt and roles viewer live here — listUsers,
+                    getUserOrThrow, createUser, updateUser,
+                    adminResetPassword, setUserRoles, softDeleteUser,
+                    listRoles, getRoleDetailOrThrow, listRolesForPicker);
+                    8 API routes; services/users.ts client wrappers
+                    (usersApi + rolesApi); pages/users.vue + roles.vue;
+                    pages/index.vue dashboard section + 2 new People
+                    nav links (Users, Roles). Authorization: every
+                    route uses requirePermission + a server-side
+                    actor-business-ids check — students are blocked
+                    from /users entirely (403) even if mistakenly
+                    granted users.view. Audit: every mutation writes
+                    an audit_log entry (user.create / user.update /
+                    user.password.reset / user.roles.update /
+                    user.delete) via writeAudit at the route layer.
+                    Tests: shared/__tests__/users.test.ts — 19 new
+                    tests covering zod schemas (email validation,
+                    password min length, roleIds non-empty, gender
+                    enum, isActive boolean, phone optional). D1
+                    GOTCHA found+fixed during smoke: drizzle's
+                    `group_concat(DISTINCT r.slug)` with a literal
+                    alias FAILS on D1 — must use the column reference
+                    `${roles.slug}` in the .select() builder (raw
+                    sql\`...\` subqueries like auth/context.ts use
+                    literal table names `user_roles ur`/`roles r`,
+                    which still works). Gates: nuxt typecheck EXIT 0,
+                    vitest 432/432 across 32 files, nuxt build
+                    (cloudflare-module) EXIT 0. Local D1 smoke
+                    (wrangler dev) ALL flows pass: health db=true,
+                    RBAC login OK, GET /users with role filter + search,
+                    GET /users/:id with effective perms, GET /roles 5
+                    roles + perm counts, GET /roles/:id perms grouped,
+                    POST /users 201, 409 duplicate email, PUT
+                    /users/:id/roles replaces grants + revokes
+                    sessions, POST /users/:id/reset-password revokes
+                    sessions, 422 bad email, 422 empty roles array, 422
+                    unknown roleId, 403 student-blocked-from-users,
+                    404 deleted-user, audit entries verified via
+                    superadmin. Unchanged: 104-slug permission catalog
+                    + 5-role RBAC (multi-role preserved, not flattened
+                    to users.role); reports overview endpoint (already
+                    existed from earlier phase). Hyperdrive / postgres
+                    dep / seed.ts / legacy-pg migrations remain until
+                    Phase 14. No remote D1 provisioned;
+                    staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

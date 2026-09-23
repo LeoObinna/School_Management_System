@@ -55,6 +55,51 @@ export interface AuthUser {
   isActive: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Phase 6 — admin user & role management
+// ---------------------------------------------------------------------------
+
+/** One row in the admin user list (GET /users). Never includes a password. */
+export interface UserListItem {
+  id: string
+  name: string
+  email: string
+  phone: string | null
+  avatarUrl: string | null
+  isActive: boolean
+  emailVerifiedAt: string | null
+  lastLoginAt: string | null
+  createdAt: string
+  updatedAt: string
+  roles: string[]
+}
+
+/** Single user with effective permission slugs (GET /users/{id}). */
+export interface UserDetail extends UserListItem {
+  permissions: string[]
+}
+
+/** One row in the admin roles list (GET /roles). */
+export interface RoleListItem {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  isSystem: boolean
+  permissionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** Single role with its permission slugs grouped (GET /roles/{id}). */
+export interface RoleDetail extends RoleListItem {
+  permissions: {
+    slug: string
+    name: string
+    group: string | null
+  }[]
+}
+
 // GET /api/v1/auth/me
 export interface AuthSessionResponse {
   user: AuthUser

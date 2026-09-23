@@ -1,14 +1,36 @@
 <script setup lang="ts">
 import { useAuthStore } from '~/stores/auth'
+import { reportsApi } from '~/services/reports'
+import { formatApiError } from '~/utils/errors'
+import type { OverviewReport } from '~/shared/types'
 import HealthStatus from '~/components/HealthStatus.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 
+const overview = ref<OverviewReport | null>(null)
+const overviewError = ref<string | null>(null)
+const overviewLoading = ref(false)
+
+async function loadOverview() {
+  if (!auth.can('reports.view')) return
+  overviewLoading.value = true
+  overviewError.value = null
+  try {
+    overview.value = await reportsApi.overview()
+  } catch (e) {
+    overviewError.value = formatApiError(e)
+  } finally {
+    overviewLoading.value = false
+  }
+}
+
 async function onLogout() {
   await auth.logout()
   await router.replace('/auth/login')
 }
+
+onMounted(loadOverview)
 </script>
 
 <template>
@@ -58,12 +80,169 @@ async function onLogout() {
       </section>
 
       <section
+        v-if="auth.can('reports.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-medium text-gray-900">School overview</h3>
+          <button
+            type="button"
+            class="text-sm text-indigo-600 hover:underline"
+            @click="loadOverview"
+          >
+            Refresh
+          </button>
+        </div>
+        <div v-if="overviewLoading" class="text-sm text-gray-500">
+          Loading…
+        </div>
+        <div
+          v-else-if="overviewError"
+          class="rounded-md bg-red-50 p-3 text-sm text-red-700"
+        >
+          {{ overviewError }}
+        </div>
+        <div v-else-if="overview" class="space-y-6">
+          <div
+            class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4"
+          >
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-gray-500">
+                Students
+              </p>
+              <p class="mt-1 text-2xl font-semibold text-gray-900">
+                {{ overview.studentsTotal }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500">
+                {{ overview.studentsActive }} active ·
+                {{ overview.studentsArchived }} archived
+              </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-gray-500">
+                Teachers
+              </p>
+              <p class="mt-1 text-2xl font-semibold text-gray-900">
+                {{ overview.teachers }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-gray-500">
+                Parents
+              </p>
+              <p class="mt-1 text-2xl font-semibold text-gray-900">
+                {{ overview.parents }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-gray-500">
+                Staff
+              </p>
+              <p class="mt-1 text-2xl font-semibold text-gray-900">
+                {{ overview.staff }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-gray-500">
+                Classes
+              </p>
+              <p class="mt-1 text-2xl font-semibold text-gray-900">
+                {{ overview.classes }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500">
+                {{ overview.sections }} sections
+              </p>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-gray-500">
+                Subjects
+              </p>
+              <p class="mt-1 text-2xl font-semibold text-gray-900">
+                {{ overview.subjects }}
+              </p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Enrollments by status
+              </p>
+              <ul class="text-sm text-gray-700 space-y-1">
+                <li
+                  v-for="n in [
+                    { k: 'active', v: overview.enrollmentsByStatus.active },
+                    { k: 'completed', v: overview.enrollmentsByStatus.completed },
+                    { k: 'promoted', v: overview.enrollmentsByStatus.promoted },
+                    { k: 'repeated', v: overview.enrollmentsByStatus.repeated },
+                    { k: 'withdrawn', v: overview.enrollmentsByStatus.withdrawn },
+                  ]"
+                  :key="n.k"
+                  class="flex justify-between"
+                >
+                  <span class="capitalize">{{ n.k }}</span>
+                  <span class="font-medium text-gray-900">{{ n.v }}</span>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Announcements by status
+              </p>
+              <ul class="text-sm text-gray-700 space-y-1">
+                <li
+                  v-for="n in [
+                    { k: 'draft', v: overview.announcementsByStatus.draft },
+                    { k: 'scheduled', v: overview.announcementsByStatus.scheduled },
+                    { k: 'published', v: overview.announcementsByStatus.published },
+                    { k: 'archived', v: overview.announcementsByStatus.archived },
+                  ]"
+                  :key="n.k"
+                  class="flex justify-between"
+                >
+                  <span class="capitalize">{{ n.k }}</span>
+                  <span class="font-medium text-gray-900">{{ n.v }}</span>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Events
+              </p>
+              <ul class="text-sm text-gray-700 space-y-1">
+                <li class="flex justify-between">
+                  <span>Upcoming</span>
+                  <span class="font-medium text-gray-900">{{
+                    overview.eventsUpcoming
+                  }}</span>
+                </li>
+                <li class="flex justify-between">
+                  <span>Past</span>
+                  <span class="font-medium text-gray-900">{{
+                    overview.eventsPast
+                  }}</span>
+                </li>
+              </ul>
+              <NuxtLink
+                to="/reports"
+                class="mt-3 inline-block text-sm text-indigo-600 hover:underline"
+              >
+                Full reports →
+              </NuxtLink>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
         v-if="
           auth.can('students.view') ||
           auth.can('parents.view') ||
           auth.can('teachers.view') ||
           auth.can('staff.view') ||
-          auth.can('enrollments.create')
+          auth.can('enrollments.create') ||
+          auth.can('users.view') ||
+          auth.can('roles.view')
         "
         class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
       >
@@ -108,6 +287,26 @@ async function onLogout() {
           >
             <p class="font-medium text-gray-900">Enrollments</p>
             <p class="mt-1 text-sm text-gray-500">Student class placement</p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('users.view')"
+            to="/users"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">User accounts</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Login accounts, roles and password reset
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('roles.view')"
+            to="/roles"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Roles &amp; permissions</p>
+            <p class="mt-1 text-sm text-gray-500">
+              View the 5 system roles and their permission grants
+            </p>
           </NuxtLink>
         </div>
       </section>
