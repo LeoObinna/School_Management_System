@@ -1,15 +1,16 @@
 /**
- * Finance validation schemas (README §19, Phase 8).
+ * Finance validation schemas (README §19, D1 Phase 4b).
  *
- * Money values are NUMERIC(12,2) strings with at most two decimal
- * places. Arithmetic happens in integer cents on the server; these
- * schemas only validate transport shape.
+ * Money is INTEGER kobo (₦1 = 100 kobo) on D1/SQLite. Schemas
+ * validate the integer kobo transport shape; no string parsing
+ * happens server-side (the UI converts naira input → kobo before
+ * posting via `parseNairaToKobo`).
  */
 import { z } from 'zod'
 import {
   booleanParamSchema,
   dateStringSchema,
-  moneyStringSchema,
+  koboSchema,
   paginationQuerySchema,
   uuidSchema,
 } from './common'
@@ -39,15 +40,10 @@ export const PAYMENT_METHODS = [
   'other',
 ] as const
 
-// Non-negative / positive NUMERIC strings (up to 10 integer digits).
-const nonNegativeMoneySchema = moneyStringSchema.refine(
-  (v) => Number(v) >= 0,
-  'Amount must be zero or positive',
-)
-const positiveMoneySchema = moneyStringSchema.refine(
-  (v) => Number(v) > 0,
-  'Amount must be greater than zero',
-)
+// Non-negative / positive integer kobo (₦1 = 100 kobo). Capped at
+// ₦99,999,999.99 (9,999,999,999 kobo) — well beyond any school fee.
+const nonNegativeKoboSchema = koboSchema.max(9_999_999_999)
+const positiveKoboSchema = koboSchema.min(1).max(9_999_999_999)
 
 // ---------------------------------------------------------------------------
 // Fee structures + items
@@ -55,7 +51,7 @@ const positiveMoneySchema = moneyStringSchema.refine(
 export const feeItemInputSchema = z.object({
   name: z.string().trim().min(1).max(150),
   description: z.string().trim().max(2000).nullable().optional(),
-  amount: positiveMoneySchema,
+  amount: positiveKoboSchema,
   isOptional: z.boolean().optional(),
   dueDate: dateStringSchema.nullable().optional(),
 })
@@ -103,7 +99,7 @@ export const manualInvoiceItemSchema = z.object({
   feeItemId: uuidSchema.optional(),
   description: z.string().trim().min(1).max(255),
   quantity: z.coerce.number().int().min(1).max(9999).optional(),
-  unitAmount: positiveMoneySchema,
+  unitAmount: positiveKoboSchema,
 })
 export type ManualInvoiceItem = z.infer<typeof manualInvoiceItemSchema>
 
@@ -115,8 +111,8 @@ export const invoiceCreateSchema = z
     issueDate: dateStringSchema,
     dueDate: dateStringSchema.nullable().optional(),
     notes: z.string().trim().max(5000).nullable().optional(),
-    discount: nonNegativeMoneySchema.optional(),
-    tax: nonNegativeMoneySchema.optional(),
+    discount: nonNegativeKoboSchema.optional(),
+    tax: nonNegativeKoboSchema.optional(),
     // Materialize from a fee structure (optional items selection;
     // optional fee items are excluded unless explicitly selected).
     feeStructureId: uuidSchema.optional(),
@@ -137,8 +133,8 @@ export const invoiceUpdateSchema = z
     issueDate: dateStringSchema.optional(),
     dueDate: dateStringSchema.nullable().optional(),
     notes: z.string().trim().max(5000).nullable().optional(),
-    discount: nonNegativeMoneySchema.optional(),
-    tax: nonNegativeMoneySchema.optional(),
+    discount: nonNegativeKoboSchema.optional(),
+    tax: nonNegativeKoboSchema.optional(),
     items: z.array(manualInvoiceItemSchema).min(1).max(100).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
@@ -159,7 +155,7 @@ export type InvoiceListQuery = z.infer<typeof invoiceListQuerySchema>
 // ---------------------------------------------------------------------------
 export const paymentCreateSchema = z.object({
   invoiceId: uuidSchema,
-  amount: positiveMoneySchema,
+  amount: positiveKoboSchema,
   method: z.enum(PAYMENT_METHODS),
   notes: z.string().trim().max(2000).nullable().optional(),
   paidAt: z.string().datetime().nullable().optional(),

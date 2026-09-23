@@ -8,65 +8,76 @@ import {
   paymentListQuerySchema,
 } from '../schemas/finance'
 import {
-  fromCents,
   formatMoney,
-  multiplyMoney,
-  subtractMoney,
-  sumMoney,
-  toCents,
+  koboToNaira,
+  multiplyKobo,
+  parseNairaToKobo,
+  sumKobo,
 } from '../utils/money'
 
 const UUID = '11111111-1111-1111-1111-111111111111'
 const UUID2 = '22222222-2222-2222-2222-222222222222'
 
+// ₦50,000 = 5,000,000 kobo; ₦30,000 = 3,000,000; ₦2,500 = 250,000.
 function feeItem(overrides: Record<string, unknown> = {}) {
   return {
     name: 'Tuition',
-    amount: '50000.00',
+    amount: 5_000_000,
     isOptional: false,
     ...overrides,
   }
 }
 
-describe('money helpers', () => {
-  it('parses valid money strings to cents', () => {
-    expect(toCents('0')).toBe(0)
-    expect(toCents('50000')).toBe(5_000_000)
-    expect(toCents('50000.50')).toBe(5_000_050)
-    expect(toCents('0.05')).toBe(5)
-    expect(toCents(' 12.30 ')).toBe(1230)
+describe('money helpers (kobo)', () => {
+  it('parses valid naira strings to integer kobo', () => {
+    expect(parseNairaToKobo('0')).toBe(0)
+    expect(parseNairaToKobo('50000')).toBe(5_000_000)
+    expect(parseNairaToKobo('50000.50')).toBe(5_000_050)
+    expect(parseNairaToKobo('0.05')).toBe(5)
+    expect(parseNairaToKobo(' 12.30 ')).toBe(1230)
   })
 
-  it('parses negative amounts', () => {
-    expect(toCents('-15.25')).toBe(-1525)
-  })
-
-  it('rejects malformed amounts', () => {
-    for (const bad of ['abc', '12.345', '12.', '.50', '', '1,000.00', '12.3.4']) {
-      expect(() => toCents(bad)).toThrow(/Invalid money/)
+  it('rejects malformed and negative amounts', () => {
+    for (const bad of [
+      'abc',
+      '12.345',
+      '12.',
+      '.50',
+      '',
+      '1,000.00',
+      '12.3.4',
+      '-15.25',
+    ]) {
+      expect(() => parseNairaToKobo(bad)).toThrow(/Invalid money/)
     }
   })
 
-  it('round-trips through fromCents', () => {
-    expect(fromCents(5_000_050)).toBe('50000.50')
-    expect(fromCents(-1525)).toBe('-15.25')
-    expect(fromCents(0)).toBe('0.00')
+  it('round-trips through koboToNaira', () => {
+    expect(koboToNaira(5_000_050)).toBe('50000.50')
+    expect(koboToNaira(0)).toBe('0.00')
+    expect(koboToNaira(1230)).toBe('12.30')
   })
 
-  it('adds, subtracts and multiplies exactly', () => {
-    expect(sumMoney('100.10', '200.20', '0.05')).toBe('300.35')
-    expect(subtractMoney('500.00', '120.40')).toBe('379.60')
-    expect(multiplyMoney('12.50', 3)).toBe('37.50')
+  it('sums and multiplies integer kobo exactly', () => {
+    expect(sumKobo(10010, 20020, 5)).toBe(30035)
+    expect(multiplyKobo(1250, 3)).toBe(3750)
   })
 
   it('rejects non-integer quantities', () => {
-    expect(() => multiplyMoney('12.50', 1.5)).toThrow(/integer/)
+    expect(() => multiplyKobo(1250, 1.5)).toThrow(/integer/)
   })
 
   it('formats nullish amounts as an em dash', () => {
     expect(formatMoney(null)).toBe('—')
     expect(formatMoney(undefined)).toBe('—')
     expect(formatMoney('')).toBe('—')
+  })
+
+  it('formats kobo integers as currency', () => {
+    // ₦50,000.00
+    expect(formatMoney(5_000_000)).toMatch(/50,000\.00/)
+    // ₦0.05
+    expect(formatMoney(5)).toMatch(/0\.05/)
   })
 })
 
@@ -92,22 +103,22 @@ describe('fee structure schemas', () => {
     expect(
       feeStructureCreateSchema.safeParse({
         ...base,
-        items: [feeItem({ amount: '0' })],
+        items: [feeItem({ amount: 0 })],
       }).success,
     ).toBe(false)
     expect(
       feeStructureCreateSchema.safeParse({
         ...base,
-        items: [feeItem({ amount: '-1.00' })],
+        items: [feeItem({ amount: -1 })],
       }).success,
     ).toBe(false)
   })
 
-  it('rejects a three-decimal item amount', () => {
+  it('rejects a non-integer item amount', () => {
     expect(
       feeStructureCreateSchema.safeParse({
         ...base,
-        items: [feeItem({ amount: '100.999' })],
+        items: [feeItem({ amount: 1.5 })],
       }).success,
     ).toBe(false)
   })
@@ -128,7 +139,7 @@ describe('invoice create schema', () => {
   it('accepts manual line items', () => {
     const result = invoiceCreateSchema.safeParse({
       ...header,
-      items: [{ description: 'Books', quantity: 2, unitAmount: '2500.00' }],
+      items: [{ description: 'Books', quantity: 2, unitAmount: 250000 }],
     })
     expect(result.success).toBe(true)
   })
@@ -151,7 +162,7 @@ describe('invoice create schema', () => {
       invoiceCreateSchema.safeParse({
         studentId: UUID,
         sessionId: UUID2,
-        items: [{ description: 'Books', unitAmount: '10.00' }],
+        items: [{ description: 'Books', unitAmount: 1000 }],
       }).success,
     ).toBe(false)
   })
@@ -161,14 +172,14 @@ describe('invoice create schema', () => {
       invoiceCreateSchema.safeParse({
         ...header,
         issueDate: '10/01/2026',
-        items: [{ description: 'Books', unitAmount: '10.00' }],
+        items: [{ description: 'Books', unitAmount: 1000 }],
       }).success,
     ).toBe(false)
     expect(
       invoiceCreateSchema.safeParse({
         ...header,
         studentId: 'not-a-uuid',
-        items: [{ description: 'Books', unitAmount: '10.00' }],
+        items: [{ description: 'Books', unitAmount: 1000 }],
       }).success,
     ).toBe(false)
   })
@@ -177,7 +188,7 @@ describe('invoice create schema', () => {
 describe('payment schemas', () => {
   const base = {
     invoiceId: UUID,
-    amount: '30000.00',
+    amount: 3_000_000,
     method: 'cash',
   }
 
@@ -208,9 +219,9 @@ describe('payment schemas', () => {
     },
   )
 
-  it('rejects an overpayment-formatted amount of zero', () => {
+  it('rejects a zero amount', () => {
     expect(
-      paymentCreateSchema.safeParse({ ...base, amount: '0' }).success,
+      paymentCreateSchema.safeParse({ ...base, amount: 0 }).success,
     ).toBe(false)
   })
 

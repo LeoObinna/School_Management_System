@@ -16,11 +16,15 @@ export const dateStringSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date')
 
-// Exact decimal money string, e.g. "1200.50". Never accept floats that
-// could lose precision; arithmetic happens against NUMERIC in Postgres.
+// Exact decimal money string, e.g. "1200.50". Kept for backward-compatible
+// string-transport paths; new money fields use `koboSchema` (D1 Phase 4b).
 export const moneyStringSchema = z
   .string()
   .regex(/^-?\d{1,10}(\.\d{1,2})?$/, 'Expected a decimal amount')
+
+// Integer kobo (₦1 = 100 kobo). The authoritative money type post-D1.
+// Negative amounts are rejected; refunds use a separate domain primitive.
+export const koboSchema = z.number().int().min(0)
 
 // Non-empty trimmed short/long text helpers.
 export const nameSchema = z.string().trim().min(1).max(150)

@@ -3,7 +3,11 @@ import { useAuthStore } from '~/stores/auth'
 import { academicsApi } from '~/services/academics'
 import { financeApi } from '~/services/finance'
 import { formatApiError } from '~/utils/errors'
-import { formatMoney } from '~/shared/utils/money'
+import {
+  formatMoney,
+  koboToNaira,
+  parseNairaToKobo,
+} from '~/shared/utils/money'
 import type {
   AcademicSession,
   FeeItem,
@@ -117,7 +121,7 @@ function openEdit(s: FeeStructureDetail) {
       s.items.length > 0
         ? s.items.map((i) => ({
             name: i.name,
-            amount: i.amount,
+            amount: koboToNaira(i.amount),
             isOptional: i.isOptional,
             dueDate: i.dueDate ?? '',
             description: i.description ?? '',
@@ -140,7 +144,7 @@ async function submitForm() {
     .filter((i) => i.name.trim())
     .map((i): FeeItemInput => ({
       name: i.name.trim(),
-      amount: i.amount || '0',
+      amount: i.amount ? parseNairaToKobo(i.amount) : 0,
       isOptional: i.isOptional,
       dueDate: i.dueDate || null,
       description: i.description.trim() || null,
@@ -205,7 +209,7 @@ function openEditItem(s: FeeStructureDetail, item: FeeItem) {
   itemEditingId.value = item.id
   Object.assign(itemForm, {
     name: item.name,
-    amount: item.amount,
+    amount: koboToNaira(item.amount),
     isOptional: item.isOptional,
     dueDate: item.dueDate ?? '',
     description: item.description ?? '',
@@ -218,7 +222,7 @@ async function submitItem() {
   try {
     const body: FeeItemInput = {
       name: itemForm.name.trim(),
-      amount: itemForm.amount,
+      amount: parseNairaToKobo(itemForm.amount),
       isOptional: itemForm.isOptional,
       dueDate: itemForm.dueDate || null,
       description: itemForm.description.trim() || null,

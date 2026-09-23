@@ -2511,6 +2511,63 @@ documentation, not a second specification.
                     @ts-expect-error Phase 4b kobo markers stay until
                     Phase 4b. No remote D1 provisioned; staging/production
                     untouched.
+2026-09-23  Phase 4b Finance kobo migration (end-to-end INTEGER kobo;
+                    the naira-string bridge is gone). Money is now
+                    INTEGER kobo at every layer: zod schema → service →
+                    D1 → DTO → UI display. shared/utils/money.ts
+                    rewritten: parseNairaToKobo / koboToNaira / sumKobo /
+                    multiplyKobo / formatMoney (kobo ÷ 100 → currency);
+                    the toCents / fromCents / sumMoney / subtractMoney /
+                    multiplyMoney naira-string helpers were deleted.
+                    shared/schemas/common.ts added koboSchema =
+                    z.number().int().min(0); shared/schemas/finance.ts
+                    swapped the 7 money fields (fee item amount, manual
+                    invoice unitAmount, invoice discount/tax, payment
+                    amount) from positiveMoneySchema / nonNegativeMoneySchema
+                    (string regex) to positiveKoboSchema / nonNegativeKoboSchema
+                    (integer ≥ 0 / ≥ 1, capped at ₦99,999,999.99).
+                    shared/types/index.ts changed every money field
+                    string → number (FeeItem.amount; InvoiceItem.
+                    unitAmount/lineTotal; Invoice.subtotal/discount/tax/
+                    total/amountPaid/balance; InvoicePaymentSummary.amount;
+                    Payment.amount; OutstandingRow.total/amountPaid/balance;
+                    FinanceSummary.totalInvoiced/totalCollected/totalRefunded/
+                    totalOutstanding + paymentsByMethod[].total).
+                    server/services/finance.ts: all 33 Phase 4b
+                    @ts-expect-error markers removed; the toCents/
+                    fromCents/sumMoney/multiplyMoney bridge is gone;
+                    recordPayment/verifyPayment/refundPayment now do
+                    integer kobo arithmetic directly (amountKobo = input.amount;
+                    amountPaidKobo = invoice.amountPaid + amountKobo;
+                    newBalanceKobo = invoice.total - amountPaidKobo);
+                    invoiceTotals returns {subtotal, total} as kobo
+                    integers (totalCents field dropped); isInvoiceOverdue
+                    + invoicePaymentStatus renamed their *Cents params
+                    to *Kobo; financeSummary's four sum() casts flipped
+                    from `as text` to `as integer` with sql<number>,
+                    and the `?? '0'` fallbacks became `?? 0`. UI:
+                    pages/finance/fees.vue + invoices.vue + billing.vue
+                    now convert naira text input → kobo via
+                    parseNairaToKobo before posting, and prefill forms
+                    via koboToNaira(kobo); billing.vue's totalBalance/
+                    totalPaid computeds sum kobo integers (no Number()
+                    cast, no toFixed(2)); formatMoney already divides
+                    kobo by 100. Tests: shared/__tests__/finance.test.ts
+                    rewritten — parseNairaToKobo / koboToNaira / sumKobo /
+                    multiplyKobo / formatMoney (kobo → currency); schema
+                    tests use kobo ints (5,000,000 for ₦50,000; 3,000,000
+                    for ₦30,000; 250,000 for ₦2,500) and reject 0,
+                    negatives, and non-integers. moneyStringSchema kept
+                    in common.ts (still tested by schemas.test.ts) for
+                    any future string-money use case. Gates: nuxt
+                    typecheck EXIT 0, vitest 413/413 across 31 files,
+                    nuxt build (cloudflare-module) EXIT 0. Unchanged: database/
+                    schema/finance.ts (already INTEGER kobo since Phase 2);
+                    database/seeds (already kobo-native); API routes
+                    (parseBody passthrough); audit-log historical rows
+                    (immutable). Hyperdrive / postgres dep / seed.ts /
+                    legacy-pg migrations remain until Phase 6. No remote
+                    D1 provisioned; staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

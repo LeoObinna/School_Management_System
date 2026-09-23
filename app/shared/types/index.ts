@@ -866,7 +866,7 @@ export interface FeeItem {
   feeStructureId: string
   name: string
   description: string | null
-  amount: string
+  amount: number
   isOptional: boolean
   dueDate: string | null
   createdAt: string
@@ -895,8 +895,8 @@ export interface InvoiceItem {
   feeItemId: string | null
   description: string
   quantity: number
-  unitAmount: string
-  lineTotal: string
+  unitAmount: number
+  lineTotal: number
   createdAt: string
 }
 
@@ -908,12 +908,12 @@ export interface Invoice {
   termId: string | null
   issueDate: string
   dueDate: string | null
-  subtotal: string
-  discount: string
-  tax: string
-  total: string
-  amountPaid: string
-  balance: string
+  subtotal: number
+  discount: number
+  tax: number
+  total: number
+  amountPaid: number
+  balance: number
   status: InvoiceStatus
   notes: string | null
   createdById: string | null
@@ -943,7 +943,7 @@ export interface PaymentReceipt {
 export interface InvoicePaymentSummary {
   id: string
   paymentReference: string
-  amount: string
+  amount: number
   method: PaymentMethod
   status: PaymentStatus
   paidAt: string | null
@@ -961,7 +961,7 @@ export interface Payment {
   paymentReference: string
   invoiceId: string
   studentId: string
-  amount: string
+  amount: number
   method: PaymentMethod
   status: PaymentStatus
   providerReference: string | null
@@ -999,9 +999,9 @@ export interface OutstandingRow {
   termName: string | null
   issueDate: string
   dueDate: string | null
-  total: string
-  amountPaid: string
-  balance: string
+  total: number
+  amountPaid: number
+  balance: number
   status: InvoiceStatus
   overdue: boolean
 }
@@ -1010,15 +1010,15 @@ export interface OutstandingRow {
 export interface FinanceSummary {
   sessionId: string | null
   termId: string | null
-  totalInvoiced: string
-  totalCollected: string
-  totalRefunded: string
-  totalOutstanding: string
+  totalInvoiced: number
+  totalCollected: number
+  totalRefunded: number
+  totalOutstanding: number
   invoicesByStatus: Record<InvoiceStatus, number>
   paymentsByMethod: {
     method: PaymentMethod
     count: number
-    total: string
+    total: number
   }[]
 }
 

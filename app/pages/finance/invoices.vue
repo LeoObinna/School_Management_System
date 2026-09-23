@@ -4,7 +4,11 @@ import { academicsApi } from '~/services/academics'
 import { peopleApi } from '~/services/people'
 import { financeApi } from '~/services/finance'
 import { formatApiError } from '~/utils/errors'
-import { formatMoney } from '~/shared/utils/money'
+import {
+  formatMoney,
+  koboToNaira,
+  parseNairaToKobo,
+} from '~/shared/utils/money'
 import { INVOICE_STATUSES, PAYMENT_METHODS } from '~/shared/schemas'
 import type {
   AcademicSession,
@@ -242,7 +246,7 @@ async function submitInvoice() {
         .map((i) => ({
           description: i.description.trim(),
           quantity: i.quantity,
-          unitAmount: i.unitAmount,
+          unitAmount: parseNairaToKobo(i.unitAmount),
         }))
       if (items.length === 0) {
         createError.value = 'Add at least one line item or choose a fee structure.'
@@ -326,7 +330,7 @@ const paymentForm = reactive({
 })
 
 function openPayment(inv: InvoiceDetail) {
-  paymentForm.amount = inv.balance
+  paymentForm.amount = koboToNaira(inv.balance)
   paymentForm.method = 'cash'
   paymentForm.notes = ''
   paymentForm.verifyImmediately = canVerify.value
@@ -342,7 +346,7 @@ async function submitPayment() {
   try {
     await financeApi.recordPayment({
       invoiceId: detailInvoice.value.id,
-      amount: paymentForm.amount,
+      amount: parseNairaToKobo(paymentForm.amount),
       method: paymentForm.method,
       notes: paymentForm.notes.trim() || null,
       verifyImmediately: paymentForm.verifyImmediately,
@@ -673,7 +677,7 @@ async function refundPayment(paymentId: string) {
             v-if="
               canRecord &&
               ['issued', 'partially_paid'].includes(detailInvoice.status) &&
-              Number(detailInvoice.balance) > 0
+              detailInvoice.balance > 0
             "
             :disabled="busy"
             class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
@@ -685,7 +689,7 @@ async function refundPayment(paymentId: string) {
             v-if="
               canUpdate &&
               ['draft', 'issued'].includes(detailInvoice.status) &&
-              Number(detailInvoice.amountPaid) === 0
+              detailInvoice.amountPaid === 0
             "
             :disabled="busy"
             class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"

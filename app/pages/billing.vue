@@ -66,17 +66,14 @@ onMounted(async () => {
   if (!ctxError.value) await loadInvoices()
 })
 
-// Totals
+// Totals (kobo integers, summed exactly)
 const totalBalance = computed(() =>
   invoices.value
     .filter((i) => i.status !== 'void')
-    .reduce((acc, i) => acc + Number(i.balance), 0)
-    .toFixed(2),
+    .reduce((acc, i) => acc + i.balance, 0),
 )
 const totalPaid = computed(() =>
-  invoices.value
-    .reduce((acc, i) => acc + Number(i.amountPaid), 0)
-    .toFixed(2),
+  invoices.value.reduce((acc, i) => acc + i.amountPaid, 0),
 )
 
 const STATUS_STYLES: Record<string, string> = {
