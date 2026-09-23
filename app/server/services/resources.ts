@@ -29,7 +29,7 @@ import {
   smsForbidden,
   smsNotFound,
 } from '../utils/http-errors'
-import type { Actor } from './assignments'
+import type { ActorProfile } from '../utils/auth/actor'
 import type { SmsDb } from '../utils/pagination'
 import { toJsonModel } from '../utils/serialize'
 
@@ -53,7 +53,7 @@ function listSelect(client: SmsDb) {
 
 export async function listResources(
   query: ResourceListQuery,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<{ data: LearningResourceListItem[] }> {
   const client = await db()
   const where: SQL[] = []
@@ -106,7 +106,7 @@ export interface ResourceAccess {
 
 export async function getResourceForActor(
   id: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<ResourceAccess> {
   const client = await db()
   const [row] = await listSelect(client)
@@ -146,7 +146,7 @@ export async function getResourceForActor(
 
 export async function createResource(
   input: ResourceCreate,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<LearningResourceListItem> {
   const client = await db()
   if (!actor.isStaff) {
@@ -191,7 +191,7 @@ export async function createResource(
 export async function updateResource(
   id: string,
   input: ResourceUpdate,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<LearningResourceListItem> {
   const client = await db()
   if (!actor.isStaff) {
@@ -232,7 +232,7 @@ export async function updateResource(
 /** Deletes metadata; caller purges the returned R2 object key. */
 export async function deleteResource(
   id: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<string> {
   const client = await db()
   if (!actor.isStaff) {

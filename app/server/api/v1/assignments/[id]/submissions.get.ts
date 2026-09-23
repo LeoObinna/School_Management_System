@@ -6,14 +6,15 @@ import {
   idParamSchema,
   submissionListQuerySchema,
 } from '~/shared/schemas'
-import { getActor, listSubmissions } from '~/server/services/assignments'
+import { listSubmissions } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 
 export default defineEventHandler(async (event) => {
-  const auth = requirePermission(event, 'submissions.view')
+  requirePermission(event, 'submissions.view')
   const { id } = parseInput(idParamSchema, {
     id: getRouterParam(event, 'id'),
   })
   const query = parseQueryData(submissionListQuerySchema, getQuery(event))
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   return listSubmissions(id, query, actor)
 })

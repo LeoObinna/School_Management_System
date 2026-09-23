@@ -6,7 +6,7 @@ import {
   idParamSchema,
   resourceUpdateSchema,
 } from '~/shared/schemas'
-import { getActor } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { updateResource } from '~/server/services/resources'
 import { writeAudit } from '~/server/utils/audit'
 
@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
     id: getRouterParam(event, 'id'),
   })
   const data = parseBody(resourceUpdateSchema, await readBody(event))
-  const actor = await getActor(auth, 'resources.manage')
+  const actor = await resolveActorProfile(event, 'resources.manage')
   const resource = await updateResource(id, data, actor)
   await writeAudit(event, {
     userId: auth.user.id,

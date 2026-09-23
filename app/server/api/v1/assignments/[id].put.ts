@@ -6,7 +6,8 @@ import {
   assignmentUpdateSchema,
   idParamSchema,
 } from '~/shared/schemas'
-import { getActor, updateAssignment } from '~/server/services/assignments'
+import { updateAssignment } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { writeAudit } from '~/server/utils/audit'
 
 export default defineEventHandler(async (event) => {
@@ -15,7 +16,7 @@ export default defineEventHandler(async (event) => {
     id: getRouterParam(event, 'id'),
   })
   const data = parseBody(assignmentUpdateSchema, await readBody(event))
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   const assignment = await updateAssignment(id, data, actor)
   await writeAudit(event, {
     userId: auth.user.id,

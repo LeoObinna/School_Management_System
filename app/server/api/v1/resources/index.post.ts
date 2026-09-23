@@ -3,7 +3,7 @@ import { defineEventHandler, setResponseStatus } from 'h3'
 import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseBody } from '~/server/utils/validation'
 import { resourceCreateSchema } from '~/shared/schemas'
-import { getActor } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { createResource } from '~/server/services/resources'
 import { formString, readUpload } from '~/server/utils/multipart'
 import {
@@ -16,7 +16,7 @@ import { writeAudit } from '~/server/utils/audit'
 
 export default defineEventHandler(async (event) => {
   const auth = requirePermission(event, 'resources.manage')
-  const actor = await getActor(auth, 'resources.manage')
+  const actor = await resolveActorProfile(event, 'resources.manage')
   const { file, meta, form } = await readUpload(event, 'resource')
 
   const title = formString(form, 'title')

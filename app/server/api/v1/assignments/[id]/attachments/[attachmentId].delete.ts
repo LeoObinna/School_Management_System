@@ -4,10 +4,8 @@ import { z } from 'zod'
 import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseInput } from '~/server/utils/validation'
 import { uuidSchema } from '~/shared/schemas'
-import {
-  deleteAttachment,
-  getActor,
-} from '~/server/services/assignments'
+import { deleteAttachment } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import {
   deleteObject,
   getR2Bucket,
@@ -22,7 +20,7 @@ export default defineEventHandler(async (event) => {
     id: getRouterParam(event, 'id'),
     attachmentId: getRouterParam(event, 'attachmentId'),
   })
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   getR2Bucket(event)
   const objectKey = await deleteAttachment(id, attachmentId, actor)
   await deleteObject(event, objectKey)

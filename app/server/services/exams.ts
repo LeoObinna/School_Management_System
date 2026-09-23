@@ -1390,6 +1390,7 @@ export async function bulkUpsertExamScores(
 
 export async function listPublications(
   query: ResultPublicationListQuery,
+  actor?: ActorProfile | null,
 ): Promise<{ data: ResultPublicationDetail[] }> {
   const client = await db()
   const where: SQL[] = []
@@ -1399,6 +1400,24 @@ export async function listPublications(
   if (query.termId) where.push(eq(resultPublications.termId, query.termId))
   if (query.classId) where.push(eq(resultPublications.classId, query.classId))
   if (query.status) where.push(eq(resultPublications.status, query.status))
+
+  // Row-level scoping (Phase 7). Teachers see only publications for
+  // classes they teach; everyone else (admin/staff holding
+  // exam_results.enter) sees everything. We resolve the teacher's
+  // accessible classIds once and constrain the query, falling back to a
+  // 'no rows' sentinel when the teacher has no assignments.
+  if (actor && actor.teacherId && !actor.isAdmin) {
+    const classIds = await teacherTaughtClassIds(
+      client,
+      actor.teacherId,
+      query.sessionId ?? undefined,
+    )
+    if (classIds.length === 0) {
+      return { data: [] }
+    }
+    where.push(inArray(resultPublications.classId, classIds))
+  }
+
   const rows = await client
     .select({
       publication: resultPublications,

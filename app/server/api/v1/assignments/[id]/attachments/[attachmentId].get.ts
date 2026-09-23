@@ -4,21 +4,19 @@ import { z } from 'zod'
 import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseInput } from '~/server/utils/validation'
 import { uuidSchema } from '~/shared/schemas'
-import {
-  getActor,
-  getAttachmentForActor,
-} from '~/server/services/assignments'
+import { getAttachmentForActor } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { streamObject } from '~/server/utils/storage'
 
 const paramsSchema = z.object({ id: uuidSchema, attachmentId: uuidSchema })
 
 export default defineEventHandler(async (event) => {
-  const auth = requirePermission(event, 'assignments.view')
+  requirePermission(event, 'assignments.view')
   const { id, attachmentId } = parseInput(paramsSchema, {
     id: getRouterParam(event, 'id'),
     attachmentId: getRouterParam(event, 'attachmentId'),
   })
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   const access = await getAttachmentForActor(id, attachmentId, actor)
   return streamObject(
     event,

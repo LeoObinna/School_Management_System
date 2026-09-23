@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useAuthStore } from '~/stores/auth'
 import { reportsApi } from '~/services/reports'
+import { teachersApi } from '~/services/teachers'
 import { formatApiError } from '~/utils/errors'
-import type { OverviewReport } from '~/shared/types'
+import type { OverviewReport, TeacherSelf } from '~/shared/types'
 import HealthStatus from '~/components/HealthStatus.vue'
 
 const auth = useAuthStore()
@@ -11,6 +12,8 @@ const router = useRouter()
 const overview = ref<OverviewReport | null>(null)
 const overviewError = ref<string | null>(null)
 const overviewLoading = ref(false)
+
+const teacherSelf = ref<TeacherSelf | null>(null)
 
 async function loadOverview() {
   if (!auth.can('reports.view')) return
@@ -25,12 +28,31 @@ async function loadOverview() {
   }
 }
 
+/**
+ * Best-effort fetch of the caller's teacher profile. The route 404s
+ * when there is no linked teacher record (admins/students/parents),
+ * which we treat as "no teacher widget" — not an error. Other errors
+ * are silently dropped here so an unrelated network blip doesn't push
+ * the admin dashboard offline.
+ */
+async function loadTeacherSelf() {
+  if (!auth.can('dashboard.view')) return
+  try {
+    teacherSelf.value = await teachersApi.getMe()
+  } catch {
+    teacherSelf.value = null
+  }
+}
+
 async function onLogout() {
   await auth.logout()
   await router.replace('/auth/login')
 }
 
-onMounted(loadOverview)
+onMounted(() => {
+  void loadOverview()
+  void loadTeacherSelf()
+})
 </script>
 
 <template>
@@ -76,6 +98,58 @@ onMounted(loadOverview)
               students.view → {{ auth.can('students.view') ? 'yes' : 'no' }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section
+        v-if="auth.can('dashboard.view') && teacherSelf"
+        class="bg-white rounded-lg shadow-sm border border-indigo-200 p-6"
+      >
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-medium text-gray-900">
+            Your teaching dashboard
+          </h3>
+          <NuxtLink
+            to="/teachers/me"
+            class="text-sm text-indigo-600 hover:underline"
+          >
+            View my dashboard →
+          </NuxtLink>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <NuxtLink
+            to="/my-classes"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              My classes
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ teacherSelf.classes.length }}
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            to="/timetable"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Today's periods
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ teacherSelf.todayTimetable.length }}
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            to="/submissions/to-grade"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Submissions to grade
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ teacherSelf.pendingSubmissionsCount }}
+            </p>
+          </NuxtLink>
         </div>
       </section>
 

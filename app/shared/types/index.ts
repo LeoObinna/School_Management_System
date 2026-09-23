@@ -1426,3 +1426,65 @@ export interface SchoolSettings extends SchoolPublicSettings {
   accountNumber: string | null
   academicYearStartMonth: number | null
 }
+
+// ---------------------------------------------------------------------------
+// Teacher self-service (Phase 7)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/v1/teachers/me — the teacher's landing payload. Aggregates
+ * profile, assigned classes, today's timetable, pending submissions to
+ * grade and recent announcements for the dashboard widget + /teachers/me
+ * page. Built for the dashboard view; not a generic teacher record.
+ */
+export interface TeacherSelf {
+  profile: {
+    id: string
+    staffNumber: string
+    firstName: string
+    lastName: string
+    email: string | null
+    phone: string | null
+    specialization: string | null
+    qualification: string | null
+  }
+  classes: TeacherClassAssignmentDetail[]
+  todayTimetable: TimetableEntryDetail[]
+  pendingSubmissionsCount: number
+  recentAnnouncements: AnnouncementListItem[]
+}
+
+/**
+ * GET /api/v1/teachers/me/students — one roster row for a student in one
+ * of the caller's assigned classes. Includes the primary guardian's
+ * contact so the teacher can reach families without traversing the
+ * student detail page.
+ */
+export interface TeacherStudentRow {
+  id: string
+  admissionNumber: string
+  firstName: string
+  lastName: string
+  status: string
+  className: string | null
+  sectionName: string | null
+  guardianName: string | null
+  guardianPhone: string | null
+  guardianEmail: string | null
+}
+
+/**
+ * GET /api/v1/teachers/me/to-grade — one row per assignment with the
+ * count of submissions still awaiting review. Mirrors the admin
+ * submissions list but pre-aggregated for the teacher's "to grade" queue.
+ */
+export interface TeacherAssignmentToGradeRow {
+  assignmentId: string
+  title: string
+  className: string
+  sectionName: string | null
+  subjectName: string
+  dueDate: string | null
+  pendingCount: number
+}
+

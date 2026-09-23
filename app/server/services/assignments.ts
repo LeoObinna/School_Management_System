@@ -5,7 +5,10 @@
  * PostgreSQL metadata and all authorization-sensitive rules. Staff
  * (users holding assignments.create) manage work; students interact
  * only with published assignments for classes they are enrolled in and
- * only with their own submission.
+ * only with their own submission. Teachers — even when they hold
+ * assignments.create — see only their own assignments in list views and
+ * may only modify their own work; admins (no teacher profile link or
+ * the super_admin/admin role) bypass row-level scoping.
  */
 import {
   and,
@@ -49,7 +52,7 @@ import type {
   AssignmentSubmission,
   SubmissionDetail,
 } from '../../shared/types'
-import type { AuthContext } from '../utils/auth/context'
+import type { ActorProfile } from '../utils/auth/actor'
 import {
   isForeignKeyViolation,
   smsConflict,
@@ -66,39 +69,6 @@ async function db(): Promise<SmsDb> {
 
 const activeStudent = isNull(students.deletedAt)
 const activeTeacher = isNull(teachers.deletedAt)
-
-// Request actor, resolved from the authenticated login.
-export interface Actor {
-  userId: string
-  isStaff: boolean
-  teacherId: string | null
-  studentId: string | null
-}
-
-export async function getActor(
-  auth: AuthContext,
-  staffPermission = 'assignments.create',
-): Promise<Actor> {
-  const client = await db()
-  const [teacherRow, studentRow] = await Promise.all([
-    client
-      .select({ id: teachers.id })
-      .from(teachers)
-      .where(and(eq(teachers.userId, auth.user.id), activeTeacher))
-      .limit(1),
-    client
-      .select({ id: students.id })
-      .from(students)
-      .where(and(eq(students.userId, auth.user.id), activeStudent))
-      .limit(1),
-  ])
-  return {
-    userId: auth.user.id,
-    isStaff: auth.permissions.includes(staffPermission),
-    teacherId: teacherRow[0]?.id ?? null,
-    studentId: studentRow[0]?.id ?? null,
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Reference validation
@@ -205,7 +175,7 @@ async function studentIsEnrolled(
 // profile link) may modify any.
 function assertCanManage(
   assignment: { teacherId: string },
-  actor: Actor,
+  actor: ActorProfile,
 ): void {
   if (!actor.isStaff) {
     throw smsForbidden()
@@ -268,7 +238,7 @@ function toDate(value: string | null | undefined): string | null | undefined {
 
 export async function listAssignments(
   query: AssignmentListQuery,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<{ data: AssignmentListItem[] }> {
   const client = await db()
   const where: SQL[] = []
@@ -295,7 +265,13 @@ export async function listAssignments(
     where.push(eq(assignments.status, query.status))
   }
 
-  if (!actor.isStaff) {
+  // Row-level scoping (Phase 7). Admins see everything; teachers (even
+  // those holding assignments.create) see only their own assignments;
+  // students see published work for classes they are enrolled in;
+  // everyone else sees nothing.
+  if (actor.teacherId && !actor.isAdmin) {
+    where.push(eq(assignments.teacherId, actor.teacherId))
+  } else if (!actor.isStaff) {
     if (!actor.studentId) {
       return { data: [] }
     }
@@ -352,7 +328,7 @@ export async function listAssignments(
 
 export async function getAssignmentForActor(
   id: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<AssignmentDetail> {
   const client = await db()
   const [row] = await assignmentBaseQuery(client)
@@ -382,7 +358,7 @@ export async function getAssignmentForActor(
 
 export async function createAssignment(
   input: AssignmentCreate,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<AssignmentDetail> {
   const client = await db()
   await validateRefs(client, input)
@@ -432,7 +408,7 @@ export async function createAssignment(
 export async function updateAssignment(
   id: string,
   input: AssignmentUpdate,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<AssignmentDetail> {
   const client = await db()
   const existing = await getRawAssignmentOrThrow(client, id)
@@ -491,7 +467,7 @@ export async function updateAssignment(
 /** Deletes metadata and returns R2 keys the route must purge. */
 export async function deleteAssignment(
   id: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<{ objectKeys: string[] }> {
   const client = await db()
   const existing = await getRawAssignmentOrThrow(client, id)
@@ -542,7 +518,7 @@ async function getRawAssignmentOrThrow(
 export async function addAttachment(
   assignmentId: string,
   file: SubmissionFileMeta,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<AssignmentAttachment> {
   const client = await db()
   const assignment = await getRawAssignmentOrThrow(client, assignmentId)
@@ -576,7 +552,7 @@ export interface AttachmentAccess {
 export async function getAttachmentForActor(
   assignmentId: string,
   attachmentId: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<AttachmentAccess> {
   const client = await db()
   const assignment = await getRawAssignmentOrThrow(client, assignmentId)
@@ -612,7 +588,7 @@ export async function getAttachmentForActor(
 export async function deleteAttachment(
   assignmentId: string,
   attachmentId: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<string> {
   const client = await db()
   const assignment = await getRawAssignmentOrThrow(client, assignmentId)
@@ -639,7 +615,7 @@ export async function deleteAttachment(
 export async function listSubmissions(
   assignmentId: string,
   query: SubmissionListQuery,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<{ data: SubmissionDetail[] }> {
   const client = await db()
   const assignment = await getRawAssignmentOrThrow(client, assignmentId)
@@ -686,7 +662,7 @@ export async function listSubmissions(
 
 export async function getMySubmission(
   assignmentId: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<AssignmentSubmission | null> {
   const client = await db()
   if (!actor.studentId) {
@@ -720,7 +696,7 @@ export interface SubmissionFileAccess {
 
 export async function getMySubmissionFile(
   assignmentId: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<SubmissionFileAccess> {
   const client = await db()
   if (!actor.studentId) {
@@ -753,7 +729,7 @@ export async function getMySubmissionFile(
 export async function getStudentSubmissionFile(
   assignmentId: string,
   studentId: string,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<SubmissionFileAccess> {
   const client = await db()
   const assignment = await getRawAssignmentOrThrow(client, assignmentId)
@@ -783,7 +759,7 @@ export async function getStudentSubmissionFile(
 export async function upsertMySubmission(
   assignmentId: string,
   input: SubmissionUpsert,
-  actor: Actor,
+  actor: ActorProfile,
   file?: SubmissionFileMeta,
 ): Promise<{ row: AssignmentSubmission; previousObjectKey: string | null }> {
   const client = await db()
@@ -868,7 +844,7 @@ export async function upsertMySubmission(
 
 export async function submitMySubmission(
   assignmentId: string,
-  actor: Actor,
+  actor: ActorProfile,
 ) {
   const client = await db()
   if (!actor.studentId) {
@@ -914,7 +890,7 @@ export async function gradeSubmission(
   assignmentId: string,
   studentId: string,
   input: SubmissionGrade,
-  actor: Actor,
+  actor: ActorProfile,
 ) {
   const client = await db()
   const assignment = await getRawAssignmentOrThrow(client, assignmentId)
@@ -960,7 +936,7 @@ export async function gradeSubmission(
 
 export async function listMyAssignments(
   query: MyAssignmentListQuery,
-  actor: Actor,
+  actor: ActorProfile,
 ): Promise<{ data: AssignmentListItem[] }> {
   const client = await db()
   if (!actor.studentId) {

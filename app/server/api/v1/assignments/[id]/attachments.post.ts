@@ -3,10 +3,8 @@ import { defineEventHandler, getRouterParam, setResponseStatus } from 'h3'
 import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseInput } from '~/server/utils/validation'
 import { idParamSchema } from '~/shared/schemas'
-import {
-  addAttachment,
-  getActor,
-} from '~/server/services/assignments'
+import { addAttachment } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { readUpload } from '~/server/utils/multipart'
 import {
   buildObjectKey,
@@ -20,7 +18,7 @@ export default defineEventHandler(async (event) => {
   const { id } = parseInput(idParamSchema, {
     id: getRouterParam(event, 'id'),
   })
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   const { file, meta } = await readUpload(event, 'assignment_attachment')
 
   const objectKey = buildObjectKey(

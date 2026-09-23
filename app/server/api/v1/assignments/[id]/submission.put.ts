@@ -18,9 +18,9 @@ import {
   type SubmissionUpsert,
 } from '~/shared/schemas'
 import {
-  getActor,
   upsertMySubmission,
 } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { formString, readUpload } from '~/server/utils/multipart'
 import {
   buildObjectKey,
@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
   const { id } = parseInput(idParamSchema, {
     id: getRouterParam(event, 'id'),
   })
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   const contentType = getRequestHeader(event, 'content-type') ?? ''
 
   if (contentType.includes('multipart/form-data')) {

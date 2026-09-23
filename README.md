@@ -2650,6 +2650,73 @@ documentation, not a second specification.
                     dep / seed.ts / legacy-pg migrations remain until
                     Phase 14. No remote D1 provisioned;
                     staging/production untouched.
+2026-09-23  Phase 7 Option A  Teacher self-service (PRD §6 + spec
+                    04_APPFLOW §4 teacher flow). Teachers now get a
+                    scoped experience instead of the admin dashboard:
+                    (1) new service server/services/teachers-self.ts
+                    with getTeacherSelf / listMyClasses /
+                    listMyStudents / listSubmissionsToGrade — every
+                    query resolves teacherId server-side via
+                    resolveActorBusinessIds + teacherTaughtClassIds
+                    and NEVER accepts a teacherId from the client;
+                    a classId the teacher does not teach narrows to an
+                    empty page (never an error, never other classes).
+                    (2) 4 routes: GET /teachers/me (dashboard.view;
+                    profile + assigned classes + today's timetable +
+                    pending submitted/late submissions count + 5
+                    latest announcements; 404 for accounts with no
+                    teacher profile), GET /teacher-assignments/me
+                    (teachers.view; self-service variant reusing the
+                    admin listTeacherClassAssignments shape), GET
+                    /teachers/me/students (students.view; paginated
+                    roster with primary guardian contact), GET
+                    /teachers/me/to-grade (submissions.view; one row
+                    per owned assignment with pending review count).
+                    (3) 4 pages: /teachers/me (profile card + quick
+                    stats + today's timetable + announcements),
+                    /my-classes, /my-students (classId/search/paging),
+                    /submissions/to-grade (rows deep-link to the
+                    existing /assignments/[id] grading view). (4)
+                    Teacher widget on pages/index.vue (best-effort
+                    GET /teachers/me; 404/other failure hides the
+                    widget — admins/students/parents unaffected).
+                    (5) Scoping cleanup: assignments service migrated
+                    off its duplicated local getActor onto the
+                    canonical request-cached resolveActorProfile —
+                    listAssignments now scopes non-admin teachers by
+                    teacherId (14 assignment routes + my/assignments
+                    + 6 resources routes migrated); listPublications
+                    in exams service accepts the actor and scopes
+                    teachers to taught classes. Files:
+                    shared/schemas/teachers.ts (myStudentListQuerySchema,
+                    submissionsToGradeQuerySchema) + barrel;
+                    shared/types/index.ts (TeacherSelf,
+                    TeacherStudentRow, TeacherAssignmentToGradeRow);
+                    services/teachers.ts client wrappers.
+                    Tests: shared/__tests__/teachers.test.ts — 10 new
+                    zod contract tests. Gates: nuxt typecheck EXIT 0,
+                    vitest 442/442 across 33 files, nuxt build
+                    (cloudflare-module) EXIT 0 (no wrangler in
+                    .output). Local D1 smoke (wrangler dev, demo
+                    teacher T001): health db=true; /teachers/me
+                    profile + 1 class + 1 today period + 2
+                    announcements; /teacher-assignments/me 1 row;
+                    /teachers/me/students 2 rows, assigned-class
+                    filter 2, foreign-class filter 0, search "Amara"
+                    1; /teachers/me/to-grade empty queue matches
+                    pending count 0; teacher 403 on admin
+                    /teacher-assignments; student login 404 on
+                    /teachers/me and 403 on /teacher-assignments/me.
+                    Unchanged: 104-slug catalog + 5-role multi-role
+                    RBAC; existing grading/attendance/timetable
+                    routes. Option B (/exam-results/enter score-entry
+                    UI, /teachers/me deep-link tabs) and Option C
+                    (split admin/teacher assignment pages, teacher
+                    landing route guard) remain unstarted pending
+                    owner sign-off. Hyperdrive / postgres dep /
+                    seed.ts / legacy-pg migrations remain until
+                    Phase 14. No remote D1 provisioned;
+                    staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

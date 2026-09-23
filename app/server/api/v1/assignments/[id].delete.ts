@@ -3,10 +3,8 @@ import { defineEventHandler, getRouterParam } from 'h3'
 import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseInput } from '~/server/utils/validation'
 import { idParamSchema } from '~/shared/schemas'
-import {
-  deleteAssignment,
-  getActor,
-} from '~/server/services/assignments'
+import { deleteAssignment } from '~/server/services/assignments'
+import { resolveActorProfile } from '~/server/utils/auth/actor'
 import {
   deleteObject,
   getR2Bucket,
@@ -18,7 +16,7 @@ export default defineEventHandler(async (event) => {
   const { id } = parseInput(idParamSchema, {
     id: getRouterParam(event, 'id'),
   })
-  const actor = await getActor(auth)
+  const actor = await resolveActorProfile(event, 'assignments.create')
   // Fail before touching the database when object storage is offline,
   // so metadata and bytes do not diverge.
   getR2Bucket(event)
