@@ -43,8 +43,14 @@ interface GrantRow {
   phone: string | null
   avatar_url: string | null
   is_active: boolean
-  roles: string[] | null
-  permissions: string[] | null
+  // SQLite group_concat: comma-joined distinct slugs, or NULL when the
+  // user has no matching grants.
+  roles: string | null
+  permissions: string | null
+}
+
+function splitSlugs(joined: string | null): string[] {
+  return joined ? joined.split(',').filter(Boolean) : []
 }
 
 /**
@@ -110,7 +116,10 @@ export type UserGrants = Omit<AuthContext, 'sessionId'>
 /** Loads a user's profile, role slugs and permission slugs. */
 export async function loadUserGrants(userId: string): Promise<UserGrants | null> {
   const { db } = await import('../db')
-  const result = await db.execute(sql`
+  // D1/SQLite aggregate (group_concat with DISTINCT). The LEFT JOINs
+  // multiply role × permission rows, but DISTINCT collapses each set;
+  // slugs never contain commas.
+  const row = await db.get<GrantRow>(sql`
     SELECT
       u.id,
       u.name,
@@ -118,8 +127,8 @@ export async function loadUserGrants(userId: string): Promise<UserGrants | null>
       u.phone,
       u.avatar_url,
       u.is_active,
-      COALESCE(array_agg(DISTINCT r.slug) FILTER (WHERE r.slug IS NOT NULL), '{}') AS roles,
-      COALESCE(array_agg(DISTINCT p.slug) FILTER (WHERE p.slug IS NOT NULL), '{}') AS permissions
+      group_concat(DISTINCT r.slug) AS roles,
+      group_concat(DISTINCT p.slug) AS permissions
     FROM users u
     LEFT JOIN user_roles ur ON ur.user_id = u.id
     LEFT JOIN roles r ON r.id = ur.role_id
@@ -131,7 +140,6 @@ export async function loadUserGrants(userId: string): Promise<UserGrants | null>
     GROUP BY u.id
     LIMIT 1
   `)
-  const row = result[0] as GrantRow | undefined
   if (!row) {
     return null
   }
@@ -144,8 +152,8 @@ export async function loadUserGrants(userId: string): Promise<UserGrants | null>
       avatarUrl: row.avatar_url,
       isActive: row.is_active,
     },
-    roles: row.roles ?? [],
-    permissions: row.permissions ?? [],
+    roles: splitSlugs(row.roles),
+    permissions: splitSlugs(row.permissions),
   }
 }
 

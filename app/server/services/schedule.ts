@@ -67,14 +67,14 @@ import {
   type ActorScope,
 } from '../utils/auth/actor'
 import {
-  isPgForeignKeyViolation,
-  isPgUniqueViolation,
+  isForeignKeyViolation,
+  isUniqueViolation,
   smsConflict,
   smsFieldError,
   smsForbidden,
   smsNotFound,
 } from '../utils/http-errors'
-import type { SmsDb } from '../utils/pagination'
+import { chunkRows, type SmsDb } from '../utils/pagination'
 import { toJsonList, toJsonModel } from '../utils/serialize'
 
 async function db(): Promise<SmsDb> {
@@ -93,8 +93,9 @@ const WEEKDAY_LABELS: Record<string, string> = {
 
 const activeStudent = isNull(students.deletedAt)
 
-// SQL order expression: Monday first ... Sunday last.
-const weekdayOrder = sql`array_position(ARRAY['monday','tuesday','wednesday','thursday','friday','saturday','sunday']::text[], ${timetableEntries.weekday})`
+// SQL order expression: Monday first ... Sunday last. Portable CASE
+// (PostgreSQL's array_position(ARRAY[...]) has no SQLite equivalent).
+const weekdayOrder = sql`case ${timetableEntries.weekday} when 'monday' then 1 when 'tuesday' then 2 when 'wednesday' then 3 when 'thursday' then 4 when 'friday' then 5 when 'saturday' then 6 when 'sunday' then 7 end`
 
 // Row-level scoping helpers (classifyActorScope, studentEnrolledClassIds,
 // teacherTaughtClassIds) are imported from `../utils/auth/actor` and shared
@@ -259,7 +260,7 @@ const timetableDetailSelect = {
   className: classes.name,
   sectionName: sections.name,
   subjectName: subjects.name,
-  teacherName: sql<string>`trim(concat(${teachers.firstName}, ' ', ${teachers.lastName}))`,
+  teacherName: sql<string>`trim(${teachers.firstName} || ' ' || ${teachers.lastName})`,
   sessionName: academicSessions.name,
   termName: terms.name,
 }
@@ -358,7 +359,8 @@ function overlapsSlot(
   startTime: string,
   endTime: string,
 ): SQL {
-  return sql`${timetableEntries.startTime} < ${endTime}::time AND ${timetableEntries.endTime} > ${startTime}::time`
+  // Times are 'HH:MM:SS' text; lexical comparison is a half-open overlap.
+  return sql`${timetableEntries.startTime} < ${endTime} AND ${timetableEntries.endTime} > ${startTime}`
 }
 
 // Term/section scope: a whole-session or whole-class entry (null)
@@ -404,7 +406,7 @@ async function assertNoConflicts(
     overlapsSlot(candidate.startTime, candidate.endTime),
   ]
   if (excludeId) {
-    baseWhere.push(sql`${timetableEntries.id} <> ${excludeId}::uuid`)
+    baseWhere.push(sql`${timetableEntries.id} <> ${excludeId}`)
   }
   const termExpr = termScope(candidate.termId)
   if (termExpr) {
@@ -516,7 +518,7 @@ export async function createTimetableEntry(
     }
     return getTimetableEntryOrThrow(created.id)
   } catch (e) {
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced record no longer exists.')
     }
     throw e
@@ -659,10 +661,11 @@ export async function listAttendanceSessions(
     where.push(eq(attendanceSessions.status, query.status))
   }
   if (query.dateFrom) {
-    where.push(sql`${attendanceSessions.date} >= ${query.dateFrom}::date`)
+    // date columns are 'YYYY-MM-DD' text; lexical comparison is exact.
+    where.push(sql`${attendanceSessions.date} >= ${query.dateFrom}`)
   }
   if (query.dateTo) {
-    where.push(sql`${attendanceSessions.date} <= ${query.dateTo}::date`)
+    where.push(sql`${attendanceSessions.date} <= ${query.dateTo}`)
   }
 
   // Row-level scoping (Phase 12). Teachers see only registers for classes
@@ -702,7 +705,7 @@ export async function listAttendanceSessions(
   const offset = (query.page - 1) * query.perPage
 
   const countRows = await client
-    .select({ total: sql<number>`count(*)::int` })
+    .select({ total: sql<number>`cast(count(*) as integer)` })
     .from(attendanceSessions)
     .where(filter)
   const total = countRows[0]?.total ?? 0
@@ -725,7 +728,7 @@ export async function listAttendanceSessions(
       className: classes.name,
       sectionName: sections.name,
       termName: terms.name,
-      recordCount: sql<number>`count(${attendanceRecords.id})::int`,
+      recordCount: sql<number>`cast(count(${attendanceRecords.id}) as integer)`,
     })
     .from(attendanceSessions)
     .innerJoin(classes, eq(attendanceSessions.classId, classes.id))
@@ -808,7 +811,7 @@ export async function getAttendanceSessionOrThrow(
       remark: attendanceRecords.remark,
       createdAt: attendanceRecords.createdAt,
       updatedAt: attendanceRecords.updatedAt,
-      studentName: sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+      studentName: sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
       admissionNumber: students.admissionNumber,
     })
     .from(attendanceRecords)
@@ -861,12 +864,12 @@ export async function createAttendanceSession(
     }
     return getAttendanceSessionOrThrow(created.id)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict(
         'An attendance register already exists for this class/section and date.',
       )
     }
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced record no longer exists.')
     }
     throw e
@@ -944,27 +947,30 @@ export async function markAttendance(
   const markedById =
     register.markedById ?? (await resolveTeacherId(client, markerUserId))
 
-  await client
-    .insert(attendanceRecords)
-    .values(
-      input.records.map((record) => ({
-        attendanceSessionId: id,
-        studentId: record.studentId,
-        status: record.status,
-        remark: record.remark ?? null,
-      })),
-    )
-    .onConflictDoUpdate({
-      target: [
-        attendanceRecords.attendanceSessionId,
-        attendanceRecords.studentId,
-      ],
-      set: {
-        status: sql`excluded.status`,
-        remark: sql`excluded.remark`,
-        updatedAt: new Date().toISOString(),
-      },
-    })
+  // D1 allows at most 100 bound variables per statement; 4 columns per row.
+  for (const chunk of chunkRows(input.records, 4)) {
+    await client
+      .insert(attendanceRecords)
+      .values(
+        chunk.map((record) => ({
+          attendanceSessionId: id,
+          studentId: record.studentId,
+          status: record.status,
+          remark: record.remark ?? null,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [
+          attendanceRecords.attendanceSessionId,
+          attendanceRecords.studentId,
+        ],
+        set: {
+          status: sql`excluded.status`,
+          remark: sql`excluded.remark`,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+  }
 
   await client
     .update(attendanceSessions)
@@ -1112,12 +1118,12 @@ export async function attendanceClassReport(
     .select({
       studentId: students.id,
       admissionNumber: students.admissionNumber,
-      studentName: sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
-      total: sql<number>`count(${attendanceRecords.id})::int`,
-      present: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present')::int`,
-      absent: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'absent')::int`,
-      late: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'late')::int`,
-      excused: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'excused')::int`,
+      studentName: sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
+      total: sql<number>`cast(count(${attendanceRecords.id}) as integer)`,
+      present: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'present' then 1 else 0 end) as integer)`,
+      absent: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'absent' then 1 else 0 end) as integer)`,
+      late: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'late' then 1 else 0 end) as integer)`,
+      excused: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'excused' then 1 else 0 end) as integer)`,
     })
     .from(studentEnrollments)
     .innerJoin(

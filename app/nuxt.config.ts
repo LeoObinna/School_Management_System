@@ -42,6 +42,12 @@ export default defineNuxtConfig({
     },
     // Inline the @jsquash WASM codecs (gallery thumbnails) as compiled
     // WebAssembly.Module exports; see build/jsquash-wasm-loader.ts.
+    // NOTE: the Node-only `wrangler` import used by `nuxt dev`
+    // (getPlatformProxy in server/utils/db.ts) is kept out of this
+    // bundle by making the dynamic import non-literal there. Do NOT
+    // add `wrangler` to rollupConfig.external: Rollup would render a
+    // literal external import("wrangler") in output, which wrangler's
+    // own esbuild pass would then try to bundle (failing on its CLI).
     rollupConfig: {
       plugins: [jsquashWasmLoader()],
     },

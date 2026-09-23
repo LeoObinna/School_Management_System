@@ -93,18 +93,57 @@ import {
   type ActorProfile,
 } from '../utils/auth/actor'
 import {
-  isPgForeignKeyViolation,
-  isPgUniqueViolation,
+  isForeignKeyViolation,
+  isUniqueViolation,
   smsConflict,
   smsFieldError,
   smsForbidden,
   smsNotFound,
 } from '../utils/http-errors'
-import type { SmsDb } from '../utils/pagination'
-import { toJsonList, toJsonModel } from '../utils/serialize'
+import {
+  chunkRows,
+  runBatch,
+  type D1BatchItem,
+  type SmsDb,
+} from '../utils/pagination'
+import { toJsonModel } from '../utils/serialize'
 
 async function db(): Promise<SmsDb> {
   return (await import('../utils/db')).db
+}
+
+// Scores, weights and grade boundaries are stored as INTEGER ×100
+// fixed point (D1/SQLite has no NUMERIC), e.g. 85.5 → 8550, 100 →
+// 10000. The shared DTO/zod boundary stays decimal strings with up to
+// 2dp, so EVERY write multiplies and EVERY read divides. Grade points
+// (`points`) are a plain whole-number integer per the D1 schema.
+function toScore100(value: string): number {
+  return Math.round(Number(value) * 100)
+}
+function fromScore100(value: number | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  return (value / 100).toFixed(2)
+}
+
+type GradingScaleItemRow = typeof gradingScaleItems.$inferSelect
+type GradingItemDto = GradingScaleDetail['items'][number]
+
+function gradingItemToJson(item: GradingScaleItemRow): GradingItemDto {
+  return {
+    ...toJsonModel<GradingItemDto>(item),
+    minScore: fromScore100(item.minScore)!,
+    maxScore: fromScore100(item.maxScore)!,
+    points: item.points === null ? null : String(item.points),
+  }
+}
+
+type AssessmentTypeRow = typeof assessmentTypes.$inferSelect
+
+function assessmentTypeToJson(row: AssessmentTypeRow): AssessmentType {
+  return {
+    ...toJsonModel<AssessmentType>(row),
+    weight: fromScore100(row.weight)!,
+  }
 }
 
 const activeStudent = isNull(students.deletedAt)
@@ -371,7 +410,7 @@ async function getActiveGradingScaleItems(
     .from(gradingScaleItems)
     .where(eq(gradingScaleItems.scaleId, scale.id))
     .orderBy(asc(gradingScaleItems.minScore))
-  return toJsonList<GradingScaleDetail['items'][number]>(items)
+  return items.map(gradingItemToJson)
 }
 
 // Returns the grade whose [minScore, maxScore] contains the percentage.
@@ -408,7 +447,7 @@ export async function listAssessmentTypes(
     .from(assessmentTypes)
     .where(where.length ? and(...where) : undefined)
     .orderBy(asc(assessmentTypes.name))
-  return { data: toJsonList<AssessmentType>(rows) }
+  return { data: rows.map(assessmentTypeToJson) }
 }
 
 export async function createAssessmentType(
@@ -418,18 +457,17 @@ export async function createAssessmentType(
   try {
     const [row] = await client
       .insert(assessmentTypes)
-      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
       .values({
         name: input.name,
         slug: input.slug,
-        weight: input.weight ?? '1',
+        weight: toScore100(input.weight ?? '1'),
         description: input.description ?? null,
         isActive: input.isActive ?? true,
       })
       .returning()
-    return toJsonModel<AssessmentType>(row!)
+    return assessmentTypeToJson(row!)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('An assessment type with that slug already exists.')
     }
     throw e
@@ -444,7 +482,7 @@ export async function updateAssessmentType(
   const values: Record<string, unknown> = {}
   if (input.name !== undefined) values.name = input.name
   if (input.slug !== undefined) values.slug = input.slug
-  if (input.weight !== undefined) values.weight = input.weight
+  if (input.weight !== undefined) values.weight = toScore100(input.weight)
   if (input.description !== undefined) values.description = input.description
   if (input.isActive !== undefined) values.isActive = input.isActive
   try {
@@ -456,9 +494,9 @@ export async function updateAssessmentType(
     if (!row) {
       throw smsNotFound('Assessment type not found.')
     }
-    return toJsonModel<AssessmentType>(row)
+    return assessmentTypeToJson(row)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('An assessment type with that slug already exists.')
     }
     throw e
@@ -494,7 +532,7 @@ export async function listGradingScales(
       .orderBy(asc(gradingScaleItems.minScore))
     data.push({
       ...toJsonModel<GradingScaleDetail>(row),
-      items: toJsonList<GradingScaleDetail['items'][number]>(items),
+      items: items.map(gradingItemToJson),
     })
   }
   return { data }
@@ -519,7 +557,7 @@ export async function getGradingScale(
     .orderBy(asc(gradingScaleItems.minScore))
   return {
     ...toJsonModel<GradingScaleDetail>(row),
-    items: toJsonList<GradingScaleDetail['items'][number]>(items),
+    items: items.map(gradingItemToJson),
   }
 }
 
@@ -527,31 +565,30 @@ export async function createGradingScale(
   input: GradingScaleCreate,
 ): Promise<GradingScaleDetail> {
   const client = await db()
-  return await client.transaction(async (tx) => {
-    const [scale] = await tx
-      .insert(gradingScales)
-      .values({
-        sessionId: input.sessionId ?? null,
-        name: input.name,
-        isActive: input.isActive ?? true,
-      })
-      .returning()
-    if (!scale) {
-      throw smsConflict('Grading scale could not be saved.')
-    }
-    await tx.insert(gradingScaleItems).values(
-      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-      input.items.map((i) => ({
-        scaleId: scale.id,
-        grade: i.grade,
-        minScore: i.minScore,
-        maxScore: i.maxScore,
-        remark: i.remark ?? null,
-        points: i.points ?? null,
-      })),
-    )
-    return getGradingScale(scale.id)
-  })
+  // D1 batch: parent scale with an app-generated id + child items.
+  const scaleId = crypto.randomUUID()
+  const itemRows = input.items.map((i) => ({
+    scaleId,
+    grade: i.grade,
+    minScore: toScore100(i.minScore),
+    maxScore: toScore100(i.maxScore),
+    remark: i.remark ?? null,
+    points: i.points === undefined ? null : Math.round(Number(i.points)),
+  }))
+  // 6 bound columns per item row; D1 caps at 100 binds/statement.
+  const itemInserts = chunkRows(itemRows, 6).map((chunk) =>
+    client.insert(gradingScaleItems).values(chunk),
+  )
+  await client.batch([
+    client.insert(gradingScales).values({
+      id: scaleId,
+      sessionId: input.sessionId ?? null,
+      name: input.name,
+      isActive: input.isActive ?? true,
+    }),
+    ...itemInserts,
+  ])
+  return getGradingScale(scaleId)
 }
 
 export async function updateGradingScale(
@@ -559,39 +596,49 @@ export async function updateGradingScale(
   input: GradingScaleUpdate,
 ): Promise<GradingScaleDetail> {
   const client = await db()
-  return await client.transaction(async (tx) => {
-    const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
-    if (input.sessionId !== undefined) {
-      values.sessionId = input.sessionId
-    }
-    if (input.name !== undefined) values.name = input.name
-    if (input.isActive !== undefined) values.isActive = input.isActive
-    const [row] = await tx
+  const [existing] = await client
+    .select({ id: gradingScales.id })
+    .from(gradingScales)
+    .where(eq(gradingScales.id, id))
+    .limit(1)
+  if (!existing) {
+    throw smsNotFound('Grading scale not found.')
+  }
+  const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
+  if (input.sessionId !== undefined) {
+    values.sessionId = input.sessionId
+  }
+  if (input.name !== undefined) values.name = input.name
+  if (input.isActive !== undefined) values.isActive = input.isActive
+  const statements: D1BatchItem[] = [
+    client
       .update(gradingScales)
       .set(values)
-      .where(eq(gradingScales.id, id))
-      .returning()
-    if (!row) {
-      throw smsNotFound('Grading scale not found.')
-    }
-    if (input.items) {
-      await tx.delete(gradingScaleItems).where(
+      .where(eq(gradingScales.id, id)),
+  ]
+  if (input.items) {
+    statements.push(
+      client.delete(gradingScaleItems).where(
         eq(gradingScaleItems.scaleId, id),
-      )
-      await tx.insert(gradingScaleItems).values(
-        // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-        input.items.map((i) => ({
-          scaleId: id,
-          grade: i.grade,
-          minScore: i.minScore,
-          maxScore: i.maxScore,
-          remark: i.remark ?? null,
-          points: i.points ?? null,
-        })),
-      )
+      ),
+    )
+    // 6 bound columns per item row; D1 caps at 100 binds/statement.
+    for (const chunk of chunkRows(
+      input.items.map((i) => ({
+        scaleId: id,
+        grade: i.grade,
+        minScore: toScore100(i.minScore),
+        maxScore: toScore100(i.maxScore),
+        remark: i.remark ?? null,
+        points: i.points === undefined ? null : Math.round(Number(i.points)),
+      })),
+      6,
+    )) {
+      statements.push(client.insert(gradingScaleItems).values(chunk))
     }
-    return getGradingScale(id)
-  })
+  }
+  await runBatch(client, statements)
+  return getGradingScale(id)
 }
 
 // ---------------------------------------------------------------------------
@@ -610,7 +657,7 @@ function examBaseQuery(client: SmsDb) {
       ...examJoinFields,
       exam: exams,
       subjectCount:
-        sql<number>`(select count(*) from ${examSubjects} where ${examSubjects.examId} = ${exams.id})::int`,
+        sql<number>`cast((select count(*) from ${examSubjects} where ${examSubjects.examId} = ${exams.id}) as integer)`,
     })
     .from(exams)
     .innerJoin(classes, eq(exams.classId, classes.id))
@@ -702,14 +749,17 @@ export async function getExam(id: string): Promise<ExamDetail> {
     className: row.className,
     sessionName: row.sessionName,
     termName: row.termName,
-    subjects: toJsonList<ExamSubjectDetail>(subjectRows),
+    subjects: subjectRows.map((s) => ({
+      ...toJsonModel<ExamSubjectDetail>(s),
+      maxScore: fromScore100(s.maxScore)!,
+    })),
   }
 }
 
 // Flat, long-format exam-score rows for the XLSX grades export
 // (Phase 12 Part C Option B). One row per (student, exam subject);
-// students without a recorded score are not included. NUMERIC
-// score/maxScore come back as strings (no float coercion).
+// students without a recorded score are not included. ×100 fixed-point
+// score/maxScore are converted back to 2dp decimal strings.
 export async function getExamScoresForExport(
   examId: string,
 ): Promise<ExamScoreExportRow[]> {
@@ -744,14 +794,13 @@ export async function getExamScoresForExport(
     .where(eq(examSubjects.examId, examId))
     .orderBy(asc(students.admissionNumber), asc(subjects.name))
 
-  // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
   return rows.map((r) => ({
     admissionNumber: r.admissionNumber,
     studentName: [r.firstName, r.lastName].filter(Boolean).join(' ').trim(),
     subjectCode: r.subjectCode,
     subjectName: r.subjectName,
-    maxScore: r.maxScore,
-    score: r.score,
+    maxScore: fromScore100(r.maxScore)!,
+    score: fromScore100(r.score)!,
     grade: r.grade,
   }))
 }
@@ -778,7 +827,7 @@ export async function createExam(input: ExamCreate): Promise<ExamDetail> {
     }
     return getExam(row.id)
   } catch (e) {
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced record no longer exists.')
     }
     throw e
@@ -859,15 +908,14 @@ export async function addExamSubject(
     throw smsFieldError('subjectId', 'Subject not found.')
   }
   try {
-    // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
     await client.insert(examSubjects).values({
       examId,
       subjectId: input.subjectId,
-      maxScore: input.maxScore ?? '100',
+      maxScore: toScore100(input.maxScore ?? '100'),
       examDate: input.examDate ?? null,
     })
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('That subject is already attached to the exam.')
     }
     throw e
@@ -882,7 +930,9 @@ export async function updateExamSubject(
 ): Promise<ExamDetail> {
   const client = await db()
   const values: Record<string, unknown> = {}
-  if (input.maxScore !== undefined) values.maxScore = input.maxScore
+  if (input.maxScore !== undefined) {
+    values.maxScore = toScore100(input.maxScore)
+  }
   if (input.examDate !== undefined) values.examDate = input.examDate
   const [row] = await client
     .update(examSubjects)
@@ -981,7 +1031,7 @@ export async function listAssessmentScores(
     .select({
       score: assessmentScores,
       studentName:
-        sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+        sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
       admissionNumber: students.admissionNumber,
       subjectName: subjects.name,
       assessmentTypeName: assessmentTypes.name,
@@ -998,6 +1048,8 @@ export async function listAssessmentScores(
   return {
     data: rows.map((r) => ({
       ...toJsonModel<AssessmentScoreDetail>(r.score),
+      score: fromScore100(r.score.score)!,
+      maxScore: fromScore100(r.score.maxScore)!,
       studentName: r.studentName,
       admissionNumber: r.admissionNumber,
       subjectName: r.subjectName,
@@ -1094,22 +1146,22 @@ export async function upsertAssessmentScore(
     enrollment.classId,
     enrollment.sectionId ?? null,
   )
-  const maxScore = input.maxScore ?? '100'
-  if (Number(input.score) > Number(maxScore)) {
-    throw smsFieldError('score', `Score cannot exceed ${maxScore}.`)
+  const maxScore100 = toScore100(input.maxScore ?? '100')
+  const score100 = toScore100(input.score)
+  if (score100 > maxScore100) {
+    throw smsFieldError('score', `Score cannot exceed ${input.maxScore ?? '100'}.`)
   }
   try {
     const [row] = await client
       .insert(assessmentScores)
       .values({
-        // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
         studentId: input.studentId,
         subjectId: input.subjectId,
         sessionId: input.sessionId,
         termId: input.termId ?? null,
         assessmentTypeId: input.assessmentTypeId,
-        score: input.score,
-        maxScore,
+        score: score100,
+        maxScore: maxScore100,
         enteredById: actor.teacherId,
       })
       .onConflictDoUpdate({
@@ -1121,10 +1173,8 @@ export async function upsertAssessmentScore(
           assessmentScores.assessmentTypeId,
         ],
         set: {
-          // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-          score: input.score,
-          // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-          maxScore,
+          score: score100,
+          maxScore: maxScore100,
           enteredById: actor.teacherId,
           updatedAt: new Date().toISOString(),
         },
@@ -1135,7 +1185,7 @@ export async function upsertAssessmentScore(
       .select({
         score: assessmentScores,
         studentName:
-          sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+          sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
         admissionNumber: students.admissionNumber,
         subjectName: subjects.name,
         assessmentTypeName: assessmentTypes.name,
@@ -1151,13 +1201,15 @@ export async function upsertAssessmentScore(
       .limit(1)
     return {
       ...toJsonModel<AssessmentScoreDetail>(enriched!.score),
+      score: fromScore100(enriched!.score.score)!,
+      maxScore: fromScore100(enriched!.score.maxScore)!,
       studentName: enriched!.studentName,
       admissionNumber: enriched!.admissionNumber,
       subjectName: enriched!.subjectName,
       assessmentTypeName: enriched!.assessmentTypeName,
     }
   } catch (e) {
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced record no longer exists.')
     }
     throw e
@@ -1170,10 +1222,11 @@ export async function bulkUpsertAssessmentScores(
 ): Promise<{ count: number }> {
   const client = await db()
   await validateSessionTerm(client, input.sessionId, input.termId)
-  const maxScore = input.maxScore ?? '100'
+  const maxScore100 = toScore100(input.maxScore ?? '100')
+  const maxScoreLabel = input.maxScore ?? '100'
   for (const s of input.scores) {
-    if (Number(s.score) > Number(maxScore)) {
-      throw smsFieldError('score', `Score for ${s.studentId} exceeds ${maxScore}.`)
+    if (toScore100(s.score) > maxScore100) {
+      throw smsFieldError('score', `Score for ${s.studentId} exceeds ${maxScoreLabel}.`)
     }
   }
   // All students must be enrolled and the teacher must be assigned.
@@ -1217,29 +1270,31 @@ export async function bulkUpsertAssessmentScores(
     sessionId: input.sessionId,
     termId: input.termId ?? null,
     assessmentTypeId: input.assessmentTypeId,
-    score: s.score,
-    maxScore,
+    score: toScore100(s.score),
+    maxScore: maxScore100,
     enteredById: actor.teacherId,
   }))
-  await client
-    .insert(assessmentScores)
-    // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [
-        assessmentScores.studentId,
-        assessmentScores.subjectId,
-        assessmentScores.sessionId,
-        assessmentScores.termId,
-        assessmentScores.assessmentTypeId,
-      ],
-      set: {
-        score: sql`excluded.score`,
-        maxScore: sql`excluded.max_score`,
-        enteredById: sql`excluded.entered_by_id`,
-        updatedAt: new Date().toISOString(),
-      },
-    })
+  // D1 allows at most 100 bound variables per statement; 8 columns per row.
+  for (const chunk of chunkRows(rows, 8)) {
+    await client
+      .insert(assessmentScores)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: [
+          assessmentScores.studentId,
+          assessmentScores.subjectId,
+          assessmentScores.sessionId,
+          assessmentScores.termId,
+          assessmentScores.assessmentTypeId,
+        ],
+        set: {
+          score: sql`excluded.score`,
+          maxScore: sql`excluded.max_score`,
+          enteredById: sql`excluded.entered_by_id`,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+  }
   return { count: rows.length }
 }
 
@@ -1265,9 +1320,10 @@ export async function bulkUpsertExamScores(
   if (!es) {
     throw smsNotFound('Exam subject not found.')
   }
+  const maxScoreLabel = fromScore100(es.maxScore)!
   for (const s of input.scores) {
-    if (Number(s.score) > Number(es.maxScore)) {
-      throw smsFieldError('score', `Score for ${s.studentId} exceeds ${es.maxScore}.`)
+    if (toScore100(s.score) > es.maxScore) {
+      throw smsFieldError('score', `Score for ${s.studentId} exceeds ${maxScoreLabel}.`)
     }
   }
   const [exam] = await client
@@ -1299,31 +1355,32 @@ export async function bulkUpsertExamScores(
       es.subjectId,
     )
   }
-  // Active grading scale items for grade computation.
   const scaleItems = await getActiveGradingScaleItems(client, exam.sessionId)
   const rows = input.scores.map((s) => {
-    const pct = (Number(s.score) / Number(es.maxScore)) * 100
+    const pct = (toScore100(s.score) / es.maxScore) * 100
     return {
       examSubjectId: input.examSubjectId,
       studentId: s.studentId,
-      score: s.score,
+      score: toScore100(s.score),
       grade: computeGrade(pct, scaleItems),
       enteredById: actor.teacherId,
     }
   })
-  await client
-    .insert(examScores)
-    // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [examScores.examSubjectId, examScores.studentId],
-      set: {
-        score: sql`excluded.score`,
-        grade: sql`excluded.grade`,
-        enteredById: sql`excluded.entered_by_id`,
-        updatedAt: new Date().toISOString(),
-      },
-    })
+  // D1 allows at most 100 bound variables per statement; 5 columns per row.
+  for (const chunk of chunkRows(rows, 5)) {
+    await client
+      .insert(examScores)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: [examScores.examSubjectId, examScores.studentId],
+        set: {
+          score: sql`excluded.score`,
+          grade: sql`excluded.grade`,
+          enteredById: sql`excluded.entered_by_id`,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+  }
   return { count: rows.length }
 }
 
@@ -1670,27 +1727,23 @@ async function aggregateStudentResults(
     row.assessmentScores.push({
       assessmentTypeId: r.assessmentTypeId,
       assessmentTypeName: r.assessmentTypeName,
-      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-      score: r.score,
-      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-      maxScore: r.maxScore,
+      score: fromScore100(r.score)!,
+      maxScore: fromScore100(r.maxScore)!,
     })
-    row.totalScore += Number(r.score)
-    row.maxScore += Number(r.maxScore)
+    row.totalScore += r.score
+    row.maxScore += r.maxScore
   }
   for (const r of examRows) {
     const row = ensure(r.subjectId, r.subjectName, r.subjectCode)
     row.examScores.push({
       examId: r.examId,
       examName: r.examName,
-      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-      score: r.score,
-      // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
-      maxScore: r.maxScore,
+      score: fromScore100(r.score)!,
+      maxScore: fromScore100(r.maxScore)!,
       grade: r.grade,
     })
-    row.totalScore += Number(r.score)
-    row.maxScore += Number(r.maxScore)
+    row.totalScore += r.score
+    row.maxScore += r.maxScore
   }
   const subjectResults: SubjectResult[] = []
   let total = 0
@@ -1703,8 +1756,8 @@ async function aggregateStudentResults(
       subjectCode: row.subjectCode,
       assessmentScores: row.assessmentScores,
       examScores: row.examScores,
-      totalScore: row.totalScore.toFixed(2),
-      maxScore: row.maxScore.toFixed(2),
+      totalScore: (row.totalScore / 100).toFixed(2),
+      maxScore: (row.maxScore / 100).toFixed(2),
       percentage: pct.toFixed(2),
       grade: computeGrade(pct, scaleItems),
     })
@@ -1849,7 +1902,7 @@ export async function getStudentResults(
     className: klass?.name ?? null,
     publicationStatus,
     subjects: agg.subjects,
-    totalScore: agg.totalScore.toFixed(2),
+    totalScore: (agg.totalScore / 100).toFixed(2),
     averageScore: overallPct.toFixed(2),
     overallGrade: computeGrade(overallPct, scaleItems),
   }
@@ -1898,7 +1951,7 @@ export async function listReportCards(
     .select({
       card: reportCards,
       studentName:
-        sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+        sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
       admissionNumber: students.admissionNumber,
       className: classes.name,
       sectionName: sections.name,
@@ -1916,6 +1969,8 @@ export async function listReportCards(
   return {
     data: rows.map((r) => ({
       ...toJsonModel<ReportCardDetail>(r.card),
+      totalScore: fromScore100(r.card.totalScore),
+      averageScore: fromScore100(r.card.averageScore),
       studentName: r.studentName,
       admissionNumber: r.admissionNumber,
       className: r.className,
@@ -1936,7 +1991,7 @@ export async function getReportCard(
     .select({
       card: reportCards,
       studentName:
-        sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+        sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
       admissionNumber: students.admissionNumber,
       className: classes.name,
       sectionName: sections.name,
@@ -1975,6 +2030,8 @@ export async function getReportCard(
   )
   return {
     ...toJsonModel<ReportCardDetail>(row.card),
+    totalScore: fromScore100(row.card.totalScore),
+    averageScore: fromScore100(row.card.averageScore),
     studentName: row.studentName,
     admissionNumber: row.admissionNumber,
     className: row.className,
@@ -2027,14 +2084,13 @@ export async function generateReportCard(
     const [row] = await client
       .insert(reportCards)
       .values({
-        // @ts-expect-error Phase 3: ×100 fixed-point scores are adapted with the D1 query dialect migration
         studentId: input.studentId,
         sessionId: input.sessionId,
         termId: input.termId,
         classId: input.classId,
         sectionId: input.sectionId ?? null,
-        totalScore: agg.totalScore.toFixed(2),
-        averageScore: overallPct.toFixed(2),
+        totalScore: Math.round(agg.totalScore),
+        averageScore: Math.round(overallPct * 100),
         overallGrade,
         attendanceSummary: input.attendanceSummary ?? null,
         teacherRemark: input.teacherRemark ?? null,
@@ -2065,7 +2121,7 @@ export async function generateReportCard(
     }
     return getReportCard(row.id, actor)
   } catch (e) {
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced record no longer exists.')
     }
     throw e

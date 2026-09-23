@@ -13,13 +13,18 @@
  * already reserved).
  */
 import { and, asc, desc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm'
-import type { SmsDb } from '../utils/pagination'
+import {
+  chunkRows,
+  runBatch,
+  type D1BatchItem,
+  type SmsDb,
+} from '../utils/pagination'
 import {
   smsConflict,
   smsFieldError,
   smsForbidden,
   smsNotFound,
-  isPgUniqueViolation,
+  isUniqueViolation,
 } from '../utils/http-errors'
 import { toJsonList, toJsonModel } from '../utils/serialize'
 import {
@@ -217,11 +222,11 @@ async function getActiveStudent(
   return row
 }
 
-// Sequential, human-readable document numbers, counted on the current
-// transaction's connection. Counts share the transaction's snapshot
-// (READ COMMITTED), which is sufficient for single-school throughput.
+// Sequential, human-readable document numbers, counted BEFORE the
+// write batch. D1 serialises writes and the unique index backstops the
+// count; a collision (concurrent numbering) is retried by the caller.
 async function allocateNumber(
-  tx: SmsDb,
+  client: SmsDb,
   prefix: 'INV' | 'PAY' | 'RCT',
 ): Promise<string> {
   const year = new Date().getFullYear()
@@ -238,8 +243,8 @@ async function allocateNumber(
     },
   } as const
   const source = sources[prefix]
-  const rows = await tx
-    .select({ n: sql<number>`count(*)::int` })
+  const rows = await client
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(source.table)
     .where(like(source.column, pattern))
   const n = (Number(rows[0]?.n) || 0) + 1
@@ -251,28 +256,50 @@ function all(conditions: Array<SQL | undefined>): SQL {
   return and(...conditions) ?? sql`true`
 }
 
-// Run a mutation inside a transaction with an allocated document
-// number, retrying on a unique-index collision (e.g. concurrent
-// numbering).
-async function withDocNumber<T>(
+// Builds a D1 batch around a freshly-allocated document number and runs
+// it atomically, retrying the WHOLE number+batch cycle on a unique-index
+// collision (e.g. concurrent numbering).
+async function runDocNumberBatch(
+  client: SmsDb,
   prefix: 'INV' | 'PAY' | 'RCT',
-  fn: (tx: SmsDb, number: string) => Promise<T>,
-): Promise<T> {
-  const client = await db()
+  build: (number: string) => D1BatchItem[],
+): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
+    const number = await allocateNumber(client, prefix)
     try {
-      return await client.transaction(async (tx) => {
-        const number = await allocateNumber(tx, prefix)
-        return await fn(tx, number)
-      })
+      await runBatch(client, build(number))
+      return
     } catch (error) {
-      if (isPgUniqueViolation(error) && attempt < 4) {
+      if (isUniqueViolation(error) && attempt < 4) {
         continue
       }
       throw error
     }
   }
   throw smsConflict('Could not allocate a unique document number.')
+}
+
+// Returns a batch statement that inserts a receipt for `paymentId`
+// (allocating the RCT number), or null when a receipt already exists.
+// The existence read runs before the batch because D1 batches cannot
+// branch on query results.
+async function receiptInsert(
+  client: SmsDb,
+  paymentId: string,
+  issuedById: string,
+): Promise<D1BatchItem | null> {
+  const [existing] = await client
+    .select({ id: paymentReceipts.id })
+    .from(paymentReceipts)
+    .where(eq(paymentReceipts.paymentId, paymentId))
+    .limit(1)
+  if (existing) return null
+  const receiptNumber = await allocateNumber(client, 'RCT')
+  // Cast off the thenable surface: in a batch this is a statement, not a
+  // promise to await.
+  return client
+    .insert(paymentReceipts)
+    .values({ receiptNumber, paymentId, issuedById }) as unknown as D1BatchItem
 }
 
 // ---------------------------------------------------------------------------
@@ -416,22 +443,15 @@ export async function createFeeStructure(
       .limit(1)
     if (!cls) throw smsFieldError('classId', 'Class not found.')
   }
-  return await client.transaction(async (tx) => {
-    const [structure] = await tx
-      .insert(feeStructures)
-      .values({
-        sessionId: input.sessionId,
-        classId: input.classId ?? null,
-        name: input.name,
-        description: input.description ?? null,
-        isActive: input.isActive ?? true,
-      })
-      .returning()
-    if (!structure) throw smsConflict('Fee structure could not be saved.')
-    await tx.insert(feeItems).values(
+  // D1 batch: fee structure (app-generated id) + child fee items.
+  const structureId = crypto.randomUUID()
+  // 6 bound columns per item row; D1 caps at 100 binds/statement.
+  const itemInserts = chunkRows(input.items, 6).map((chunk) => {
+    const insert = client.insert(feeItems)
+    return insert.values(
       // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-      input.items.map((i: FeeItemInput) => ({
-        feeStructureId: structure.id,
+      chunk.map((i: FeeItemInput) => ({
+        feeStructureId: structureId,
         name: i.name,
         description: i.description ?? null,
         amount: i.amount,
@@ -439,14 +459,25 @@ export async function createFeeStructure(
         dueDate: i.dueDate ?? null,
       })),
     )
-    return getFeeStructure(structure.id, {
-      userId: '',
-      isAdmin: true,
-      isStaff: true,
-      canVerify: true,
-      parentId: null,
-      childIds: [],
-    })
+  })
+  await client.batch([
+    client.insert(feeStructures).values({
+      id: structureId,
+      sessionId: input.sessionId,
+      classId: input.classId ?? null,
+      name: input.name,
+      description: input.description ?? null,
+      isActive: input.isActive ?? true,
+    }),
+    ...itemInserts,
+  ])
+  return getFeeStructure(structureId, {
+    userId: '',
+    isAdmin: true,
+    isStaff: true,
+    canVerify: true,
+    parentId: null,
+    childIds: [],
   })
 }
 
@@ -472,38 +503,50 @@ export async function updateFeeStructure(
     if (!cls) throw smsFieldError('classId', 'Class not found.')
   }
 
-  return await client.transaction(async (tx) => {
-    const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
-    if (input.sessionId !== undefined) values.sessionId = input.sessionId
-    if (input.classId !== undefined) values.classId = input.classId
-    if (input.name !== undefined) values.name = input.name
-    if (input.description !== undefined) {
-      values.description = input.description
-    }
-    if (input.isActive !== undefined) values.isActive = input.isActive
-    await tx.update(feeStructures).set(values).where(eq(feeStructures.id, id))
-    if (input.items) {
-      await tx.delete(feeItems).where(eq(feeItems.feeStructureId, id))
-      await tx.insert(feeItems).values(
-        // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-        input.items.map((i) => ({
-          feeStructureId: id,
-          name: i.name,
-          description: i.description ?? null,
-          amount: i.amount,
-          isOptional: i.isOptional ?? false,
-          dueDate: i.dueDate ?? null,
-        })),
+  const values: Record<string, unknown> = { updatedAt: new Date().toISOString() }
+  if (input.sessionId !== undefined) values.sessionId = input.sessionId
+  if (input.classId !== undefined) values.classId = input.classId
+  if (input.name !== undefined) values.name = input.name
+  if (input.description !== undefined) {
+    values.description = input.description
+  }
+  if (input.isActive !== undefined) values.isActive = input.isActive
+  const statements: D1BatchItem[] = [
+    client
+      .update(feeStructures)
+      .set(values)
+      .where(eq(feeStructures.id, id)),
+  ]
+  if (input.items) {
+    statements.push(
+      client.delete(feeItems).where(eq(feeItems.feeStructureId, id)),
+    )
+    // 6 bound columns per item row; D1 caps at 100 binds/statement.
+    for (const chunk of chunkRows(input.items, 6)) {
+      const insert = client.insert(feeItems)
+      statements.push(
+        insert.values(
+          // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+          chunk.map((i) => ({
+            feeStructureId: id,
+            name: i.name,
+            description: i.description ?? null,
+            amount: i.amount,
+            isOptional: i.isOptional ?? false,
+            dueDate: i.dueDate ?? null,
+          })),
+        ),
       )
     }
-    return getFeeStructure(id, {
-      userId: '',
-      isAdmin: true,
-      isStaff: true,
-      canVerify: true,
-      parentId: null,
-      childIds: [],
-    })
+  }
+  await runBatch(client, statements)
+  return getFeeStructure(id, {
+    userId: '',
+    isAdmin: true,
+    isStaff: true,
+    canVerify: true,
+    parentId: null,
+    childIds: [],
   })
 }
 
@@ -900,33 +943,14 @@ export async function createInvoice(
     input.tax ?? '0',
   )
 
-  const invoiceId = await withDocNumber('INV', async (tx, invoiceNumber) => {
-    const [invoice] = await tx
-      .insert(studentInvoices)
-      .values({
-        // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-        invoiceNumber,
-        studentId: input.studentId,
-        sessionId: input.sessionId,
-        termId: input.termId ?? null,
-        issueDate: input.issueDate,
-        dueDate: input.dueDate ?? null,
-        subtotal: totals.subtotal,
-        discount: input.discount ?? '0',
-        tax: input.tax ?? '0',
-        total: totals.total,
-        amountPaid: '0',
-        balance: totals.total,
-        status: 'draft',
-        notes: input.notes ?? null,
-        createdById: actor.userId,
-      })
-      .returning({ id: studentInvoices.id })
-    if (!invoice) throw smsConflict('Invoice could not be saved.')
-    await tx.insert(invoiceItems).values(
+  const invoiceId = crypto.randomUUID()
+  // 6 bound columns per invoice line; D1 caps at 100 binds/statement.
+  const lineInserts = chunkRows(lines, 6).map((chunk) => {
+    const insert = client.insert(invoiceItems)
+    return insert.values(
       // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-      lines.map((l) => ({
-        invoiceId: invoice.id,
+      chunk.map((l) => ({
+        invoiceId,
         feeItemId: l.feeItemId,
         description: l.description,
         quantity: l.quantity,
@@ -934,7 +958,30 @@ export async function createInvoice(
         lineTotal: l.lineTotal,
       })),
     )
-    return invoice.id
+  })
+  await runDocNumberBatch(client, 'INV', (invoiceNumber) => {
+    const headerValues = {
+      id: invoiceId,
+      invoiceNumber,
+      studentId: input.studentId,
+      sessionId: input.sessionId,
+      termId: input.termId ?? null,
+      issueDate: input.issueDate,
+      dueDate: input.dueDate ?? null,
+      subtotal: totals.subtotal,
+      discount: input.discount ?? '0',
+      tax: input.tax ?? '0',
+      total: totals.total,
+      amountPaid: '0',
+      balance: totals.total,
+      status: 'draft' as const,
+      notes: input.notes ?? null,
+      createdById: actor.userId,
+    }
+    const invoiceInsert = client.insert(studentInvoices)
+    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+    const header = invoiceInsert.values(headerValues)
+    return [header, ...lineInserts]
   })
   return getInvoice(invoiceId, actor)
 }
@@ -980,8 +1027,8 @@ export async function updateInvoice(
   // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
   const totals = invoiceTotals(lines, discount, tax)
 
-  await client.transaction(async (tx) => {
-    await tx
+  const statements: D1BatchItem[] = [
+    client
       .update(studentInvoices)
       .set({
         termId:
@@ -1001,27 +1048,34 @@ export async function updateInvoice(
         balance: totals.total,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(studentInvoices.id, id))
-    if (input.items) {
-      await tx
-        .delete(invoiceItems)
-        .where(eq(invoiceItems.invoiceId, id))
-      await tx.insert(invoiceItems).values(
-        // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-        input.items!.map((i) => {
-          const quantity = i.quantity ?? 1
-          return {
-            invoiceId: id,
-            feeItemId: i.feeItemId ?? null,
-            description: i.description,
-            quantity,
-            unitAmount: i.unitAmount,
-            lineTotal: multiplyMoney(i.unitAmount, quantity),
-          }
-        }),
+      .where(eq(studentInvoices.id, id)),
+  ]
+  if (input.items) {
+    statements.push(
+      client.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id)),
+    )
+    // 6 bound columns per invoice line; D1 caps at 100 binds/statement.
+    for (const chunk of chunkRows(input.items!, 6)) {
+      const insert = client.insert(invoiceItems)
+      statements.push(
+        insert.values(
+          // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+          chunk.map((i) => {
+            const quantity = i.quantity ?? 1
+            return {
+              invoiceId: id,
+              feeItemId: i.feeItemId ?? null,
+              description: i.description,
+              quantity,
+              unitAmount: i.unitAmount,
+              lineTotal: multiplyMoney(i.unitAmount, quantity),
+            }
+          }),
+        ),
       )
     }
-  })
+  }
+  await runBatch(client, statements)
   return getInvoice(id, actor)
 }
 
@@ -1092,26 +1146,6 @@ function invoicePaymentStatus(
 ): InvoiceStatus {
   if (balanceCents <= 0) return 'paid'
   return amountPaidCents > 0 ? 'partially_paid' : 'issued'
-}
-
-async function createReceipt(
-  tx: SmsDb,
-  paymentId: string,
-  issuedById: string,
-): Promise<PaymentReceipt> {
-  const [existing] = await tx
-    .select()
-    .from(paymentReceipts)
-    .where(eq(paymentReceipts.paymentId, paymentId))
-    .limit(1)
-  if (existing) return toJsonModel<PaymentReceipt>(existing)
-  const receiptNumber = await allocateNumber(tx, 'RCT')
-  const [row] = await tx
-    .insert(paymentReceipts)
-    .values({ receiptNumber, paymentId, issuedById })
-    .returning()
-  if (!row) throw smsConflict('Receipt could not be generated.')
-  return toJsonModel<PaymentReceipt>(row)
 }
 
 export async function listPayments(
@@ -1269,46 +1303,52 @@ export async function recordPayment(
     )
   }
 
-  const paymentId = await withDocNumber('PAY', async (tx, reference) => {
-    const verified = Boolean(input.verifyImmediately)
-    const [payment] = await tx
-      .insert(payments)
-      // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-      .values({
-        paymentReference: reference,
-        invoiceId: input.invoiceId,
-        studentId: invoice.studentId,
-        amount: input.amount,
-        method: input.method,
-        status: verified ? 'verified' : 'pending',
-        providerReference: input.providerReference ?? null,
-        notes: input.notes ?? null,
-        paidAt: input.paidAt ? new Date(input.paidAt).toISOString() : new Date().toISOString(),
-        verifiedAt: verified ? new Date().toISOString() : null,
-        verifiedById: verified ? actor.userId : null,
-      })
-      .returning({ id: payments.id })
-    if (!payment) throw smsConflict('Payment could not be saved.')
-
+  const verified = Boolean(input.verifyImmediately)
+  const paymentId = crypto.randomUUID()
+  // Receipt statement (with pre-allocated RCT number) is built BEFORE
+  // the batch so it joins the same atomic write when auto-verifying.
+  const receipt = verified
+    ? await receiptInsert(client, paymentId, actor.userId)
+    : null
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const amountPaidCents = toCents(invoice.amountPaid) + amountCents
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const newBalanceCents = toCents(invoice.total) - amountPaidCents
+  await runDocNumberBatch(client, 'PAY', (reference) => {
+    const paymentInsert = client.insert(payments)
+    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+    const paymentStatement = paymentInsert.values({
+      id: paymentId,
+      paymentReference: reference,
+      invoiceId: input.invoiceId,
+      studentId: invoice.studentId,
+      amount: input.amount,
+      method: input.method,
+      status: verified ? 'verified' : 'pending',
+      providerReference: input.providerReference ?? null,
+      notes: input.notes ?? null,
+      paidAt: input.paidAt ? new Date(input.paidAt).toISOString() : new Date().toISOString(),
+      verifiedAt: verified ? new Date().toISOString() : null,
+      verifiedById: verified ? actor.userId : null,
+    })
+    const statements: D1BatchItem[] = [paymentStatement]
     if (verified) {
-      // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-      const amountPaidCents = toCents(invoice.amountPaid) + amountCents
-      // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-      const newBalanceCents = toCents(invoice.total) - amountPaidCents
-      await tx
-        .update(studentInvoices)
-        .set({
-          // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-          amountPaid: fromCents(amountPaidCents),
-          // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-          balance: fromCents(newBalanceCents),
-          status: invoicePaymentStatus(newBalanceCents, amountPaidCents),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(studentInvoices.id, invoice.id))
-      await createReceipt(tx, payment.id, actor.userId)
+      statements.push(
+        client
+          .update(studentInvoices)
+          .set({
+            // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+            amountPaid: fromCents(amountPaidCents),
+            // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+            balance: fromCents(newBalanceCents),
+            status: invoicePaymentStatus(newBalanceCents, amountPaidCents),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(studentInvoices.id, invoice.id)),
+      )
+      if (receipt) statements.push(receipt)
     }
-    return payment.id
+    return statements
   })
   return getPayment(paymentId, actor)
 }
@@ -1322,43 +1362,46 @@ export async function verifyPayment(
   if (!actor.canVerify) throw smsForbidden()
   const client = await db()
 
-  await client.transaction(async (tx) => {
-    const [payment] = await tx
-      .select()
-      .from(payments)
-      .where(eq(payments.id, id))
-      .limit(1)
-    if (!payment) throw smsNotFound('Payment not found.')
-    if (payment.status === 'verified') {
-      throw smsConflict('Payment is already verified.')
-    }
-    if (payment.status !== 'pending') {
-      throw smsConflict(
-        `Only pending payments can be verified (current: ${payment.status}).`,
-      )
-    }
-    const [invoice] = await tx
-      .select()
-      .from(studentInvoices)
-      .where(eq(studentInvoices.id, payment.invoiceId))
-      .limit(1)
-    if (!invoice) throw smsNotFound('Invoice not found.')
-    if (invoice.status === 'void') {
-      throw smsConflict('Cannot verify a payment against a void invoice.')
-    }
-    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-    const amountCents = toCents(payment.amount)
-    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-    const amountPaidCents = toCents(invoice.amountPaid) + amountCents
-    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-    const newBalanceCents = toCents(invoice.total) - amountPaidCents
-    if (newBalanceCents < 0) {
-      throw smsConflict(
-        'Verifying this payment would overpay the invoice.',
-      )
-    }
+  const [payment] = await client
+    .select()
+    .from(payments)
+    .where(eq(payments.id, id))
+    .limit(1)
+  if (!payment) throw smsNotFound('Payment not found.')
+  if (payment.status === 'verified') {
+    throw smsConflict('Payment is already verified.')
+  }
+  if (payment.status !== 'pending') {
+    throw smsConflict(
+      `Only pending payments can be verified (current: ${payment.status}).`,
+    )
+  }
+  const [invoice] = await client
+    .select()
+    .from(studentInvoices)
+    .where(eq(studentInvoices.id, payment.invoiceId))
+    .limit(1)
+  if (!invoice) throw smsNotFound('Invoice not found.')
+  if (invoice.status === 'void') {
+    throw smsConflict('Cannot verify a payment against a void invoice.')
+  }
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const amountCents = toCents(payment.amount)
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const amountPaidCents = toCents(invoice.amountPaid) + amountCents
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const newBalanceCents = toCents(invoice.total) - amountPaidCents
+  if (newBalanceCents < 0) {
+    throw smsConflict(
+      'Verifying this payment would overpay the invoice.',
+    )
+  }
 
-    await tx
+  // Receipt number is allocated before the batch; all three writes run
+  // atomically together.
+  const receipt = await receiptInsert(client, id, actor.userId)
+  const statements: D1BatchItem[] = [
+    client
       .update(payments)
       .set({
         status: 'verified',
@@ -1372,9 +1415,8 @@ export async function verifyPayment(
         verifiedById: actor.userId,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(payments.id, id))
-
-    await tx
+      .where(eq(payments.id, id)),
+    client
       .update(studentInvoices)
       .set({
         // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
@@ -1384,10 +1426,10 @@ export async function verifyPayment(
         status: invoicePaymentStatus(newBalanceCents, amountPaidCents),
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(studentInvoices.id, invoice.id))
-
-    await createReceipt(tx, id, actor.userId)
-  })
+      .where(eq(studentInvoices.id, invoice.id)),
+  ]
+  if (receipt) statements.push(receipt)
+  await runBatch(client, statements)
   return getPayment(id, actor)
 }
 
@@ -1399,41 +1441,41 @@ export async function refundPayment(
   assertStaff(actor)
   const client = await db()
 
-  await client.transaction(async (tx) => {
-    const [payment] = await tx
-      .select()
-      .from(payments)
-      .where(eq(payments.id, id))
-      .limit(1)
-    if (!payment) throw smsNotFound('Payment not found.')
-    if (payment.status === 'refunded') {
-      throw smsConflict('Payment is already refunded.')
-    }
-    if (payment.status !== 'verified') {
-      throw smsConflict(
-        `Only verified payments can be refunded (current: ${payment.status}).`,
-      )
-    }
-    const [invoice] = await tx
-      .select()
-      .from(studentInvoices)
-      .where(eq(studentInvoices.id, payment.invoiceId))
-      .limit(1)
-    if (!invoice) throw smsNotFound('Invoice not found.')
+  const [payment] = await client
+    .select()
+    .from(payments)
+    .where(eq(payments.id, id))
+    .limit(1)
+  if (!payment) throw smsNotFound('Payment not found.')
+  if (payment.status === 'refunded') {
+    throw smsConflict('Payment is already refunded.')
+  }
+  if (payment.status !== 'verified') {
+    throw smsConflict(
+      `Only verified payments can be refunded (current: ${payment.status}).`,
+    )
+  }
+  const [invoice] = await client
+    .select()
+    .from(studentInvoices)
+    .where(eq(studentInvoices.id, payment.invoiceId))
+    .limit(1)
+  if (!invoice) throw smsNotFound('Invoice not found.')
 
-    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-    const amountCents = toCents(payment.amount)
-    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-    const amountPaidCents = toCents(invoice.amountPaid) - amountCents
-    // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
-    const newBalanceCents = toCents(invoice.total) - amountPaidCents
-    const nextStatus =
-      invoice.status === 'void'
-        ? 'void'
-        : invoicePaymentStatus(newBalanceCents, amountPaidCents)
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const amountCents = toCents(payment.amount)
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const amountPaidCents = toCents(invoice.amountPaid) - amountCents
+  // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
+  const newBalanceCents = toCents(invoice.total) - amountPaidCents
+  const nextStatus =
+    invoice.status === 'void'
+      ? 'void'
+      : invoicePaymentStatus(newBalanceCents, amountPaidCents)
 
-    const refundNote = input.notes?.trim()
-    await tx
+  const refundNote = input.notes?.trim()
+  await client.batch([
+    client
       .update(payments)
       .set({
         status: 'refunded',
@@ -1443,9 +1485,8 @@ export async function refundPayment(
           : sql`coalesce(${payments.notes}, '') || 'Refunded.'`,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(payments.id, id))
-
-    await tx
+      .where(eq(payments.id, id)),
+    client
       .update(studentInvoices)
       .set({
         // @ts-expect-error Phase 4b: kobo — service/zod still use naira strings until finance moves to integer kobo
@@ -1455,8 +1496,8 @@ export async function refundPayment(
         status: nextStatus,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(studentInvoices.id, invoice.id))
-  })
+      .where(eq(studentInvoices.id, invoice.id)),
+  ])
   return getPayment(id, actor)
 }
 
@@ -1509,7 +1550,7 @@ export async function listOutstanding(
 
   const filter = all(where)
   const countRows = await client
-    .select({ n: sql<number>`count(distinct ${studentInvoices.id})::int` })
+    .select({ n: sql<number>`cast(count(distinct ${studentInvoices.id}) as integer)` })
     .from(studentInvoices)
     .where(filter)
   const total = countRows[0]?.n ?? 0
@@ -1569,9 +1610,9 @@ export async function financeSummary(
 
   const [totals] = await client
     .select({
-      invoiced: sql<string>`coalesce(sum(${studentInvoices.total}), 0)::text`,
-      collected: sql<string>`coalesce(sum(${studentInvoices.amountPaid}), 0)::text`,
-      outstanding: sql<string>`coalesce(sum(${studentInvoices.balance}), 0)::text`,
+      invoiced: sql<string>`cast(coalesce(sum(${studentInvoices.total}), 0) as text)`,
+      collected: sql<string>`cast(coalesce(sum(${studentInvoices.amountPaid}), 0) as text)`,
+      outstanding: sql<string>`cast(coalesce(sum(${studentInvoices.balance}), 0) as text)`,
     })
     .from(studentInvoices)
     .where(all(invoiceWhere))
@@ -1586,7 +1627,7 @@ export async function financeSummary(
   const statusRows = await client
     .select({
       status: studentInvoices.status,
-      n: sql<number>`count(*)::int`,
+      n: sql<number>`cast(count(*) as integer)`,
     })
     .from(studentInvoices)
     .where(all(statusWhere))
@@ -1613,8 +1654,8 @@ export async function financeSummary(
   const methodRows = await client
     .select({
       method: payments.method,
-      n: sql<number>`count(*)::int`,
-      total: sql<string>`coalesce(sum(${payments.amount}), 0)::text`,
+      n: sql<number>`cast(count(*) as integer)`,
+      total: sql<string>`cast(coalesce(sum(${payments.amount}), 0) as text)`,
     })
     .from(payments)
     .innerJoin(studentInvoices, eq(payments.invoiceId, studentInvoices.id))
@@ -1641,7 +1682,7 @@ export async function financeSummary(
   if (query.termId) refundWhere.push(eq(studentInvoices.termId, query.termId))
   const [refunds] = await client
     .select({
-      refunded: sql<string>`coalesce(sum(${payments.amount}), 0)::text`,
+      refunded: sql<string>`cast(coalesce(sum(${payments.amount}), 0) as text)`,
     })
     .from(payments)
     .innerJoin(studentInvoices, eq(payments.invoiceId, studentInvoices.id))

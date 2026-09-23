@@ -1,47 +1,37 @@
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { drizzle as drizzleD1, type DrizzleD1Database } from 'drizzle-orm/d1'
+import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1'
 import type { H3Event } from 'h3'
 import { schema } from '../../database/schema'
 
 /**
- * Central database connection.
+ * Central database connection — Cloudflare D1 (SQLite) only.
  *
- * Phase 1 of the D1 migration (2026-09-22) declared the D1 binding `DB`
- * alongside the legacy HYPERDRIVE binding. Three runtimes are now
- * supported:
+ * As of Phase 3 of the D1 migration (2026-09-23) every query uses the
+ * SQLite dialect (LIKE, `db.batch()`, SQLite raw-SQL fragments), so the
+ * application can no longer run against PostgreSQL. Two runtimes:
  *
- * 1. Cloudflare Workers (staging/production and `wrangler dev`) with
- *    PostgreSQL (Hyperdrive):
- *    PostgreSQL is reached through the HYPERDRIVE binding
- *    (`event.context.cloudflare.env.HYPERDRIVE.connectionString`).
+ * 1. Cloudflare Workers (staging/production, `wrangler dev`, queue
+ *    consumers and cron triggers): the D1 binding is reached through
+ *    `event.context.cloudflare.env.DB` (fetch requests) or the env
+ *    handed to the `cloudflare:queue` hook / scheduled task. D1 is
+ *    binding-managed — there is NO socket to open or close.
  *
- *    The Workers runtime scopes socket I/O to the request that opened
- *    it, so a postgres.js connection CANNOT be cached across requests
- *    ("Cannot perform I/O on behalf of a different request"). Per
- *    Cloudflare's Hyperdrive guidance we therefore create a small
- *    (max: 1) client PER REQUEST; Hyperdrive itself maintains the
- *    pooled connections to PostgreSQL. The client is closed after the
- *    response is sent (server/plugins/cloudflare.ts).
- *
- * 2. Cloudflare Workers (future, after Phase 2 schema rewrite) with
- *    D1/SQLite: the D1 binding is reached through
- *    `event.context.cloudflare.env.DB`. D1 is binding-managed so
- *    there is NO socket to close; the per-request client is just a
- *    thin Drizzle wrapper. `useD1()` is the switch that flips dispatch
- *    from Hyperdrive to D1; it returns false throughout Phase 1 —
- *    staging still serves via Hyperdrive until D1 acceptance.
- *
- * 3. Plain Node/Nuxt local dev (`nuxt dev`): no bindings exist; a
- *    process-wide pool is created lazily from runtimeConfig.databaseUrl
- *    / DATABASE_URL and reused.
+ * 2. Plain Node/Nuxt local dev (`nuxt dev`): no bindings exist, so a
+ *    process-wide Drizzle/D1 client is created ONCE at Nitro startup
+ *    (server/plugins/cloudflare.ts) via wrangler's
+ *    `getPlatformProxy({ persist: true })` — the same Miniflare-backed
+ *    local D1 the migrator and seeder use
+ *    (`.wrangler/state/v3/d1/`). The proxy is disposed when Nitro
+ *    closes.
  *
  * The exported `db` is a lazy forwarding proxy, so existing call sites
  * (`const { db } = await import('./db')`) keep working unchanged in
- * every runtime without needing the H3 event at import time.
+ * both runtimes without needing the H3 event at import time.
+ *
+ * The legacy Hyperdrive/postgres.js code paths were removed here in
+ * Phase 3; the HYPERDRIVE binding in wrangler.toml, the `postgres`
+ * dependency and database/seed.ts stay until Phase 6 (decommissioning).
  */
 
-const REQUEST_CLIENT = Symbol('sms-request-db')
 const REQUEST_D1_CLIENT = Symbol('sms-request-d1-db')
 
 // ---------------------------------------------------------------------------
@@ -70,60 +60,16 @@ export interface D1Database {
   exec(query: string): Promise<unknown>
 }
 
-/** Builds a connected Drizzle client over PostgreSQL. */
-function buildDatabase(connectionString: string, max: number) {
-  const sqlClient = postgres(connectionString, {
-    max,
-    idle_timeout: 20,
-    connect_timeout: 10,
-  })
-  return drizzle(sqlClient, { schema })
-}
-
-/** Exact runtime Drizzle type for the legacy PostgreSQL fallback path. */
-export type SmsDatabase = ReturnType<typeof buildDatabase>
-
-/** Exact runtime Drizzle type for the D1 path (schema-bound). */
+/** Runtime Drizzle type for the D1 client (schema-bound). */
 export type SmsD1Database = DrizzleD1Database<Schema>
 
 /**
- * Canonical application Drizzle client type used by service code.
- *
- * Phase 2 of the D1 migration (2026-09-22) rewrote all 52 tables to
- * SQLite/D1, so service code is now type-checked against the D1
- * Drizzle client. A narrow compatibility surface is intersected for
- * the ONE construct not yet migrated: PostgreSQL-style interactive
- * transactions (17 call sites across the finance, academics,
- * admissions, exams and communication services). D1 has no
- * interactive transactions — these are rewritten to `db.batch(...)`
- * in Phase 3 (query-dialect migration), at which point this shim and
- * every `.transaction()` call are removed.
- *
- * Runtime note: until Phase 3 flips `useD1()`, the lazy proxy still
- * resolves to the PostgreSQL client in deployed/local runtimes, so
- * `.transaction()` continues to execute; the D1 path is exercised
- * via the local D1 seeder and tests during Phase 2.
+ * Canonical application Drizzle client type used by service code —
+ * exactly the schema-bound D1 client since Phase 3 (the temporary
+ * transaction/execute compatibility shims were removed with the query
+ * dialect migration).
  */
-export type AppDatabase = Omit<SmsD1Database, 'transaction'> & {
-  // TODO Phase 3: replace each interactive transaction with D1 batch.
-  // `Omit` strips D1's native SQLiteTransaction-based signature so the
-  // callback parameter is typed AppDatabase (the shape service helpers
-  // accept); the PG runtime behind the dispatch proxy honours this
-  // signature until Phase 3 rewrites the 17 call sites to db.batch().
-  transaction<T>(transaction: (tx: AppDatabase) => Promise<T>): Promise<T>
-  // TODO Phase 3: PostgreSQL-style raw execution. The four call sites
-  // (health check, session/grants loader, notification dispatch x2)
-  // contain PG-only fragments (`::int`, array_agg/FILTER, ON CONFLICT
-  // WHERE) and are rewritten to D1 `.run()` during the Phase 3
-  // raw-SQL fragment migration. Runtime currently resolves to the PG
-  // client (useD1() stays false), so execute() is present at runtime.
-  execute<T = Record<string, unknown>>(query: unknown): Promise<T[]>
-}
-
-export interface WorkerDatabase {
-  db: SmsDatabase
-  sql: ReturnType<typeof postgres>
-}
+export type AppDatabase = SmsD1Database
 
 export interface WorkerD1Database {
   db: SmsD1Database
@@ -131,36 +77,9 @@ export interface WorkerD1Database {
 }
 
 /**
- * Builds a short-lived Drizzle client for a Worker invocation that is
- * NOT a fetch request — e.g. a Cloudflare Queue consumer
- * (`cloudflare:queue` hook) where no H3 event/request-scoped client
- * exists. Uses the same single-connection settings as the request path
- * (Hyperdrive owns upstream pooling); the caller MUST close it with
- * `sql.end()` once the batch is handled.
- */
-export function createWorkerDatabase(connectionString: string): WorkerDatabase {
-  if (!connectionString) {
-    throw new Error(
-      'createWorkerDatabase() requires a HYPERDRIVE connection string.',
-    )
-  }
-  const sql = postgres(connectionString, {
-    max: 1,
-    idle_timeout: 10,
-    connect_timeout: 10,
-  })
-  const db = drizzle(sql, { schema })
-  return { db, sql }
-}
-
-/**
- * D1 sibling of {@link createWorkerDatabase}. Wraps the Cloudflare D1
- * binding in a Drizzle client for queue consumers / cron tasks that
- * run outside a fetch request. There is NO socket to close — D1 is
- * binding-managed — so callers do not need a finally block.
- *
- * Inert until Phase 2 (schema rewrite) — current schema uses PG types
- * (pgEnum/pgTable/NUMERIC) that drizzle-orm/d1 cannot read.
+ * Wraps the Cloudflare D1 binding in a Drizzle client for queue
+ * consumers / cron tasks that run outside a fetch request. D1 is
+ * binding-managed, so there is nothing for callers to close.
  */
 export function createWorkerD1Database(d1: D1Database): WorkerD1Database {
   if (!d1 || typeof d1.prepare !== 'function') {
@@ -168,46 +87,74 @@ export function createWorkerD1Database(d1: D1Database): WorkerD1Database {
       'createWorkerD1Database() requires a D1 binding (env.DB).',
     )
   }
-  const db = drizzleD1(d1 as never, { schema })
+  const db = drizzle(d1 as never, { schema })
   return { db, d1 }
 }
 
-// --- Plain Node dev: one process-wide client -------------------------------
-let nodeInstance: SmsDatabase | null = null
+// --- Plain Node dev: one process-wide client, via platform proxy ------------
+interface PlatformProxyLike {
+  env: { DB?: D1Database }
+  dispose(): Promise<unknown>
+}
+
+let nodeDatabase: SmsD1Database | null = null
+let nodeProxy: PlatformProxyLike | null = null
+let nodeInit: Promise<SmsD1Database> | null = null
 
 /**
- * Creates (once per process) the Drizzle client for plain Node dev.
- * Retained for compatibility/explicit initialisation; safe to repeat.
+ * Creates (once per process) the Drizzle/D1 client for plain Node dev
+ * by attaching to wrangler's local platform proxy. Called from the
+ * Cloudflare Nitro plugin at startup; safe to call repeatedly.
  */
-export function initDatabase(
-  connectionString: string,
-  options: { max?: number } = {},
-): SmsDatabase {
-  if (nodeInstance) {
-    return nodeInstance
+export function initNodeDatabase(): Promise<SmsD1Database> {
+  if (nodeDatabase) return Promise.resolve(nodeDatabase)
+  if (!nodeInit) {
+    nodeInit = (async () => {
+      // Node-only path. The specifier is intentionally assembled at
+      // runtime (char codes) and annotated with @vite-ignore so neither
+      // Rollup/Nitro nor wrangler's esbuild pass can fold it into a
+      // literal import and drag wrangler's CLI into the Worker bundle
+      // (Nitro auto-externalizes devDependencies; a plain string
+      // constant is inlined). This branch never executes in the workerd
+      // runtime — the startup plugin guards on
+      // navigator.userAgent === 'Cloudflare-Workers'.
+      const wranglerModuleId = String.fromCharCode(
+        119, 114, 97, 110, 103, 108, 101, 114,
+      )
+      const { getPlatformProxy } = await import(
+        /* @vite-ignore */ wranglerModuleId
+      )
+      const proxy = (await getPlatformProxy({
+        configPath: './wrangler.toml',
+        persist: true,
+      })) as PlatformProxyLike
+      if (!proxy.env.DB || typeof proxy.env.DB.prepare !== 'function') {
+        throw new Error(
+          'Local D1 binding DB is unavailable. Is [[d1_databases]] DB '
+          + 'declared in wrangler.toml and the migration applied '
+          + '("npm run db:d1:migrate")?',
+        )
+      }
+      nodeProxy = proxy
+      nodeDatabase = drizzle(proxy.env.DB as never, { schema })
+      return nodeDatabase
+    })()
   }
-  if (!connectionString) {
-    throw new Error('initDatabase() requires a PostgreSQL connection string.')
-  }
-  nodeInstance = buildDatabase(connectionString, options.max ?? 10)
-  return nodeInstance
+  return nodeInit
 }
 
-/** Resolves the connection string outside Workers (local Node dev). */
-function resolveLocalConnectionString(): string {
-  let fromConfig = ''
+/** Disposes the local platform proxy (Nitro close / dev restart). */
+export async function closeNodeDatabase(): Promise<void> {
+  if (!nodeProxy) return
+  const proxy = nodeProxy
+  nodeProxy = null
+  nodeDatabase = null
+  nodeInit = null
   try {
-    fromConfig = useRuntimeConfig().databaseUrl || ''
+    await proxy.dispose()
   } catch {
-    // useRuntimeConfig is unavailable outside the Nuxt/Nitro context.
-    fromConfig = ''
+    // Best-effort shutdown cleanup.
   }
-  return fromConfig || process.env.DATABASE_URL || ''
-}
-
-interface RequestDbHolder {
-  db: SmsDatabase
-  sql: ReturnType<typeof postgres>
 }
 
 interface RequestD1DbHolder {
@@ -227,39 +174,8 @@ function currentEvent(): H3Event | null {
 
 /**
  * Returns (creating once) the per-request Drizzle client for a Worker
- * invocation backed by the Hyperdrive binding.
- */
-function getRequestClient(event: H3Event): RequestDbHolder | null {
-  const ctx = event.context as Record<symbol, unknown>
-  const existing = ctx[REQUEST_CLIENT] as RequestDbHolder | undefined
-  if (existing) {
-    return existing
-  }
-  const env = (
-    event.context as { cloudflare?: { env?: { HYPERDRIVE?: { connectionString?: string } } } }
-  ).cloudflare?.env
-  const connectionString = env?.HYPERDRIVE?.connectionString
-  if (!connectionString) {
-    return null
-  }
-  // Hyperdrive pools to PostgreSQL at the edge — one connection per
-  // Worker request.
-  const sql = postgres(connectionString, {
-    max: 1,
-    idle_timeout: 10,
-    connect_timeout: 10,
-  })
-  const db = drizzle(sql, { schema })
-  const holder = { db, sql }
-  ctx[REQUEST_CLIENT] = holder
-  return holder
-}
-
-/**
- * Returns (creating once) the per-request Drizzle client for a Worker
- * invocation backed by the D1 binding. No-op cleanup is needed — D1
- * is binding-managed. Inert until {@link useD1} flips to true in
- * Phase 2.
+ * fetch invocation backed by the D1 binding. D1 is binding-managed, so
+ * the holder only avoids rebuilding the thin Drizzle wrapper.
  */
 function getRequestD1Client(event: H3Event): RequestD1DbHolder | null {
   const ctx = event.context as Record<symbol, unknown>
@@ -274,107 +190,48 @@ function getRequestD1Client(event: H3Event): RequestD1DbHolder | null {
   if (!d1 || typeof d1.prepare !== 'function') {
     return null
   }
-  const db = drizzleD1(d1 as never, { schema })
+  const db = drizzle(d1 as never, { schema })
   const holder = { db, d1 }
   ctx[REQUEST_D1_CLIENT] = holder
   return holder
 }
 
 /**
- * Closes the per-request PostgreSQL client. Called from the Cloudflare
- * plugin after the response is sent. No-op outside Workers and no-op
- * when the request used the D1 path (D1 is binding-managed, no socket).
+ * Drops the per-request client holder. Called from the Cloudflare
+ * plugin after the response is sent. D1 has no socket, so this is just
+ * context cleanup; no-op in plain Node dev (process-wide client).
  */
 export async function closeRequestDatabase(event: H3Event): Promise<void> {
   const ctx = event.context as Record<symbol, unknown>
-  const d1Holder = ctx[REQUEST_D1_CLIENT] as RequestD1DbHolder | undefined
-  if (d1Holder) {
-    // D1 has no socket — just drop the holder.
-    delete ctx[REQUEST_D1_CLIENT]
-    return
-  }
-  const holder = ctx[REQUEST_CLIENT] as RequestDbHolder | undefined
-  if (!holder) {
-    return
-  }
-  delete ctx[REQUEST_CLIENT]
-  try {
-    await holder.sql.end({ timeout: 1 })
-  } catch {
-    // Best-effort cleanup; the runtime reaps request sockets anyway.
-  }
+  delete ctx[REQUEST_D1_CLIENT]
 }
 
-/**
- * Dispatch switch between Hyperdrive (current default) and D1 (future).
- *
- * Phase 1: ALWAYS returns false — staging still serves traffic via
- * Hyperdrive. The flag is read by {@link resolveDatabase} so the
- * dispatch decision lives in one place.
- *
- * Phase 2 will flip this to true once the schema is rewritten to
- * SQLite/D1 and the query dialect migration (ilike → LIKE, interactive
- * transactions → D1 batch, PG raw-SQL fragments rewritten) is complete.
- *
- * The flip mechanism is env-var driven so staging can be A/B tested
- * without redeploy: set `SMS_USE_D1=true` via
- * `wrangler secret put SMS_USE_D1 -e staging` to opt a single deploy
- * into D1, leave it unset to stay on Hyperdrive.
- */
-function useD1(): boolean {
-  // Workers: env is on event.context.cloudflare.env (resolved in the
-  // caller). Node dev: process.env. Read both.
-  try {
-    const event = currentEvent()
-    if (event) {
-      const env = (
-        event.context as { cloudflare?: { env?: { SMS_USE_D1?: string | boolean } } }
-      ).cloudflare?.env
-      const raw = env?.SMS_USE_D1
-      if (raw !== undefined) {
-        return raw === true || String(raw) === 'true'
-      }
-    }
-  } catch {
-    // ignore — fall through to process.env
-  }
-  return process.env.SMS_USE_D1 === 'true'
-}
-
-function resolveDatabase(): SmsDatabase | SmsD1Database {
-  // Workers: client is scoped to the current request.
+function resolveDatabase(): SmsD1Database {
+  // Workers fetch: per-request client from the D1 binding.
   const event = currentEvent()
   if (event) {
-    if (useD1()) {
-      const d1Holder = getRequestD1Client(event)
-      if (d1Holder) {
-        return d1Holder.db
-      }
-      // Fall through to Hyperdrive if D1 dispatch was requested but
-      // env.DB is missing — surfaces a clear configuration error below.
-    }
-    const holder = getRequestClient(event)
+    const holder = getRequestD1Client(event)
     if (holder) {
       return holder.db
     }
   }
 
-  // Plain Node dev: process-wide pool from DATABASE_URL.
-  const connectionString = resolveLocalConnectionString()
-  if (!connectionString) {
-    throw new Error(
-      'Database is not configured: no HYPERDRIVE binding was initialised '
-      + 'and DATABASE_URL is unset. In Workers, check the HYPERDRIVE '
-      + 'binding in wrangler.toml; in local dev, set DATABASE_URL.',
-    )
+  // Plain Node dev: the Nitro startup plugin pre-warms this.
+  if (nodeDatabase) {
+    return nodeDatabase
   }
-  return initDatabase(connectionString, { max: 10 })
+
+  throw new Error(
+    'Database is not initialised: no D1 binding (env.DB) was found on '
+    + 'the request context and the local Node dev client has not been '
+    + 'started. Run "npm run dev" (the Cloudflare plugin attaches the '
+    + 'local D1 platform proxy) or check the DB binding in wrangler.toml.',
+  )
 }
 
 /**
  * Lazy Drizzle handle. Every property access forwards to the resolved
- * client — per-request under Workers (D1 or Hyperdrive, dispatched by
- * {@link useD1}), process-wide under Node dev.
+ * D1 client — per-request under Workers, process-wide under Node dev.
  */
 export const db: AppDatabase = new Proxy({} as AppDatabase, {
   get(_target, property, receiver) {

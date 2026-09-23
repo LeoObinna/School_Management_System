@@ -169,7 +169,7 @@ const assignmentDetailSelect = {
   sessionId: teacherClassAssignments.sessionId,
   isPrimaryTeacher: teacherClassAssignments.isPrimaryTeacher,
   createdAt: teacherClassAssignments.createdAt,
-  teacherName: sql<string>`trim(concat(${teachers.firstName}, ' ', ${teachers.lastName}))`,
+  teacherName: sql<string>`trim(${teachers.firstName} || ' ' || ${teachers.lastName})`,
   className: classes.name,
   sectionName: sections.name,
   subjectName: subjects.name,

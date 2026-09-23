@@ -14,9 +14,9 @@ export default defineEventHandler(async (): Promise<HealthResponse> => {
     // Lazy import to avoid loading the DB client on every health check
     // when the DB is unavailable.
     const { db } = await import('~/server/utils/db')
-    // `execute(sql)` is supported by both the legacy PostgreSQL
-    // Drizzle client and the D1/SQLite client (Phase 2 dual path).
-    await db.execute(sql`SELECT 1`)
+    // D1/SQLite ping — db.get() runs the statement and returns the
+    // first row; a binding/SQL error lands in the catch below.
+    await db.get(sql`SELECT 1 AS ok`)
     database = true
   } catch {
     database = false

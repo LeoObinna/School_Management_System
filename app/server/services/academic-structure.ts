@@ -6,7 +6,7 @@
  * referential checks, the "single current session/term" invariant
  * (enforced inside transactions) and history-preserving deactivation.
  */
-import { and, asc, desc, eq, ilike, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, like, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import {
   academicSessions,
@@ -45,8 +45,12 @@ import type {
   Subject,
   Term,
 } from '../../shared/types'
-import type { SmsDb } from '../utils/pagination'
-import { smsPaginate } from '../utils/pagination'
+import {
+  runBatch,
+  smsPaginate,
+  type D1BatchItem,
+  type SmsDb,
+} from '../utils/pagination'
 import { smsConflict, smsFieldError, smsNotFound } from '../utils/http-errors'
 import { smsSlugify } from '../utils/slug'
 import { toJsonList, toJsonModel } from '../utils/serialize'
@@ -59,13 +63,13 @@ async function db(): Promise<SmsDb> {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/** Escapes a user search term for an ILIKE pattern. */
+/** Escapes a user search term for a LIKE pattern. */
 function nameFilter(column: SQLiteColumn, search?: string): SQL | undefined {
   if (!search) {
     return undefined
   }
   const escaped = search.replace(/[\\%_]/g, '\\$&')
-  return ilike(column, `%${escaped}%`)
+  return like(column, `%${escaped}%`)
 }
 
 /** Derives a collision-free slug for `base` against `column`. */
@@ -160,12 +164,14 @@ export async function createSession(
   input: AcademicSessionCreate,
 ): Promise<AcademicSession> {
   const client = await db()
-  return client.transaction(async (tx) => {
-    const slug = await uniqueSlug(tx, academicSessions.slug, input.name)
-    if (input.isCurrent) {
-      await tx.update(academicSessions).set({ isCurrent: false })
-    }
-    const [row] = await tx
+  // D1 has no interactive transactions: the slug check runs first, the
+  // "clear current flag" + insert go out as one atomic batch.
+  const slug = await uniqueSlug(client, academicSessions.slug, input.name)
+  const statements: D1BatchItem[] = [
+    ...(input.isCurrent
+      ? [client.update(academicSessions).set({ isCurrent: false })]
+      : []),
+    client
       .insert(academicSessions)
       .values({
         name: input.name,
@@ -175,9 +181,13 @@ export async function createSession(
         isCurrent: input.isCurrent ?? false,
         isActive: input.isActive ?? true,
       })
-      .returning()
-    return toJsonModel<AcademicSession>(row)
-  })
+      .returning(),
+  ]
+  const results = await runBatch(client, statements)
+  const rows = results[results.length - 1] as Array<
+    typeof academicSessions.$inferSelect
+  >
+  return toJsonModel<AcademicSession>(rows[0]!)
 }
 
 export async function updateSession(
@@ -185,26 +195,27 @@ export async function updateSession(
   input: AcademicSessionUpdate,
 ): Promise<AcademicSession> {
   const client = await db()
-  return client.transaction(async (tx) => {
-    const existing = await getSessionOrThrow(tx, id)
+  const existing = await getSessionOrThrow(client, id)
 
-    if (input.isCurrent) {
-      await tx.update(academicSessions).set({ isCurrent: false })
-    }
+  const slug = input.name
+    ? await uniqueSlug(
+        client,
+        academicSessions.slug,
+        input.name,
+        undefined,
+        ne(academicSessions.id, id),
+      )
+    : undefined
 
-    const [row] = await tx
+  const statements: D1BatchItem[] = [
+    ...(input.isCurrent
+      ? [client.update(academicSessions).set({ isCurrent: false })]
+      : []),
+    client
       .update(academicSessions)
       .set({
         name: input.name,
-        slug: input.name
-          ? await uniqueSlug(
-              tx,
-              academicSessions.slug,
-              input.name,
-              undefined,
-              ne(academicSessions.id, id),
-            )
-          : undefined,
+        slug,
         startDate:
           input.startDate === undefined ? undefined : input.startDate,
         endDate: input.endDate === undefined ? undefined : input.endDate,
@@ -213,9 +224,13 @@ export async function updateSession(
         updatedAt: new Date().toISOString(),
       })
       .where(eq(academicSessions.id, existing.id))
-      .returning()
-    return toJsonModel<AcademicSession>(row)
-  })
+      .returning(),
+  ]
+  const results = await runBatch(client, statements)
+  const rows = results[results.length - 1] as Array<
+    typeof academicSessions.$inferSelect
+  >
+  return toJsonModel<AcademicSession>(rows[0]!)
 }
 
 export async function deactivateSession(id: string): Promise<AcademicSession> {
@@ -299,20 +314,24 @@ export async function createTerm(input: TermCreate): Promise<Term> {
   const session = await getSessionOrThrow(client, input.sessionId)
   assertTermWithinSession(input, session)
 
-  return client.transaction(async (tx) => {
-    const slug = await uniqueSlug(
-      tx,
-      terms.slug,
-      input.name,
-      eq(terms.sessionId, input.sessionId),
-    )
-    if (input.isCurrent) {
-      await tx
-        .update(terms)
-        .set({ isCurrent: false })
-        .where(eq(terms.sessionId, input.sessionId))
-    }
-    const [row] = await tx
+  // Slug check first, then a single atomic D1 batch (clear current
+  // flag + insert).
+  const slug = await uniqueSlug(
+    client,
+    terms.slug,
+    input.name,
+    eq(terms.sessionId, input.sessionId),
+  )
+  const statements: D1BatchItem[] = [
+    ...(input.isCurrent
+      ? [
+          client
+            .update(terms)
+            .set({ isCurrent: false })
+            .where(eq(terms.sessionId, input.sessionId)),
+        ]
+      : []),
+    client
       .insert(terms)
       .values({
         sessionId: input.sessionId,
@@ -324,46 +343,53 @@ export async function createTerm(input: TermCreate): Promise<Term> {
         isCurrent: input.isCurrent ?? false,
         isActive: input.isActive ?? true,
       })
-      .returning()
-    return toJsonModel<Term>(row)
-  })
+      .returning(),
+  ]
+  const results = await runBatch(client, statements)
+  const rows = results[results.length - 1] as Array<
+    typeof terms.$inferSelect
+  >
+  return toJsonModel<Term>(rows[0]!)
 }
 
 export async function updateTerm(id: string, input: TermUpdate): Promise<Term> {
   const client = await db()
-  return client.transaction(async (tx) => {
-    const existing = await getTermOrThrow(tx, id)
-    const sessionId = input.sessionId ?? existing.sessionId
-    const session = await getSessionOrThrow(tx, sessionId)
-    assertTermWithinSession(
-      {
-        startDate: input.startDate ?? existing.startDate ?? undefined,
-        endDate: input.endDate ?? existing.endDate ?? undefined,
-      },
-      session,
-    )
+  const existing = await getTermOrThrow(client, id)
+  const sessionId = input.sessionId ?? existing.sessionId
+  const session = await getSessionOrThrow(client, sessionId)
+  assertTermWithinSession(
+    {
+      startDate: input.startDate ?? existing.startDate ?? undefined,
+      endDate: input.endDate ?? existing.endDate ?? undefined,
+    },
+    session,
+  )
 
-    if (input.isCurrent) {
-      await tx
-        .update(terms)
-        .set({ isCurrent: false })
-        .where(eq(terms.sessionId, sessionId))
-    }
+  const slug = input.name
+    ? await uniqueSlug(
+        client,
+        terms.slug,
+        input.name,
+        eq(terms.sessionId, sessionId),
+        ne(terms.id, id),
+      )
+    : undefined
 
-    const [row] = await tx
+  const statements: D1BatchItem[] = [
+    ...(input.isCurrent
+      ? [
+          client
+            .update(terms)
+            .set({ isCurrent: false })
+            .where(eq(terms.sessionId, sessionId)),
+        ]
+      : []),
+    client
       .update(terms)
       .set({
         sessionId: input.sessionId,
         name: input.name,
-        slug: input.name
-          ? await uniqueSlug(
-              tx,
-              terms.slug,
-              input.name,
-              eq(terms.sessionId, sessionId),
-              ne(terms.id, id),
-            )
-          : undefined,
+        slug,
         sequence: input.sequence,
         startDate:
           input.startDate === undefined ? undefined : input.startDate,
@@ -373,9 +399,13 @@ export async function updateTerm(id: string, input: TermUpdate): Promise<Term> {
         updatedAt: new Date().toISOString(),
       })
       .where(eq(terms.id, id))
-      .returning()
-    return toJsonModel<Term>(row)
-  })
+      .returning(),
+  ]
+  const results = await runBatch(client, statements)
+  const rows = results[results.length - 1] as Array<
+    typeof terms.$inferSelect
+  >
+  return toJsonModel<Term>(rows[0]!)
 }
 
 export async function deactivateTerm(id: string): Promise<Term> {
@@ -646,10 +676,10 @@ export async function listSubjects(
   }
   if (query.search) {
     const escaped = query.search.replace(/[\\%_]/g, '\\$&')
-    // ilike() on the nullable code column yields SQL | undefined.
+    // like() on the nullable code column yields SQL | undefined.
     const searchExpr = or(
-      ilike(subjects.name, `%${escaped}%`),
-      ilike(subjects.code, `%${escaped}%`),
+      like(subjects.name, `%${escaped}%`),
+      like(subjects.code, `%${escaped}%`),
     )
     if (searchExpr) {
       filters.push(searchExpr)

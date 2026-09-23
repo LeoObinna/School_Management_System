@@ -110,13 +110,12 @@ export async function countAnnouncementRecipients(
   client: SmsDb,
   audience: Audience,
 ): Promise<number> {
-  const rows = await client.execute(sql`
-    SELECT count(*)::int AS n
+  const row = await client.get<{ n: number | string | null }>(sql`
+    SELECT cast(count(*) as integer) AS n
     FROM users u
     WHERE 1=1 ${audienceSqlFragment(audience)}
   `)
-  const first = (rows as unknown as Array<{ n: number | string }>)[0]
-  return Number(first?.n ?? 0)
+  return Number(row?.n ?? 0)
 }
 
 /**
@@ -153,7 +152,10 @@ export async function dispatchAnnouncement(
 
   const link = '/announcements'
   const audience = row.audience as Audience
-  const inserted = await client.execute(sql`
+  // SQLite supports the partial-index conflict target, so fan-out stays
+  // idempotent on redelivery. D1's meta.changes counts only rows that
+  // were actually inserted (conflicts skipped by DO NOTHING excluded).
+  const result = (await client.run(sql`
     INSERT INTO notifications
       (user_id, type, title, body, link, status, announcement_id)
     SELECT u.id, 'announcement', ${row.title}, ${row.body}, ${link}, 'unread', ${announcementId}
@@ -162,13 +164,9 @@ export async function dispatchAnnouncement(
     ON CONFLICT (user_id, announcement_id)
     WHERE announcement_id IS NOT NULL
     DO NOTHING
-  `)
+  `)) as unknown as { meta?: { changes?: number } }
 
-  return (
-    Number((inserted as unknown as { count?: number }).count) ||
-    (inserted as unknown as { rowCount?: number }).rowCount ||
-    0
-  )
+  return Number(result.meta?.changes ?? 0)
 }
 
 /**

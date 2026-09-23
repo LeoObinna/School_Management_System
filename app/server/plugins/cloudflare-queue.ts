@@ -8,10 +8,9 @@
  * custom Worker entry.
  *
  * Semantics:
- *  - One short-lived Hyperdrive-backed client is opened per batch and
- *    closed when the batch settles (queue invocations are not fetch
- *    requests, so the request-scoped db() proxy does not apply). The
- *    D1 path (Phase 2 onwards) needs no cleanup — D1 is binding-managed.
+ *  - D1 is binding-managed, so the thin Drizzle client per batch needs
+ *    no socket cleanup (queue invocations are not fetch requests, so
+ *    the request-scoped db proxy does not apply).
  *  - Each message is processed independently: success → ack(); a
  *    transient error → retry() (Cloudflare redelivers with backoff); a
  *    malformed payload is a poison message and is ack()ed so it cannot
@@ -20,23 +19,16 @@
  *    (user_id, announcement_id)), so redelivery after a crash mid-batch
  *    never creates duplicate notifications.
  *
- * Dispatch (Phase 1, 2026-09-22):
- *   1. HYPERDRIVE present → use the Hyperdrive path (current default).
- *   2. HYPERDRIVE absent and DB (D1) present → use the D1 path.
- *      Inert until Phase 2 schema rewrite; today this branch only
- *      triggers when Hyperdrive is decommissioned.
- *   3. Neither present → throw so the batch is retried instead of
- *      silently dropping notifications.
+ * Since Phase 3 (2026-09-23) the application is D1-only: the consumer
+ * requires the DB binding and throws (leaving the batch unacked) if it
+ * is missing.
  */
 import { z } from 'zod'
 import { dispatchMessage } from '../services/notification-dispatch'
 import {
-  createWorkerDatabase,
   createWorkerD1Database,
   type AppDatabase,
   type D1Database,
-  type SmsDatabase,
-  type SmsD1Database,
 } from '../utils/db'
 
 interface QueueMessageLike {
@@ -55,57 +47,31 @@ interface QueueHookPayload {
 }
 
 interface QueueEnv {
-  HYPERDRIVE?: { connectionString?: string }
   DB?: D1Database
 }
-
-type AnyDb = SmsDatabase | SmsD1Database
 
 export default defineNitroPlugin((nitroApp) => {
   nitroApp.hooks.hook(
     'cloudflare:queue',
     async ({ batch, env }: QueueHookPayload) => {
       const queueEnv = (env as QueueEnv | undefined) ?? {}
-
-      // Hyperdrive-first dispatch (current default). Falls back to D1
-      // when Hyperdrive is decommissioned (Phase 6+).
-      if (queueEnv.HYPERDRIVE?.connectionString) {
-        const { db, sql } = createWorkerDatabase(
-          queueEnv.HYPERDRIVE.connectionString,
+      if (!queueEnv.DB || typeof queueEnv.DB.prepare !== 'function') {
+        // Binding misconfiguration: leave the batch unacked so the
+        // runtime retries it instead of silently dropping notifications.
+        throw new Error(
+          'The DB (D1) binding is not available in the queue consumer.',
         )
-        try {
-          await processBatch(db, batch)
-        } finally {
-          try {
-            await sql.end({ timeout: 2 })
-          } catch {
-            // Best-effort; the runtime reaps invocation sockets.
-          }
-        }
-        return
       }
-
-      if (queueEnv.DB && typeof queueEnv.DB.prepare === 'function') {
-        const { db } = createWorkerD1Database(queueEnv.DB)
-        await processBatch(db, batch)
-        return
-      }
-
-      // Binding misconfiguration: leave the batch unacked so the
-      // runtime retries it instead of silently dropping notifications.
-      throw new Error(
-        'Neither HYPERDRIVE nor DB (D1) binding is available in the queue consumer.',
-      )
+      const { db } = createWorkerD1Database(queueEnv.DB)
+      await processBatch(db, batch)
     },
   )
 })
 
-async function processBatch(db: AnyDb, batch: { messages: QueueMessageLike[] }) {
+async function processBatch(db: AppDatabase, batch: { messages: QueueMessageLike[] }) {
   for (const message of batch.messages) {
     try {
-      // TODO Phase 3: once queries are D1-native, dispatch directly
-      // against the D1 client without the PG compatibility cast.
-      await dispatchMessage(db as unknown as AppDatabase, message.body)
+      await dispatchMessage(db, message.body)
       message.ack()
     } catch (error) {
       if (error instanceof z.ZodError) {

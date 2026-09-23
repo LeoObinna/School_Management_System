@@ -13,7 +13,7 @@ import {
   asc,
   desc,
   eq,
-  ilike,
+  like,
   isNull,
   or,
   sql,
@@ -61,8 +61,8 @@ import type {
   Teacher,
 } from '../../shared/types'
 import {
-  isPgForeignKeyViolation,
-  isPgUniqueViolation,
+  isForeignKeyViolation,
+  isUniqueViolation,
   smsConflict,
   smsFieldError,
   smsNotFound,
@@ -74,8 +74,8 @@ async function db(): Promise<SmsDb> {
   return (await import('../utils/db')).db
 }
 
-// Escapes a user search term for an ILIKE pattern.
-function like(search: string): string {
+// Escapes a user search term for a LIKE pattern.
+function likePattern(search: string): string {
   return `%${search.replace(/[\\%_]/g, '\\$&')}%`
 }
 
@@ -97,11 +97,11 @@ export async function listStudents(
     where.push(eq(students.currentClassId, query.currentClassId))
   }
   if (query.search) {
-    const pattern = like(query.search)
+    const pattern = likePattern(query.search)
     const searchExpr = or(
-      ilike(students.firstName, pattern),
-      ilike(students.lastName, pattern),
-      ilike(students.admissionNumber, pattern),
+      like(students.firstName, pattern),
+      like(students.lastName, pattern),
+      like(students.admissionNumber, pattern),
     )
     if (searchExpr) {
       where.push(searchExpr)
@@ -211,7 +211,7 @@ export async function createStudent(
       .returning()
     return toJsonModel<Student>(row)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('A student with this admission number already exists.')
     }
     throw e
@@ -239,7 +239,7 @@ export async function updateStudent(
     }
     return toJsonModel<Student>(row)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('A student with this admission number already exists.')
     }
     throw e
@@ -273,12 +273,12 @@ export async function listParents(query: ParentListQuery) {
     where.push(eq(parents.isActive, query.isActive))
   }
   if (query.search) {
-    const pattern = like(query.search)
+    const pattern = likePattern(query.search)
     const searchExpr = or(
-      ilike(parents.firstName, pattern),
-      ilike(parents.lastName, pattern),
-      ilike(parents.email, pattern),
-      ilike(parents.phone, pattern),
+      like(parents.firstName, pattern),
+      like(parents.lastName, pattern),
+      like(parents.email, pattern),
+      like(parents.phone, pattern),
     )
     if (searchExpr) {
       where.push(searchExpr)
@@ -364,11 +364,11 @@ export async function listTeachers(query: TeacherListQuery) {
     where.push(eq(teachers.isActive, query.isActive))
   }
   if (query.search) {
-    const pattern = like(query.search)
+    const pattern = likePattern(query.search)
     const searchExpr = or(
-      ilike(teachers.firstName, pattern),
-      ilike(teachers.lastName, pattern),
-      ilike(teachers.staffNumber, pattern),
+      like(teachers.firstName, pattern),
+      like(teachers.lastName, pattern),
+      like(teachers.staffNumber, pattern),
     )
     if (searchExpr) {
       where.push(searchExpr)
@@ -406,7 +406,7 @@ export async function createTeacher(input: TeacherCreate): Promise<Teacher> {
     const [row] = await client.insert(teachers).values(values).returning()
     return toJsonModel<Teacher>(row)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('A teacher with this staff number already exists.')
     }
     throw e
@@ -434,7 +434,7 @@ export async function updateTeacher(
     }
     return toJsonModel<Teacher>(row)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict('A teacher with this staff number already exists.')
     }
     throw e
@@ -468,11 +468,11 @@ export async function listStaff(query: StaffListQuery) {
     where.push(eq(staffProfiles.isActive, query.isActive))
   }
   if (query.search) {
-    const pattern = like(query.search)
+    const pattern = likePattern(query.search)
     const searchExpr = or(
-      ilike(staffProfiles.firstName, pattern),
-      ilike(staffProfiles.lastName, pattern),
-      ilike(staffProfiles.staffNumber, pattern),
+      like(staffProfiles.firstName, pattern),
+      like(staffProfiles.lastName, pattern),
+      like(staffProfiles.staffNumber, pattern),
     )
     if (searchExpr) {
       where.push(searchExpr)
@@ -684,7 +684,7 @@ const enrollmentDetailSelect = {
   notes: studentEnrollments.notes,
   createdAt: studentEnrollments.createdAt,
   updatedAt: studentEnrollments.updatedAt,
-  studentName: sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+  studentName: sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
   className: classes.name,
   sectionName: sections.name,
   sessionName: academicSessions.name,
@@ -824,12 +824,12 @@ export async function createEnrollment(
     }
     return toJsonModel<StudentEnrollmentDetail>(detail)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict(
         'Student is already enrolled in this session/term/class/section.',
       )
     }
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('classId', 'Class not found.')
     }
     throw e
@@ -871,7 +871,7 @@ export async function updateEnrollment(
     }
     return getEnrollmentOrThrow(id)
   } catch (e) {
-    if (isPgUniqueViolation(e)) {
+    if (isUniqueViolation(e)) {
       throw smsConflict(
         'Student is already enrolled in this session/term/class/section.',
       )

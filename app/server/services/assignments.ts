@@ -51,7 +51,7 @@ import type {
 } from '../../shared/types'
 import type { AuthContext } from '../utils/auth/context'
 import {
-  isPgForeignKeyViolation,
+  isForeignKeyViolation,
   smsConflict,
   smsFieldError,
   smsForbidden,
@@ -223,7 +223,7 @@ const nameJoinFields = {
   className: classes.name,
   sectionName: sections.name,
   subjectName: subjects.name,
-  teacherName: sql<string>`trim(concat(${teachers.firstName}, ' ', ${teachers.lastName}))`,
+  teacherName: sql<string>`trim(${teachers.firstName} || ' ' || ${teachers.lastName})`,
   sessionName: academicSessions.name,
   termName: terms.name,
 }
@@ -422,7 +422,7 @@ export async function createAssignment(
     }
     return getAssignmentForActor(created.id, actor)
   } catch (e) {
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced record no longer exists.')
     }
     throw e
@@ -654,7 +654,7 @@ export async function listSubmissions(
   const rows = await client
     .select({
       submission: assignmentSubmissions,
-      studentName: sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
+      studentName: sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
       admissionNumber: students.admissionNumber,
       assignmentTitle: assignments.title,
       maxScore: assignments.maxScore,

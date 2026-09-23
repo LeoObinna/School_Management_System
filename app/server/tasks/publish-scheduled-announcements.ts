@@ -13,25 +13,18 @@
  * In local development the task is inert unless run with
  * `wrangler dev --test-scheduled` and a request to /__scheduled.
  *
- * Dispatch (Phase 1, 2026-09-22):
- *   1. HYPERDRIVE present → use the Hyperdrive path (current default).
- *   2. HYPERDRIVE absent and DB (D1) present → use the D1 path.
- *      Inert until Phase 2 schema rewrite.
- *   3. Neither present → throw so the cron run surfaces an error.
+ * Since Phase 3 (2026-09-23) the application is D1-only: the task
+ * requires the DB binding and throws if it is missing.
  */
 import { publishDueAnnouncements } from '../services/communication'
 import {
-  createWorkerDatabase,
   createWorkerD1Database,
   type AppDatabase,
   type D1Database,
-  type SmsDatabase,
-  type SmsD1Database,
 } from '../utils/db'
 import type { NotificationQueueLike } from '../utils/notifications-queue'
 
 interface TaskEnv {
-  HYPERDRIVE?: { connectionString?: string }
   DB?: D1Database
   NOTIFICATION_QUEUE?: NotificationQueueLike
 }
@@ -39,8 +32,6 @@ interface TaskEnv {
 interface TaskContext {
   cloudflare?: { env?: TaskEnv }
 }
-
-type AnyDb = SmsDatabase | SmsD1Database
 
 export default defineTask({
   meta: {
@@ -57,44 +48,23 @@ export default defineTask({
       )
     }
 
-    // Hyperdrive-first dispatch. Falls back to D1 when Hyperdrive is
-    // decommissioned (Phase 6+). The D1 path needs no cleanup.
-    if (env.HYPERDRIVE?.connectionString) {
-      const { db, sql } = createWorkerDatabase(env.HYPERDRIVE.connectionString)
-      try {
-        return await runPublish(db as AnyDb, env.NOTIFICATION_QUEUE ?? null)
-      } finally {
-        try {
-          await sql.end({ timeout: 2 })
-        } catch {
-          // Best-effort; the runtime reaps invocation sockets.
-        }
-      }
+    if (!env.DB || typeof env.DB.prepare !== 'function') {
+      // Binding misconfiguration: throw so the cron run surfaces an
+      // error instead of silently skipping due announcements.
+      throw new Error(
+        'The DB (D1) binding is not available in the scheduled task.',
+      )
     }
-
-    if (env.DB && typeof env.DB.prepare === 'function') {
-      const { db } = createWorkerD1Database(env.DB)
-      return await runPublish(db as AnyDb, env.NOTIFICATION_QUEUE ?? null)
-    }
-
-    // Binding misconfiguration: throw so the cron run surfaces an
-    // error instead of silently skipping due announcements.
-    throw new Error(
-      'Neither HYPERDRIVE nor DB (D1) binding is available in the scheduled task.',
-    )
+    const { db } = createWorkerD1Database(env.DB)
+    return runPublish(db, env.NOTIFICATION_QUEUE ?? null)
   },
 })
 
 async function runPublish(
-  db: AnyDb,
+  db: AppDatabase,
   queue: NotificationQueueLike | null,
 ) {
-  // TODO Phase 3: dispatch against the native D1 client without the
-  // PG compatibility cast.
-  const result = await publishDueAnnouncements(
-    db as unknown as AppDatabase,
-    queue,
-  )
+  const result = await publishDueAnnouncements(db, queue)
   console.log(
     `[cron] publish-scheduled-announcements: ${result.published} published, ${result.notified} recipients.`,
   )

@@ -24,7 +24,7 @@ import type {
   LearningResourceListItem,
 } from '../../shared/types'
 import {
-  isPgForeignKeyViolation,
+  isForeignKeyViolation,
   smsFieldError,
   smsForbidden,
   smsNotFound,
@@ -43,7 +43,7 @@ function listSelect(client: SmsDb) {
       resource: learningResources,
       className: classes.name,
       subjectName: subjects.name,
-      uploadedByName: sql<string>`trim(concat(${teachers.firstName}, ' ', ${teachers.lastName}))`,
+      uploadedByName: sql<string>`trim(${teachers.firstName} || ' ' || ${teachers.lastName})`,
     })
     .from(learningResources)
     .leftJoin(classes, eq(learningResources.classId, classes.id))
@@ -181,7 +181,7 @@ export async function createResource(
       uploadedByName: row!.uploadedByName,
     })
   } catch (e) {
-    if (isPgForeignKeyViolation(e)) {
+    if (isForeignKeyViolation(e)) {
       throw smsFieldError('form', 'Referenced class or subject does not exist.')
     }
     throw e

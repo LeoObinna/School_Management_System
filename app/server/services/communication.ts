@@ -14,7 +14,7 @@ import {
   and,
   desc,
   eq,
-  ilike,
+  like,
   lte,
   or,
   sql,
@@ -103,15 +103,15 @@ export async function listAnnouncements(
     const pattern = `%${query.search.trim()}%`
     where.push(
       or(
-        ilike(announcements.title, pattern),
-        ilike(announcements.body, pattern),
+        like(announcements.title, pattern),
+        like(announcements.body, pattern),
       )!,
     )
   }
   const filter = all(where)
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(announcements)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -286,19 +286,18 @@ export async function publishAnnouncement(
 
   const audience = row.audience as Audience
 
-  // 1. Flip to published. Notification fan-out is intentionally outside
-  //    this transaction: it runs asynchronously through the queue.
-  await client.transaction(async (tx) => {
-    await tx
-      .update(announcements)
-      .set({
-        status: 'published',
-        scheduledFor: null,
-        publishedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(announcements.id, id))
-  })
+  // 1. Flip to published (a single UPDATE is inherently atomic on D1).
+  //    Notification fan-out is intentionally separate: it runs
+  //    asynchronously through the queue.
+  await client
+    .update(announcements)
+    .set({
+      status: 'published',
+      scheduledFor: null,
+      publishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(announcements.id, id))
 
   // 2. Recipient count is reported immediately (`notified` in the API
   //    response); the per-recipient rows are created by the consumer.
@@ -434,15 +433,15 @@ export async function listNotifications(
     const pattern = `%${query.search.trim()}%`
     where.push(
       or(
-        ilike(notifications.title, pattern),
-        ilike(notifications.body, pattern),
+        like(notifications.title, pattern),
+        like(notifications.body, pattern),
       )!,
     )
   }
   const filter = all(where)
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(notifications)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -560,15 +559,15 @@ export async function listMessages(
     const pattern = `%${query.search.trim()}%`
     where.push(
       or(
-        ilike(messages.subject, pattern),
-        ilike(messages.body, pattern),
+        like(messages.subject, pattern),
+        like(messages.body, pattern),
       )!,
     )
   }
   const filter = all(where)
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(messages)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -597,8 +596,8 @@ export async function listMessages(
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
       .where(
-        // drizzle inArray would work but for a single user it's simpler
-        sql`${users.id} = ANY (${sql`ARRAY[${sql.join(recipientIds.map((id) => sql`${id}`), sql`, `)}]::uuid[]`})`,
+        // SQLite has no ANY(ARRAY[...]) — bind the list with IN (...).
+        sql`${users.id} IN (${sql.join(recipientIds.map((id) => sql`${id}`), sql`, `)})`,
       )
     for (const r of recRows) {
       recipientMap.set(r.id, { name: r.name, email: r.email })

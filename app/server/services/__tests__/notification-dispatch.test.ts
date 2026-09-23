@@ -11,12 +11,17 @@ import {
 import type { SmsDb } from '../../utils/pagination'
 
 // Minimal chainable Drizzle-like client: select(...).from().where().limit()
-// resolves to a configurable row set; execute() resolves to a raw result.
+// resolves to a configurable row set; get()/run() resolve like the D1
+// driver (get → first row, run → raw result with meta.changes).
 function makeClient(options: {
   announcement?: Record<string, unknown> | null
-  executeResult?: unknown
+  getResult?: unknown
+  runResult?: unknown
 }) {
-  const execute = vi.fn(async () => options.executeResult ?? { count: '3' })
+  const get = vi.fn(async () => options.getResult ?? { n: '0' })
+  const run = vi.fn(
+    async () => options.runResult ?? { meta: { changes: 3 } },
+  )
   const selectChain = {
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
@@ -27,8 +32,8 @@ function makeClient(options: {
     ),
   }
   const select = vi.fn(() => selectChain)
-  const client = { select, execute } as unknown as SmsDb
-  return { client, select, execute }
+  const client = { select, get, run } as unknown as SmsDb
+  return { client, select, get, run }
 }
 
 function defaultAnnouncement() {
@@ -79,9 +84,9 @@ function renderSql(sqlObj: {
   return { text: walk(sqlObj.queryChunks), params }
 }
 
-// Pulls the first argument of the first client.execute() mock call and
+// Pulls the first argument of the first client.run()/get() mock call and
 // renders it as { text, params }.
-function renderedExecute(execute: ReturnType<typeof vi.fn>) {
+function renderedStatement(execute: ReturnType<typeof vi.fn>) {
   const arg = (execute.mock.calls[0] as unknown[])[0] as {
     queryChunks: unknown[]
   }
@@ -161,25 +166,25 @@ describe('AUDIENCE_ROLES / audienceSqlFragment', () => {
 
 describe('countAnnouncementRecipients', () => {
   it('returns the counted recipients as a number', async () => {
-    const { client, execute } = makeClient({ executeResult: [{ n: '42' }] })
+    const { client, get } = makeClient({ getResult: { n: '42' } })
     await expect(countAnnouncementRecipients(client, 'parents')).resolves.toBe(
       42,
     )
-    expect(renderedExecute(execute).text).toContain('count(*)')
+    expect(renderedStatement(get).text).toContain('count(*)')
   })
 
   it('coerces missing rows to zero', async () => {
-    const { client } = makeClient({ executeResult: [] })
+    const { client } = makeClient({ getResult: undefined })
     await expect(countAnnouncementRecipients(client, 'all')).resolves.toBe(0)
   })
 })
 
 describe('dispatchAnnouncement', () => {
   it('inserts idempotent announcement notifications and returns the count', async () => {
-    const { client, execute } = makeClient({})
+    const { client, run } = makeClient({})
     const count = await dispatchAnnouncement(client, validMessage.announcementId)
     expect(count).toBe(3)
-    const sqlText = renderedExecute(execute).text
+    const sqlText = renderedStatement(run).text
     expect(sqlText).toContain('INSERT INTO notifications')
     expect(sqlText).toContain('announcement_id')
     expect(sqlText).toContain('ON CONFLICT')
@@ -187,13 +192,13 @@ describe('dispatchAnnouncement', () => {
   })
 
   it('is a no-op (0 rows) when the announcement is no longer published', async () => {
-    const { client, execute } = makeClient({
+    const { client, run } = makeClient({
       announcement: { ...defaultAnnouncement(), status: 'archived' },
     })
     await expect(
       dispatchAnnouncement(client, validMessage.announcementId),
     ).resolves.toBe(0)
-    expect(execute).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
   })
 
   it('throws 404 when the announcement does not exist', async () => {
@@ -206,16 +211,16 @@ describe('dispatchAnnouncement', () => {
 
 describe('dispatchMessage', () => {
   it('routes announcement.published to the announcement dispatcher', async () => {
-    const { client, execute } = makeClient({ executeResult: { count: '7' } })
+    const { client, run } = makeClient({ runResult: { meta: { changes: 7 } } })
     await expect(dispatchMessage(client, validMessage)).resolves.toBe(7)
-    expect(execute).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a malformed body before touching the database', async () => {
-    const { client, execute } = makeClient({})
+    const { client, run } = makeClient({})
     await expect(dispatchMessage(client, { kind: 'bogus' })).rejects.toThrow(
       z.ZodError,
     )
-    expect(execute).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
   })
 })

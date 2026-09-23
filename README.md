@@ -2447,6 +2447,70 @@ documentation, not a second specification.
                     kobo, 100.00 → 10,000 and grade-A boundary → 7,000) and a
                     second run proved idempotency. No cloud resources created;
                     staging/production untouched; SMS_USE_D1 stays false.
+2026-09-23  Phase 3  Query-dialect migration PG → D1 (RUNTIME FLIP: the
+                    application is now D1/SQLite-only; rollback to PG is a
+                    redeploy of the previous commit until Phase 6). LIKE:
+                    33 ilike → like across people, academic-structure,
+                    reports, events, communication, admissions (people's local
+                    helper renamed likePattern to avoid colliding with
+                    drizzle's like()). Raw SQL de-Postgresified: count(*)::int
+                    → cast(count(*) as integer) (incl. five late-found sites
+                    in events.ts), FILTER (WHERE …) → sum(case when …),
+                    array_agg → group_concat with GrantRow
+                    string|null + splitSlugs() in auth/context.ts,
+                    array_position → CASE, "= ANY(ARRAY[…])" → IN, PG casts
+                    removed, report dates bound as ISO strings, name search
+                    uses trim(a || ' ' || b); notification fan-out uses
+                    client.get/client.run(sql`INSERT … SELECT … ON CONFLICT …
+                    DO NOTHING`) and meta.changes; health uses db.get.
+                    All 17 interactive transactions converted to drizzle
+                    db.batch() behind a runBatch(db, items) helper
+                    (D1BatchStatements/D1BatchItem types in pagination.ts
+                    because drizzle 0.39 types batch() as a non-empty readonly
+                    tuple; the thenable insert-builder needs an explicit cast
+                    when returned from a function, e.g. finance
+                    receiptInsert): pre-reads + application-generated UUIDs
+                    replace in-transaction reads (academic-structure slug
+                    pre-compute, admissions enrollApplication, communication
+                    publish, exams grading scales, finance fee structures/
+                    invoices/payments/refunds); admissions keeps a 5-attempt
+                    application-number retry. isUniqueViolation/
+                    isForeignKeyViolation now recognise PG 23505/23503 AND
+                    SQLite 2067/787. db.ts rewritten to drizzle-orm/d1 only:
+                    lazy forwarding db proxy resolving the per-request/event
+                    D1 binding in Workers, process-wide client in plain Node
+                    dev via wrangler getPlatformProxy({persist:true})
+                    (cached; closeNodeDatabase on Nitro shutdown);
+                    plugins/cloudflare.ts guards on
+                    navigator.userAgent==='Cloudflare-Workers'. The
+                    Node-only wrangler import is assembled at runtime
+                    (String.fromCharCode + @vite-ignore) — Rollup folds
+                    plain string constants and Nitro auto-externalizes
+                    wrangler, both of which make wrangler's own esbuild
+                    pass try to bundle its CLI; do NOT add wrangler to
+                    rollupConfig.external. Queue consumer and cron task use
+                    createWorkerD1Database(env.DB). ×100 fixed-point scores
+                    fully adapted in exams.ts (toScore100/fromScore100
+                    across every write/DTO path; aggregates accumulate
+                    integers; report cards persist integer total/average);
+                    chunkRows() (pagination.ts) splits bulk writes to
+                    respect D1's 100-bind-variable/100-statement limits
+                    (bulk scores, grading-scale/fee/invoice items,
+                    attendance). Gates: nuxt typecheck EXIT 0, vitest
+                    413/413 across 31 files, nuxt build (cloudflare-module)
+                    EXIT 0 with no wrangler code in the Worker bundle;
+                    local D1 smoke on wrangler dev (migrations applied,
+                    db:d1:seed idempotent, 55 tables): health
+                    database:true, login/RBAC (group_concat permissions),
+                    LIKE class search, grading-scale ×100 DTOs, and a
+                    db.batch class create verified end-to-end (row cleaned
+                    up afterward); `nuxt dev` (Node + getPlatformProxy)
+                    verified the same. Intentionally retained until
+                    Phase 6: postgres dependency, Hyperdrive binding,
+                    database/seed.ts, legacy-pg migrations; the 33
+                    @ts-expect-error Phase 4b kobo markers stay until
+                    Phase 4b. No remote D1 provisioned; staging/production
+                    untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

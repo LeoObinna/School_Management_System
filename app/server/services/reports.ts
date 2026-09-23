@@ -8,7 +8,7 @@
  * These are read-only aggregates; nothing here mutates state. CSV
  * rendering lives at the route layer (mirrors finance/outstanding.get.ts).
  */
-import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm'
 import {
   admissionApplications,
   announcements,
@@ -81,35 +81,35 @@ export async function getOverview(
 
   const [studentCounts] = await client
     .select({
-      total: sql<number>`count(*)::int`,
-      active: sql<number>`count(*) filter (where ${students.status} = 'active')::int`,
-      archived: sql<number>`count(*) filter (where ${students.status} = 'archived')::int`,
+      total: sql<number>`cast(count(*) as integer)`,
+      active: sql<number>`cast(sum(case when ${students.status} = 'active' then 1 else 0 end) as integer)`,
+      archived: sql<number>`cast(sum(case when ${students.status} = 'archived' then 1 else 0 end) as integer)`,
     })
     .from(students)
     .where(isNull(students.deletedAt))
 
   const [teacherCount] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(teachers)
     .where(isNull(teachers.deletedAt))
   const [parentCount] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(parents)
     .where(isNull(parents.deletedAt))
   const [staffCount] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(staffProfiles)
     .where(isNull(staffProfiles.deletedAt))
   const [classCount] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(classes)
     .where(eq(classes.isActive, true))
   const [sectionCount] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(sections)
     .where(eq(sections.isActive, true))
   const [subjectCount] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(subjects)
     .where(eq(subjects.isActive, true))
 
@@ -120,7 +120,7 @@ export async function getOverview(
   const enrollmentStatusRows = await client
     .select({
       status: studentEnrollments.status,
-      n: sql<number>`count(*)::int`,
+      n: sql<number>`cast(count(*) as integer)`,
     })
     .from(studentEnrollments)
     .where(all(enrollmentWhere))
@@ -139,7 +139,7 @@ export async function getOverview(
   const announcementStatusRows = await client
     .select({
       status: announcements.status,
-      n: sql<number>`count(*)::int`,
+      n: sql<number>`cast(count(*) as integer)`,
     })
     .from(announcements)
     .groupBy(announcements.status)
@@ -153,10 +153,11 @@ export async function getOverview(
     announcementsByStatus[r.status] = r.n
   }
 
+  const nowIso = new Date().toISOString()
   const [eventCounts] = await client
     .select({
-      upcoming: sql<number>`count(*) filter (where ${events.startsAt} > now() and ${events.status} = 'published')::int`,
-      past: sql<number>`count(*) filter (where ${events.startsAt} <= now() and ${events.status} = 'published')::int`,
+      upcoming: sql<number>`cast(sum(case when ${events.startsAt} > ${nowIso} and ${events.status} = 'published' then 1 else 0 end) as integer)`,
+      past: sql<number>`cast(sum(case when ${events.startsAt} <= ${nowIso} and ${events.status} = 'published' then 1 else 0 end) as integer)`,
     })
     .from(events)
 
@@ -210,11 +211,11 @@ export async function getAttendanceReport(
     .select({
       classId: attendanceSessions.classId,
       className: classes.name,
-      present: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present')::int`,
-      absent: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'absent')::int`,
-      late: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'late')::int`,
-      excused: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'excused')::int`,
-      total: sql<number>`count(*)::int`,
+      present: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'present' then 1 else 0 end) as integer)`,
+      absent: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'absent' then 1 else 0 end) as integer)`,
+      late: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'late' then 1 else 0 end) as integer)`,
+      excused: sql<number>`cast(sum(case when ${attendanceRecords.status} = 'excused' then 1 else 0 end) as integer)`,
+      total: sql<number>`cast(count(*) as integer)`,
     })
     .from(attendanceRecords)
     .innerJoin(
@@ -268,7 +269,7 @@ export async function getEnrollmentReport(
       classId: studentEnrollments.classId,
       className: classes.name,
       status: studentEnrollments.status,
-      count: sql<number>`count(*)::int`,
+      count: sql<number>`cast(count(*) as integer)`,
     })
     .from(studentEnrollments)
     .innerJoin(classes, eq(studentEnrollments.classId, classes.id))
@@ -296,22 +297,25 @@ function auditLogConditions(
     query.userId ? eq(auditLogs.userId, query.userId) : undefined,
   ]
   if (query.dateFrom) {
+    // createdAt is ISO-8601 text; lexical comparison against the date
+    // prefix covers every instant of that day ('T…' sorts after '').
     conditions.push(
-      sql`${auditLogs.createdAt} >= ${query.dateFrom}::timestamptz`,
+      sql`${auditLogs.createdAt} >= ${query.dateFrom}`,
     )
   }
   if (query.dateTo) {
-    // Inclusive end of day.
+    // Inclusive end of day, compared as ISO text (D1/SQLite has no
+    // interval arithmetic).
     conditions.push(
-      sql`${auditLogs.createdAt} <= (${query.dateTo}::date + interval '1 day')`,
+      sql`${auditLogs.createdAt} <= ${`${query.dateTo}T23:59:59.999Z`}`,
     )
   }
   if ('search' in query && query.search) {
     const pattern = `%${query.search.replace(/[\\%_]/g, '\\$&')}%`
     conditions.push(
       or(
-        ilike(auditLogs.description, pattern),
-        ilike(auditLogs.action, pattern),
+        like(auditLogs.description, pattern),
+        like(auditLogs.action, pattern),
       ) ?? undefined,
     )
   }
@@ -337,7 +341,7 @@ export async function listAuditLogs(
   const filter = all(auditLogConditions(query))
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(auditLogs)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -433,7 +437,7 @@ export async function getAdmissionsPipeline(
   const rows = await client
     .select({
       status: admissionApplications.status,
-      n: sql<number>`count(*)::int`,
+      n: sql<number>`cast(count(*) as integer)`,
     })
     .from(admissionApplications)
     .where(where.length ? and(...where) : undefined)
@@ -471,7 +475,7 @@ export async function getAuditCertificateSummary(
 
   const [agg] = await client
     .select({
-      total: sql<number>`count(*)::int`,
+      total: sql<number>`cast(count(*) as integer)`,
       earliest: sql<Date | null>`min(${auditLogs.createdAt})`,
       latest: sql<Date | null>`max(${auditLogs.createdAt})`,
     })
@@ -481,7 +485,7 @@ export async function getAuditCertificateSummary(
   const actionRows = await client
     .select({
       action: auditLogs.action,
-      n: sql<number>`count(*)::int`,
+      n: sql<number>`cast(count(*) as integer)`,
     })
     .from(auditLogs)
     .where(filter)

@@ -17,17 +17,28 @@
  *    Every request sees the same environment, so mutation of the shared
  *    config object is safe.
  *
- * 2. PER-REQUEST DB CLEANUP. The Drizzle/postgres.js client is created
- *    lazily PER REQUEST from the HYPERDRIVE binding (see utils/db.ts) —
- *    the Workers runtime forbids reusing a connection's socket I/O
- *    across invocations, and Hyperdrive maintains the upstream pool.
- *    The client is closed after the response is sent. In plain Node dev
- *    there is no cloudflare context; a process-wide client is used and
- *    the afterResponse hook is a no-op.
+ * 2. LOCAL D1 BOOTSTRAP. In plain Node dev (`nuxt dev`) there are no
+ *    Cloudflare bindings; this plugin attaches wrangler's local
+ *    platform proxy ONCE at Nitro startup so utils/db.ts gets a
+ *    process-wide D1 client (Miniflare, persisted under
+ *    .wrangler/state/v3/d1), and disposes the proxy on Nitro close.
+ *    In the Cloudflare Workers runtime the request-scoped D1 binding
+ *    is used instead and this is a no-op.
  */
 import type { H3Event } from 'h3'
 
 type CfEnv = Record<string, unknown> | undefined
+
+/**
+ * True when executing inside the workerd runtime (production, preview
+ * and `wrangler dev`). Plain Node/Nuxt dev identifies as Node.
+ */
+function isCloudflareRuntime(): boolean {
+  return (
+    typeof globalThis.navigator !== 'undefined'
+    && globalThis.navigator.userAgent === 'Cloudflare-Workers'
+  )
+}
 
 function bridgeRuntimeConfig(event: H3Event): void {
   try {
@@ -44,8 +55,8 @@ function bridgeRuntimeConfig(event: H3Event): void {
       config.sessionSecret = sessionSecret
     }
 
-    // DATABASE_URL is only relevant for Node dev; Workers always use
-    // HYPERDRIVE (see utils/db.ts), so no DATABASE_URL binding exists.
+    // DATABASE_URL is only used by the legacy PostgreSQL tooling kept
+    // until Phase 6; the D1 runtime reads the DB binding instead.
     const databaseUrl =
       (cloudflareEnv?.DATABASE_URL as string | undefined)
         || process.env.DATABASE_URL
@@ -67,7 +78,18 @@ function bridgeRuntimeConfig(event: H3Event): void {
   }
 }
 
-export default defineNitroPlugin((nitroApp) => {
+export default defineNitroPlugin(async (nitroApp) => {
+  // Plain Node dev: attach the local D1 platform proxy before the app
+  // starts serving. In the Workers runtime the DB binding is used
+  // per request, so nothing to initialise here.
+  if (!isCloudflareRuntime()) {
+    const { initNodeDatabase, closeNodeDatabase } = await import('../utils/db')
+    await initNodeDatabase()
+    nitroApp.hooks.hookOnce('close', async () => {
+      await closeNodeDatabase()
+    })
+  }
+
   nitroApp.hooks.hook('request', (event) => {
     bridgeRuntimeConfig(event)
   })

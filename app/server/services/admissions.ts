@@ -15,16 +15,19 @@ import {
   asc,
   desc,
   eq,
-  ilike,
   inArray,
   like,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm'
-import type { SmsDb } from '../utils/pagination'
 import {
-  isPgUniqueViolation,
+  runBatch,
+  type D1BatchItem,
+  type SmsDb,
+} from '../utils/pagination'
+import {
+  isUniqueViolation,
   smsConflict,
   smsFieldError,
   smsNotFound,
@@ -115,28 +118,37 @@ function all(conditions: Array<SQL | undefined>): SQL {
 // Application numbering (APP-YYYY-NNNN)
 // ---------------------------------------------------------------------------
 
-async function allocateNumber(tx: SmsDb): Promise<string> {
+async function allocateNumber(client: SmsDb): Promise<string> {
   const year = new Date().getFullYear()
-  const rows = await tx
-    .select({ n: sql<number>`count(*)::int` })
+  const rows = await client
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(admissionApplications)
     .where(like(admissionApplications.applicationNumber, `APP-${year}-%`))
   const n = (Number(rows[0]?.n) || 0) + 1
   return `APP-${year}-${String(n).padStart(4, '0')}`
 }
 
-async function withAppNumber<T>(
-  fn: (tx: SmsDb, number: string) => Promise<T>,
-): Promise<T> {
+// D1 has no interactive transactions: the number is allocated with a
+// pre-insert count, the insert is retried on a unique-index collision
+// (concurrent numbering), and the detail is re-read afterwards. The
+// caller supplies the insert values and gets the new row id back.
+async function insertWithAppNumber(
+  values: Omit<typeof admissionApplications.$inferInsert, 'applicationNumber'>,
+): Promise<string> {
   const client = await db()
+  const applicationId = values.id ?? crypto.randomUUID()
   for (let attempt = 0; attempt < 5; attempt++) {
+    const number = await allocateNumber(client)
     try {
-      return await client.transaction(async (tx) => {
-        const number = await allocateNumber(tx)
-        return fn(tx, number)
+      await client.insert(admissionApplications).values({
+        ...values,
+        id: applicationId,
+        applicationNumber: number,
+        status: 'applied',
       })
+      return applicationId
     } catch (error) {
-      if (isPgUniqueViolation(error) && attempt < 4) continue
+      if (isUniqueViolation(error) && attempt < 4) continue
       throw error
     }
   }
@@ -280,18 +292,18 @@ export async function listApplications(
     const pattern = `%${query.search.trim()}%`
     where.push(
       or(
-        ilike(admissionApplications.applicationNumber, pattern),
-        ilike(admissionApplications.firstName, pattern),
-        ilike(admissionApplications.lastName, pattern),
-        ilike(admissionApplications.guardianName, pattern),
-        ilike(admissionApplications.guardianPhone, pattern),
+        like(admissionApplications.applicationNumber, pattern),
+        like(admissionApplications.firstName, pattern),
+        like(admissionApplications.lastName, pattern),
+        like(admissionApplications.guardianName, pattern),
+        like(admissionApplications.guardianPhone, pattern),
       )!,
     )
   }
   const filter = all(where)
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(admissionApplications)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -319,7 +331,7 @@ export async function listApplications(
       ? client
           .select({
             applicationId: admissionDocuments.applicationId,
-            n: sql<number>`count(*)::int`,
+            n: sql<number>`cast(count(*) as integer)`,
           })
           .from(admissionDocuments)
           .where(inArray(admissionDocuments.applicationId, ids))
@@ -329,7 +341,7 @@ export async function listApplications(
       ? client
           .select({
             applicationId: admissionAssessments.applicationId,
-            n: sql<number>`count(*)::int`,
+            n: sql<number>`cast(count(*) as integer)`,
           })
           .from(admissionAssessments)
           .where(inArray(admissionAssessments.applicationId, ids))
@@ -379,18 +391,8 @@ export async function createApplication(
     await assertClass(client, values.intendedClassId)
   }
 
-  return withAppNumber(async (tx, number) => {
-    const [row] = await tx
-      .insert(admissionApplications)
-      .values({
-        ...values,
-        applicationNumber: number,
-        status: 'applied',
-      })
-      .returning()
-    if (!row) throw smsConflict('Could not create the application.')
-    return loadDetail(tx, row.id)
-  })
+  const id = await insertWithAppNumber({ ...values })
+  return loadDetail(client, id)
 }
 
 export async function updateApplication(
@@ -541,8 +543,8 @@ export async function addAssessment(
     'Assessments cannot be added to a terminal application.',
   )
 
-  return client.transaction(async (tx) => {
-    await tx.insert(admissionAssessments).values({
+  const statements: D1BatchItem[] = [
+    client.insert(admissionAssessments).values({
       applicationId,
       title: input.title,
       assessmentType: input.assessmentType,
@@ -551,20 +553,23 @@ export async function addAssessment(
       result: blank(input.result),
       notes: blank(input.notes),
       assessorId: actor.userId,
-    })
-    const derived = assessmentDerivedStatus(
-      app.status,
-      Boolean(input.score || input.result),
-      Boolean(input.scheduledAt),
-    )
-    if (derived) {
-      await tx
+    }),
+  ]
+  const derived = assessmentDerivedStatus(
+    app.status,
+    Boolean(input.score || input.result),
+    Boolean(input.scheduledAt),
+  )
+  if (derived) {
+    statements.push(
+      client
         .update(admissionApplications)
         .set({ status: derived, updatedAt: new Date().toISOString() })
-        .where(eq(admissionApplications.id, applicationId))
-    }
-    return loadDetail(tx, applicationId)
-  })
+        .where(eq(admissionApplications.id, applicationId)),
+    )
+  }
+  await runBatch(client, statements)
+  return loadDetail(client, applicationId)
 }
 
 export async function updateAssessment(
@@ -664,15 +669,18 @@ export async function addDocument(
     'Documents cannot be added to a terminal application.',
   )
 
-  await client.transaction(async (tx) => {
-    await tx.insert(admissionDocuments).values({ applicationId, ...input })
-    if (app.status === 'applied') {
-      await tx
+  const statements: D1BatchItem[] = [
+    client.insert(admissionDocuments).values({ applicationId, ...input }),
+  ]
+  if (app.status === 'applied') {
+    statements.push(
+      client
         .update(admissionApplications)
         .set({ status: 'documents_submitted', updatedAt: new Date().toISOString() })
-        .where(eq(admissionApplications.id, applicationId))
-    }
-  })
+        .where(eq(admissionApplications.id, applicationId)),
+    )
+  }
+  await runBatch(client, statements)
   return loadDetail(client, applicationId)
 }
 
@@ -781,141 +789,165 @@ export async function enrollApplication(
     throw smsConflict('A student with this admission number already exists.')
   }
 
+  // Guardian resolution that used to happen inside the interactive
+  // transaction is resolved BEFORE the batch: find an existing parent by
+  // email, or prepare an explicit new parent id. All ids are app-
+  // generated UUIDs, so the batch statements can reference each other
+  // without reading inserted rows back.
+  let parentRow: typeof parents.$inferSelect | null = null
+  let newParentId: string | null = null
+  if (input.createGuardianParent) {
+    if (!app.guardianName) {
+      throw smsFieldError(
+        'createGuardianParent',
+        'Application has no guardian name to create a parent record from.',
+      )
+    }
+    if (app.guardianEmail) {
+      const [existing] = await client
+        .select()
+        .from(parents)
+        .where(eq(parents.email, app.guardianEmail))
+        .limit(1)
+      if (existing) parentRow = existing
+    }
+    if (!parentRow) {
+      newParentId = crypto.randomUUID()
+    }
+  }
+
+  const studentId = crypto.randomUUID()
+  const enrollmentId = crypto.randomUUID()
+
   try {
-    return await client.transaction(async (tx) => {
-      const [student] = await tx
-        .insert(students)
-        .values({
-          admissionNumber: input.admissionNumber,
-          firstName: app.firstName,
-          lastName: app.lastName,
-          otherNames: app.otherNames,
-          gender: app.gender,
-          dateOfBirth: app.dateOfBirth,
-          nationality: app.nationality,
+    const statements: D1BatchItem[] = [
+      client.insert(students).values({
+        id: studentId,
+        admissionNumber: input.admissionNumber,
+        firstName: app.firstName,
+        lastName: app.lastName,
+        otherNames: app.otherNames,
+        gender: app.gender,
+        dateOfBirth: app.dateOfBirth,
+        nationality: app.nationality,
+        address: app.address,
+        status: 'enrolled',
+        currentClassId: input.classId,
+        currentSectionId: input.sectionId ?? null,
+        enrolledAt: input.enrollmentDate,
+      }),
+    ]
+    if (newParentId) {
+      const parts = app.guardianName!.trim().split(/\s+/)
+      statements.push(
+        client.insert(parents).values({
+          id: newParentId,
+          firstName: parts[0]!,
+          lastName: parts.slice(1).join(' ') || parts[0]!,
+          email: app.guardianEmail,
+          phone: app.guardianPhone,
           address: app.address,
-          status: 'enrolled',
-          currentClassId: input.classId,
-          currentSectionId: input.sectionId ?? null,
-          enrolledAt: input.enrollmentDate,
-        })
-        .returning()
-      if (!student) throw smsConflict('Could not create the student record.')
-
-      let parentRow: typeof parents.$inferSelect | null = null
-      if (input.createGuardianParent) {
-        if (!app.guardianName) {
-          throw smsFieldError(
-            'createGuardianParent',
-            'Application has no guardian name to create a parent record from.',
-          )
-        }
-        if (app.guardianEmail) {
-          const [existing] = await tx
-            .select()
-            .from(parents)
-            .where(eq(parents.email, app.guardianEmail))
-            .limit(1)
-          if (existing) parentRow = existing
-        }
-        if (!parentRow) {
-          const parts = app.guardianName.trim().split(/\s+/)
-          const [created] = await tx
-            .insert(parents)
-            .values({
-              firstName: parts[0]!,
-              lastName: parts.slice(1).join(' ') || parts[0]!,
-              email: app.guardianEmail,
-              phone: app.guardianPhone,
-              address: app.address,
-              isActive: true,
-            })
-            .returning()
-          parentRow = created ?? null
-        }
-        if (parentRow) {
-          await tx
-            .insert(studentParents)
-            .values({
-              studentId: student.id,
-              parentId: parentRow.id,
-              relationship: 'guardian',
-              isPrimary: true,
-              isEmergencyContact: false,
-            })
-            .onConflictDoNothing()
-        }
-      }
-
-      const [enrollment] = await tx
-        .insert(studentEnrollments)
-        .values({
-          studentId: student.id,
-          sessionId: input.sessionId,
-          termId: input.termId ?? null,
-          classId: input.classId,
-          sectionId: input.sectionId ?? null,
-          rollNumber: input.rollNumber ?? null,
-          enrollmentDate: input.enrollmentDate,
-          status: 'active',
-        })
-        .returning({ id: studentEnrollments.id })
-
-      await tx
+          isActive: true,
+        }),
+      )
+    }
+    if (input.createGuardianParent) {
+      statements.push(
+        client
+          .insert(studentParents)
+          .values({
+            studentId,
+            parentId: parentRow?.id ?? newParentId!,
+            relationship: 'guardian',
+            isPrimary: true,
+            isEmergencyContact: false,
+          })
+          .onConflictDoNothing(),
+      )
+    }
+    statements.push(
+      client.insert(studentEnrollments).values({
+        id: enrollmentId,
+        studentId,
+        sessionId: input.sessionId,
+        termId: input.termId ?? null,
+        classId: input.classId,
+        sectionId: input.sectionId ?? null,
+        rollNumber: input.rollNumber ?? null,
+        enrollmentDate: input.enrollmentDate,
+        status: 'active',
+      }),
+    )
+    statements.push(
+      client
         .update(admissionApplications)
         .set({
           status: 'enrolled',
-          admittedStudentId: student.id,
+          admittedStudentId: studentId,
           decidedAt: app.decidedAt ?? new Date().toISOString(),
           reviewedById: app.reviewedById ?? actor.userId,
           reviewedAt: app.reviewedAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(admissionApplications.id, id))
+        .where(eq(admissionApplications.id, id)),
+    )
+    await runBatch(client, statements)
 
-      const enrollmentDetailSelect = {
-        id: studentEnrollments.id,
-        studentId: studentEnrollments.studentId,
-        sessionId: studentEnrollments.sessionId,
-        termId: studentEnrollments.termId,
-        classId: studentEnrollments.classId,
-        sectionId: studentEnrollments.sectionId,
-        rollNumber: studentEnrollments.rollNumber,
-        enrollmentDate: studentEnrollments.enrollmentDate,
-        status: studentEnrollments.status,
-        notes: studentEnrollments.notes,
-        createdAt: studentEnrollments.createdAt,
-        updatedAt: studentEnrollments.updatedAt,
-        studentName: sql<string>`trim(concat(${students.firstName}, ' ', ${students.lastName}))`,
-        className: classes.name,
-        sectionName: sections.name,
-        sessionName: academicSessions.name,
-        termName: terms.name,
-      }
-      const [enrollRow] = await tx
-        .select(enrollmentDetailSelect)
-        .from(studentEnrollments)
-        .innerJoin(students, eq(studentEnrollments.studentId, students.id))
-        .innerJoin(
-          academicSessions,
-          eq(studentEnrollments.sessionId, academicSessions.id),
-        )
-        .leftJoin(terms, eq(studentEnrollments.termId, terms.id))
-        .innerJoin(classes, eq(studentEnrollments.classId, classes.id))
-        .leftJoin(sections, eq(studentEnrollments.sectionId, sections.id))
-        .where(eq(studentEnrollments.id, enrollment!.id))
+    const enrollmentDetailSelect = {
+      id: studentEnrollments.id,
+      studentId: studentEnrollments.studentId,
+      sessionId: studentEnrollments.sessionId,
+      termId: studentEnrollments.termId,
+      classId: studentEnrollments.classId,
+      sectionId: studentEnrollments.sectionId,
+      rollNumber: studentEnrollments.rollNumber,
+      enrollmentDate: studentEnrollments.enrollmentDate,
+      status: studentEnrollments.status,
+      notes: studentEnrollments.notes,
+      createdAt: studentEnrollments.createdAt,
+      updatedAt: studentEnrollments.updatedAt,
+      studentName: sql<string>`trim(${students.firstName} || ' ' || ${students.lastName})`,
+      className: classes.name,
+      sectionName: sections.name,
+      sessionName: academicSessions.name,
+      termName: terms.name,
+    }
+    const [enrollRow] = await client
+      .select(enrollmentDetailSelect)
+      .from(studentEnrollments)
+      .innerJoin(students, eq(studentEnrollments.studentId, students.id))
+      .innerJoin(
+        academicSessions,
+        eq(studentEnrollments.sessionId, academicSessions.id),
+      )
+      .leftJoin(terms, eq(studentEnrollments.termId, terms.id))
+      .innerJoin(classes, eq(studentEnrollments.classId, classes.id))
+      .leftJoin(sections, eq(studentEnrollments.sectionId, sections.id))
+      .where(eq(studentEnrollments.id, enrollmentId))
+      .limit(1)
+
+    if (newParentId && !parentRow) {
+      const [created] = await client
+        .select()
+        .from(parents)
+        .where(eq(parents.id, newParentId))
         .limit(1)
-
-      const application = await loadDetail(tx, id)
-      return {
-        application,
-        student: toJsonModel(student),
-        enrollment: toJsonModel(enrollRow!),
-        parent: parentRow ? toJsonModel(parentRow) : null,
-      }
-    })
+      parentRow = created ?? null
+    }
+    const [student] = await client
+      .select()
+      .from(students)
+      .where(eq(students.id, studentId))
+      .limit(1)
+    const application = await loadDetail(client, id)
+    return {
+      application,
+      student: toJsonModel(student!),
+      enrollment: toJsonModel(enrollRow!),
+      parent: parentRow ? toJsonModel(parentRow) : null,
+    }
   } catch (error) {
-    if (isPgUniqueViolation(error)) {
+    if (isUniqueViolation(error)) {
       throw smsConflict(
         'Enrollment conflict: the admission number or enrollment already exists.',
       )

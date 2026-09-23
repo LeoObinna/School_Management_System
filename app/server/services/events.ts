@@ -11,7 +11,7 @@ import {
   asc,
   desc,
   eq,
-  ilike,
+  like,
   or,
   sql,
   type SQL,
@@ -85,13 +85,13 @@ export async function listEvents(
   if (query.search) {
     const pattern = `%${query.search.trim()}%`
     where.push(
-      or(ilike(events.title, pattern), ilike(events.description, pattern))!,
+      or(like(events.title, pattern), like(events.description, pattern))!,
     )
   }
   const filter = all(where)
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(events)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -227,15 +227,15 @@ export async function listAlbums(
     const pattern = `%${query.search.trim()}%`
     where.push(
       or(
-        ilike(galleryAlbums.title, pattern),
-        ilike(galleryAlbums.description, pattern),
+        like(galleryAlbums.title, pattern),
+        like(galleryAlbums.description, pattern),
       )!,
     )
   }
   const filter = all(where)
 
   const totalRows = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`cast(count(*) as integer)` })
     .from(galleryAlbums)
     .where(filter)
   const total = Number(totalRows[0]?.n) || 0
@@ -245,7 +245,7 @@ export async function listAlbums(
       album: galleryAlbums,
       eventName: events.title,
       imageCount: sql<number>`(
-        SELECT count(*)::int FROM gallery_images
+        SELECT cast(count(*) as integer) FROM gallery_images
         WHERE gallery_images.album_id = ${galleryAlbums.id}
       )`,
     })
@@ -323,7 +323,7 @@ export async function createAlbum(
       album: galleryAlbums,
       eventName: events.title,
       imageCount: sql<number>`(
-        SELECT count(*)::int FROM gallery_images
+        SELECT cast(count(*) as integer) FROM gallery_images
         WHERE gallery_images.album_id = ${galleryAlbums.id}
       )`,
     })
@@ -364,7 +364,7 @@ export async function updateAlbum(
       album: galleryAlbums,
       eventName: events.title,
       imageCount: sql<number>`(
-        SELECT count(*)::int FROM gallery_images
+        SELECT cast(count(*) as integer) FROM gallery_images
         WHERE gallery_images.album_id = ${galleryAlbums.id}
       )`,
     })
