@@ -7,7 +7,7 @@ import { addImage } from '~/server/services/events'
 import { formString, readUpload } from '~/server/utils/multipart'
 import {
   buildObjectKey,
-  deleteObject,
+  deleteObjects,
   putObject,
 } from '~/server/utils/storage'
 import {
@@ -76,9 +76,8 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 201)
     return album
   } catch (e) {
-    await Promise.all(
-      storedKeys.map((key) => deleteObject(event, key).catch(() => {})),
-    )
+    // Avoid orphan bytes if the metadata update failed.
+    await deleteObjects(event, storedKeys).catch(() => {})
     throw e
   }
 })

@@ -6,8 +6,8 @@ import { idParamSchema } from '~/shared/schemas'
 import { resolveActorProfile } from '~/server/utils/auth/actor'
 import { deleteResource } from '~/server/services/resources'
 import {
+  assertR2Available,
   deleteObject,
-  getR2Bucket,
 } from '~/server/utils/storage'
 import { writeAudit } from '~/server/utils/audit'
 
@@ -17,7 +17,9 @@ export default defineEventHandler(async (event) => {
     id: getRouterParam(event, 'id'),
   })
   const actor = await resolveActorProfile(event, 'resources.manage')
-  getR2Bucket(event)
+  // Fail before touching the database when object storage is offline,
+  // so metadata and bytes do not diverge.
+  assertR2Available(event)
   const objectKey = await deleteResource(id, actor)
   await deleteObject(event, objectKey)
   await writeAudit(event, {

@@ -4,21 +4,18 @@ import { requirePermission } from '~/server/utils/auth/rbac'
 import { parseInput } from '~/server/utils/validation'
 import { idParamSchema } from '~/shared/schemas'
 import { deleteAlbum } from '~/server/services/events'
-import { deleteObject } from '~/server/utils/storage'
+import { deleteObjects } from '~/server/utils/storage'
 import { writeAudit } from '~/server/utils/audit'
 
 export default defineEventHandler(async (event) => {
   const auth = requirePermission(event, 'gallery.manage')
   const { id } = parseInput(idParamSchema, { id: getRouterParam(event, 'id') })
   const { objectKeys, thumbObjectKeys } = await deleteAlbum(id)
-  // Best-effort R2 cleanup; failures do not break the request.
-  for (const key of [...objectKeys, ...thumbObjectKeys]) {
-    try {
-      await deleteObject(event, key)
-    } catch {
-      // R2 may be unavailable in plain Node dev (503); ignore.
-    }
-  }
+  // Best-effort R2 cleanup; failures do not break the request (R2 may be
+  // unavailable in plain Node dev — 503 is swallowed).
+  await deleteObjects(event, [...objectKeys, ...thumbObjectKeys]).catch(
+    () => {},
+  )
   await writeAudit(event, {
     userId: auth.user.id,
     action: 'gallery.album.delete',

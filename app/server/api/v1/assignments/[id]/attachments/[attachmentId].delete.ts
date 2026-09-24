@@ -7,8 +7,8 @@ import { uuidSchema } from '~/shared/schemas'
 import { deleteAttachment } from '~/server/services/assignments'
 import { resolveActorProfile } from '~/server/utils/auth/actor'
 import {
+  assertR2Available,
   deleteObject,
-  getR2Bucket,
 } from '~/server/utils/storage'
 import { writeAudit } from '~/server/utils/audit'
 
@@ -21,7 +21,9 @@ export default defineEventHandler(async (event) => {
     attachmentId: getRouterParam(event, 'attachmentId'),
   })
   const actor = await resolveActorProfile(event, 'assignments.create')
-  getR2Bucket(event)
+  // Fail before touching the database when object storage is offline,
+  // so metadata and bytes do not diverge.
+  assertR2Available(event)
   const objectKey = await deleteAttachment(id, attachmentId, actor)
   await deleteObject(event, objectKey)
   await writeAudit(event, {

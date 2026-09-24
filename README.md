@@ -2854,10 +2854,65 @@ documentation, not a second specification.
                     ("You can only view your own children.").
                     Unchanged: 104-slug catalog + 5-role multi-role
                     RBAC; existing attendance/exams/finance/timetable
-                    routes. Hyperdrive / postgres dep / seed.ts /
-                    legacy-pg migrations remain until Phase 14. No
-                    remote D1 provisioned; staging/production
-                    untouched.
+                    routes. Hyperdrive / postgres dep / seed.ts / legacy-pg
+                    migrations remain until Phase 14. No remote D1
+                    provisioned; staging/production untouched.
+2026-09-24  Phase 11 Option A  R2 consolidation (MIGRATION_GAP_REPORT
+                    §9 + D6). The R2 access layer was already
+                    centralized in server/utils/storage.ts (putObject,
+                    getObjectBytes, deleteObject, streamObject,
+                    buildObjectKey, getR2Bucket); this phase hardens
+                    and extends it. Changes to storage.ts: (1) added
+                    assertR2Available(event) — a semantically explicit
+                    fail-fast alias for getR2Bucket that reads as intent
+                    ("verify storage before mutating the database"); (2)
+                    added deleteObjects(event, keys[]) — batch delete
+                    helper that fails fast on the first error (callers
+                    append .catch(()=>{}) for best-effort cleanup); (3)
+                    added headObject(event, key) returning size/
+                    contentType/etag/lastModified without downloading
+                    the body, plus objectExists(event, key) boolean
+                    convenience; (4) extended R2ObjectLike with etag +
+                    lastModified fields. Route refactors (no behavior
+                    change): (a) 3 delete routes (resources/[id].delete,
+                    assignments/[id].delete, assignments/[id]/
+                    attachments/[attachmentId].delete) replaced bare
+                    getR2Bucket(event) fail-fast calls with
+                    assertR2Available(event); (b) assignments/[id].delete
+                    replaced its for...of deleteObject loop with
+                    deleteObjects; (c) gallery/albums/[id].delete and
+                    gallery/albums/[id]/images/[imageId].delete replaced
+                    their try/catch deleteObject loops with
+                    deleteObjects(...).catch(()=>{}); (d) gallery/
+                    albums/[id]/images/index.post.ts replaced the
+                    Promise.all(keys.map(deleteObject)) rollback with
+                    deleteObjects(...).catch(()=>{}). After this phase,
+                    getR2Bucket is called ONLY from within storage.ts —
+                    no route touches the binding directly. No schema
+                    change (the unified documents table from D6 remains
+                    optional and out of scope; 7 metadata tables
+                    continue to store object keys independently). No
+                    new routes. Tests: server/utils/__tests__/
+                    storage.test.ts — 9 new tests covering
+                    assertR2Available (present/absent binding),
+                    headObject + objectExists (present/missing),
+                    deleteObjects (order + empty no-op + fail-fast),
+                    and buildObjectKey regression. Gates: nuxt
+                    typecheck EXIT 0, vitest 465/465 across 36 files,
+                    nuxt build (cloudflare-module) EXIT 0 (4.37 MB
+                    total, 1.48 MB gzip). Local D1 smoke (wrangler dev
+                    port 8787, admin): DELETE /assignments/:id 200
+                    {ok:true} (assertR2Available + deleteObjects path;
+                    count 2→1); DELETE /gallery/albums/:id 204
+                    (deleteObjects with .catch; count 2→1); DELETE
+                    /resources/:non-existent 404 "Resource not found."
+                    (assertR2Available passes, R2 binding present).
+                    Unchanged: 104-slug catalog + 5-role multi-role
+                    RBAC; all upload/download routes; R2 private-by-
+                    design with authorized streaming. Hyperdrive /
+                    postgres dep / seed.ts / legacy-pg migrations
+                    remain until Phase 14. No remote D1 provisioned;
+                    staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

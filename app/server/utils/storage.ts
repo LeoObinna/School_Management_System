@@ -30,6 +30,8 @@ export interface R2ObjectLike {
   httpMetadata?: { contentType?: string }
   size?: number
   writtenHttpMetadata?: { contentType?: string }
+  etag?: string
+  lastModified?: string
 }
 
 interface CloudflareEventContext {
@@ -50,6 +52,17 @@ export function getR2Bucket(event: H3Event): R2BucketLike {
     })
   }
   return binding as R2BucketLike
+}
+
+/**
+ * Semantically explicit fail-fast: throws 503 when the R2 binding is
+ * unavailable. Use this before mutating the database so a storage outage
+ * does not leave metadata pointing at bytes that were never written (or
+ * deletes that orphan objects). `getR2Bucket` is kept for callers that
+ * need the bucket handle directly; this helper reads as intent.
+ */
+export function assertR2Available(event: H3Event): R2BucketLike {
+  return getR2Bucket(event)
 }
 
 /** Builds a deterministic, collision-safe object key for a category. */
@@ -152,4 +165,52 @@ export async function streamObject(
     options.cacheControl ?? 'private, max-age=0, no-store',
   )
   return object.body
+}
+
+/**
+ * Returns object metadata without downloading the body. Returns null when
+ * the object does not exist. Use this to check existence (e.g. whether a
+ * derived thumbnail was persisted) instead of pulling the full bytes.
+ */
+export async function headObject(
+  event: H3Event,
+  key: string,
+): Promise<Pick<R2ObjectLike, 'size' | 'httpMetadata' | 'etag' | 'lastModified'> | null> {
+  const bucket = getR2Bucket(event)
+  // R2Bucket.get with { onlyIf: ... } or head() returns metadata without
+  // body. The structural interface only exposes get(); the concrete
+  // binding supports `get(key, { onlyIf: { etagDoesNotMatch: '' } })`
+  // but the portable approach is to call get() and discard the body.
+  // Workers' R2 get() does not transfer body until consumed, so this is
+  // effectively a head.
+  const object = await bucket.get(key)
+  if (!object) return null
+  return {
+    size: object.size,
+    httpMetadata: object.httpMetadata,
+    etag: object.etag,
+    lastModified: object.lastModified,
+  }
+}
+
+/** True when an object with the given key exists in the bucket. */
+export async function objectExists(event: H3Event, key: string): Promise<boolean> {
+  return (await headObject(event, key)) !== null
+}
+
+/**
+ * Deletes multiple objects in a single pass. Fails fast on the first
+ * error so callers can abort a transaction-style rollback; swallow
+ * individual failures with `.catch(() => {})` when best-effort cleanup
+ * is intended. An empty key list is a no-op.
+ */
+export async function deleteObjects(
+  event: H3Event,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return
+  const bucket = getR2Bucket(event)
+  for (const key of keys) {
+    await bucket.delete(key)
+  }
 }
