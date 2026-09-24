@@ -801,6 +801,24 @@ onMounted(() => {
       </section>
 
       <section
+        v-if="auth.can('inventory.view')"
+        class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+      >
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Inventory</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <NuxtLink
+            to="/inventory"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Stock ledger</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Books and equipment catalog with quantities and condition
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section
         v-if="auth.can('audit_logs.view')"
         class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
       >

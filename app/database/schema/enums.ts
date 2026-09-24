@@ -181,3 +181,22 @@ export const documentVisibilityEnum = sqliteEnum([
   'staff', // any authenticated staff member (admin or teacher)
   'admin', // admins only
 ] as const)
+
+// Inventory (Phase 14C) — stock ledger for books and equipment.
+export const inventoryItemTypeEnum = sqliteEnum([
+  'book',
+  'equipment',
+] as const)
+
+export const inventoryConditionEnum = sqliteEnum([
+  'new',
+  'good',
+  'fair',
+  'poor',
+  'damaged',
+] as const)
+
+export const inventoryStatusEnum = sqliteEnum([
+  'active', // tracked and usable
+  'retired', // removed from service; kept for history
+] as const)

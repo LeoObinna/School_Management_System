@@ -688,6 +688,40 @@ export interface DocumentAccess {
 }
 
 // ---------------------------------------------------------------------------
+// Inventory ledger (README §41, Phase 14C)
+// ---------------------------------------------------------------------------
+
+export type InventoryItemType = 'book' | 'equipment'
+export type InventoryCondition =
+  | 'new'
+  | 'good'
+  | 'fair'
+  | 'poor'
+  | 'damaged'
+export type InventoryStatus = 'active' | 'retired'
+
+export interface InventoryItem {
+  id: string
+  name: string
+  itemType: InventoryItemType
+  category: string | null
+  identifier: string | null
+  quantity: number
+  availableQuantity: number
+  location: string | null
+  condition: InventoryCondition
+  status: InventoryStatus
+  notes: string | null
+  createdById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InventoryItemListItem extends InventoryItem {
+  createdByName: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Exams, assessments, grading, results & report cards (README §18, Phase 7)
 // ---------------------------------------------------------------------------
 
