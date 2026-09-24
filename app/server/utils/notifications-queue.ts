@@ -7,7 +7,7 @@
  * `{ body }` (default v8 serialisation); the consumer receives
  * `message.body` as the original object.
  *
- * The binding exists under the Workers runtime (`wrangler dev`, staging,
+ * The binding exists under the Workers runtime (`wrangler dev`,
  * production). In plain Node dev (`nuxt dev`) it is absent and
  * {@link getNotificationQueue} returns null — callers then dispatch
  * notifications synchronously instead (see communication.ts).

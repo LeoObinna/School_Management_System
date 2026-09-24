@@ -8,7 +8,7 @@ import { defineConfig } from 'drizzle-kit'
  *
  * drizzle-kit only GENERATES the SQL DDL from the TypeScript schema.
  * Migrations are APPLIED with `wrangler d1 migrations apply DB --local`
- * (or `--remote --env staging|production`), NOT `drizzle-kit migrate`,
+ * (or `--remote --env production`), NOT `drizzle-kit migrate`,
  * so D1's binding-managed local/remote databases stay in sync without
  * any direct connection string. See `npm run db:migrate`.
  */

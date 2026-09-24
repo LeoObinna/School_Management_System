@@ -9,7 +9,7 @@
  *
  * In plain Node dev (`nuxt dev`) the binding does not exist; callers
  * receive a clear 503. Local object I/O runs through
- * `wrangler pages dev`, staging or production (Phase 13 wires envs).
+ * `wrangler dev`, production (Phase 13 wires envs).
  */
 import type { H3Event } from 'h3'
 import { createError, setHeader } from 'h3'

@@ -20,7 +20,6 @@
     "db:d1:seed": "tsx database/seed-d1.ts",
     "cf:dev": "npm run build && wrangler dev",
     "cf:type": "wrangler types",
-    "deploy:staging": "npm run build && wrangler deploy -e staging",
     "deploy:production": "npm run build && wrangler deploy -e production"
   },
   "dependencies": {

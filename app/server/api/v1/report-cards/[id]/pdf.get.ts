@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Not Found',
       message:
         'Report card PDF has not been generated. PDF storage requires '
-        + 'the R2_BUCKET binding — run via `npm run cf:dev` or staging.',
+        + 'the R2_BUCKET binding — run via `npm run cf:dev`.',
     })
   }
   const downloadName = `report-card-${card.admissionNumber ?? card.id}.pdf`

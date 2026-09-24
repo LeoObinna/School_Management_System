@@ -8,7 +8,7 @@ import { schema } from '../../database/schema'
  * Every query uses the SQLite dialect (LIKE, `db.batch()`, SQLite
  * raw-SQL fragments). Two runtimes:
  *
- * 1. Cloudflare Workers (staging/production, `wrangler dev`, queue
+ * 1. Cloudflare Workers (production, `wrangler dev`, queue
  *    consumers and cron triggers): the D1 binding is reached through
  *    `event.context.cloudflare.env.DB` (fetch requests) or the env
  *    handed to the `cloudflare:queue` hook / scheduled task. D1 is

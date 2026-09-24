@@ -4,7 +4,7 @@
 Mission: production-ready School Management System.
 Frontend + Backend: Nuxt 4 + TypeScript (Vue 3 + Nitro server routes).
 Database: Cloudflare D1 (SQLite) — the only database in every
-            environment (local, staging, production), authoritative per
+            environment (local, production), authoritative per
             v2.0 spec, 2026-09-21.
 Object storage: Cloudflare R2 (R2_BUCKET binding; no S3 keys in the Worker).
 Compute: Cloudflare Workers + Static Assets (Nitro cloudflare-module preset).
@@ -62,14 +62,13 @@ database migrations through Hyperdrive or any direct DB connection
 string — use `npm run db:migrate` (wrangler d1 migrations apply DB
 --local).
 
-Staging and production run on Cloudflare Workers (`sms-staging` and
-`sms-production` named environments in `app/wrangler.toml`) with
-separate D1 databases (binding `DB`) and separate R2 buckets.
+Production runs on Cloudflare Workers (`sms-production` named
+environment in `app/wrangler.toml`) with its own D1 database
+(binding `DB`) and R2 bucket.
 
 **Deployment is manual only**, initiated from the local terminal:
 
 ```text
-npm run deploy:staging      # npm run build + wrangler deploy -e staging
 npm run deploy:production   # npm run build + wrangler deploy -e production
 ```
 
@@ -79,8 +78,8 @@ pull request. GitHub is used strictly for source control and version
 history.
 
 Never commit secrets. Local secrets live only in the gitignored
-`app/.env`; staging/production secrets are stored with
-`wrangler secret put -e <env>` (or the Cloudflare dashboard).
+`app/.env`; production secrets are stored with
+`wrangler secret put -e production` (or the Cloudflare dashboard).
 
 ## Architecture migration note
 
@@ -92,6 +91,6 @@ so this was a greenfield build of the server layer.
 
 **v2.0 D1 migration (2026-09-21+, owner-approved):** D1 is now the
 authoritative database per `docs/spec/v2/` and the only database in
-every environment (local, staging, production). Migration phases live
+every environment (local, production). Migration phases live
 in `MIGRATION_GAP_REPORT.md` at repo root and README §52; the canonical
 spec package lives under `docs/spec/v2/`.

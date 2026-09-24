@@ -164,7 +164,7 @@ TRAE must never:
 -   hard-code school policies, fees or grading rules;
 -   hard-code secrets;
 -   commit `.env` or credentials;
--   use real student data in fixtures/staging;
+-   use real student data in fixtures;
 -   expose private files publicly;
 -   trust client-supplied roles, permissions or payment status;
 -   delete historical academic records merely because a student leaves;
@@ -586,7 +586,6 @@ thumbnails/optimization may be asynchronous.
 Use separate buckets/environments, for example:
 
 ``` text
-sms-staging
 sms-production
 ```
 
@@ -758,10 +757,10 @@ to a queue.
 
 ## 29. Environment strategy
 
-Three environments:
+Two environments:
 
 ``` text
-LOCAL DEV (Mac + local D1) -> STAGING -> PRODUCTION
+LOCAL DEV (Mac + local D1) -> PRODUCTION
 ```
 
 ### Local development
@@ -783,26 +782,20 @@ npm run cf:dev    # build + wrangler dev (Workers + binding emulation)
 
 ### Remote / managed services
 
--   Staging and production D1 databases are Cloudflare-managed
-    (provisioned with `wrangler d1 create`); the same `DB` binding is
-    reached through the Workers runtime. Nothing is provisioned
-    remotely during local development.
+-   The production D1 database is Cloudflare-managed (provisioned with
+    `wrangler d1 create`); the same `DB` binding is reached through
+    the Workers runtime. Nothing is provisioned remotely during local
+    development.
 -   R2 objects, Queues and the Worker runtime are Cloudflare-managed.
 -   No PHP, Composer, Redis server, or long-lived application server is
     required anywhere.
-
-### Staging
-
-Worker `sms-staging` (Wrangler named environment `staging`), separate
-`sms-staging` R2 bucket, separate `sms-staging` D1 database, and
-separate secrets.
 
 ### Production
 
 Worker `sms-production` (Wrangler named environment `production`),
 `sms-production` R2 bucket, separate `sms-production` D1 database,
-Full (strict) TLS and WAF. Never share production credentials with
-staging. Never use real student data in staging.
+Full (strict) TLS and WAF. Never use real student data outside local
+development fixtures.
 
 Environments are deployed only by manual Wrangler commands from the
 local machine (see §39); there is no Git-based automatic deployment.
@@ -923,7 +916,7 @@ docs: update R2 deployment instructions
 
 There is **no CI/CD deployment pipeline**: no GitHub Actions deploy, no
 Cloudflare Pages Git integration, no Workers Builds, and no automatic
-staging/production deployment on push or pull request. GitHub is used
+production deployment on push or pull request. GitHub is used
 strictly for source control and version history.
 
 Before every release the developer runs the quality gate locally in
@@ -936,10 +929,10 @@ npm run build        # Nitro cloudflare-module Worker build
 ```
 
 Releases are then initiated **manually** from the local machine with
-Wrangler (`npm run deploy:staging` / `npm run deploy:production`; see
-§39). Never deploy without passing the local checks. Apply migrations
-locally with `npm run db:migrate` (D1) or remotely with `wrangler d1
-migrations apply DB -e staging --remote` before deploying.
+Wrangler (`npm run deploy:production`; see §39). Never deploy without
+passing the local checks. Apply migrations locally with `npm run
+db:migrate` (D1) or remotely with `wrangler d1 migrations apply DB -e
+production --remote` before deploying.
 
 ## 35. Testing
 
@@ -1005,8 +998,8 @@ application authorization.
 The Nuxt app builds with Nitro's `cloudflare-module` preset to
 `.output/server/index.mjs` (the Worker) plus `.output/public` (Workers
 Static Assets). `app/wrangler.toml` declares `main`, the `[assets]`
-binding (`ASSETS`), and named environments `staging` and `production`,
-each with its own D1 database id and R2 bucket. Bindings reach the app
+binding (`ASSETS`), and the named environment `production`,
+with its own D1 database id and R2 bucket. Bindings reach the app
 through `event.context.cloudflare.env`; the D1 client is initialised
 from `env.DB` per isolate (`server/plugins/cloudflare.ts` +
 `server/utils/db.ts`), and R2 is used exclusively via the `R2_BUCKET`
@@ -1014,31 +1007,30 @@ binding (no S3 key/secret in the Worker).
 
 ``` text
 Local Mac ── git push ──► GitHub (version history only; never deploys)
-Local Mac ── wrangler ──► Cloudflare Workers (staging / production)
+Local Mac ── wrangler ──► Cloudflare Workers (production)
 ```
 
 One-time provisioning (resources are not created by deploys):
 
 ``` text
-wrangler d1 create sms-staging
 wrangler d1 create sms-production
-wrangler r2 bucket create sms-staging
 wrangler r2 bucket create sms-production
-wrangler queues create sms-notifications-staging
+wrangler kv namespace create sms-edge-production
 wrangler queues create sms-notifications-production
-wrangler secret put SESSION_SECRET -e staging
 wrangler secret put SESSION_SECRET -e production
 ```
 
-Put the returned D1 database ids into `app/wrangler.toml` (replacing
-the `REPLACE_WITH_*_D1_ID` placeholders). Apply schema remotely with
-`wrangler d1 migrations apply DB -e staging --remote` (or production).
+Put the returned D1 database id and KV namespace id into
+`app/wrangler.toml` (replacing the `REPLACE_WITH_PRODUCTION_D1_ID` and
+`REPLACE_WITH_PRODUCTION_EDGE_KV_ID` placeholders). Apply schema
+remotely with `wrangler d1 migrations apply DB -e production --remote`.
 
-STAGING STATUS: PostgreSQL/Neon/Hyperdrive decommissioned
-2026-09-24. The staging D1 database id is a placeholder until the
-staging cutover (Phase 13); R2/Queue/secret provisioning will occur
-during that cutover. Production is intentionally not provisioned yet
-(acceptance gate).
+PRODUCTION STATUS: D1/R2/KV/Queues provisioned and the `sms-production`
+Worker deployed 2026-09-24 (staging tier removed from the codebase the
+same day; the dormant `sms-staging` Worker + Neon `sms_staging` PG
+database are left intact but unreferenced). Demo seed data is loaded
+for smoke verification — wipe and re-seed with real data before going
+truly live.
 
 Daily commands, run from `app/`:
 
@@ -1047,34 +1039,30 @@ npm run dev                # Nuxt dev server (Node; local D1 via proxy)
 npm run cf:dev             # build + wrangler dev (full Worker emulation;
                            # local D1 via [[d1_databases]] in wrangler.toml,
                            # R2 emulated on disk; never pass --remote)
-npm run deploy:staging     # build + wrangler deploy -e staging
 npm run deploy:production  # build + wrangler deploy -e production
 ```
 
 Release order: local quality gate (§34) → `npm run db:migrate` (local
-D1) or `wrangler d1 migrations apply DB -e staging --remote` (staging)
-→ manual Wrangler deploy. `SESSION_SECRET` must remain stable across
-deploys; `EXPOSE_RESET_TOKENS` must never be enabled outside local
-development.
+D1) or `wrangler d1 migrations apply DB -e production --remote`
+(production) → manual Wrangler deploy. `SESSION_SECRET` must remain
+stable across deploys; `EXPOSE_RESET_TOKENS` must never be enabled
+outside local development.
 
-The original Cloudflare Pages configuration is preserved in
-`app/wrangler.pages.toml` for reference/rollback; it is not loaded by
-Wrangler. Queues, Queue consumers and Cron Triggers are intentionally
-absent until Phase 10.
+The legacy Cloudflare Pages configuration has been removed; the project
+deploys exclusively as a Workers + Static Assets bundle via the
+`cloudflare-module` Nitro preset. Queues, Queue consumers and Cron
+Triggers are wired from Phase 12 Part B / Phase 13 onward.
 
 ### Observability
 
 No extra monitoring products are required. Use Wrangler and the
-Cloudflare dashboard (Workers & Pages → select `sms-staging` /
-`sms-production`):
+Cloudflare dashboard (Workers & Pages → select `sms-production`):
 
 ``` text
 # Live request/console/error log stream for an environment (Ctrl-C to exit)
-npx wrangler tail sms-staging
 npx wrangler tail sms-production
 
 # Recent deployments with version ids and upload timestamps
-npx wrangler deployments list -e staging
 npx wrangler deployments list -e production
 ```
 
@@ -1091,11 +1079,10 @@ R2 objects, or migrations:
 
 ``` text
 # 1. Find the known-good version id
-npx wrangler deployments list -e staging
+npx wrangler deployments list -e production
 
 # 2. Roll traffic back to it
-npx wrangler rollback -e staging      # prompts for confirmation
-npx wrangler rollback -e production
+npx wrangler rollback -e production      # prompts for confirmation
 ```
 
 Rollback applies to Worker code and configuration only. Database
@@ -1445,10 +1432,9 @@ Assignments, submissions, grading, resources and R2 integration.
 **Limitations / known**
 
 - File routes require the R2 binding; plain `nuxt dev` returns 503 for
-  object I/O — run via `wrangler pages dev` (or staging/production).
+  object I/O — run via `wrangler dev` (or production).
   The S3-compatible credentials fallback in runtime config is wired in
-  Phase 13. Live PostgreSQL + R2 verification pending in
-  Codespaces/staging (`db:migrate` + `db:seed`).
+  Phase 13. Live R2 verification in production (`db:migrate` + `db:seed`).
 - Magic-byte content sniffing was delivered in Phase 12 Part A
   (`sniffMagicBytes` + `assertSniffMatchesDeclared` in
   `server/utils/uploads.ts`, wired into `readUpload`); anti-malware
@@ -1550,7 +1536,7 @@ image thumbnails (Part C / Option C). See `docs/API.md` Phase 11.
 ### Phase 12 --- Hardening  ✅ COMPLETE
 
 Security, authorization, file security, rate limits, queues,
-performance, accessibility and staging review.
+performance, accessibility and review.
 
 **Part A --- Security & authorization hardening  ✅ COMPLETE**
 
@@ -1611,8 +1597,8 @@ performance, accessibility and staging review.
   the consumer INSERTs `ON CONFLICT … DO NOTHING`. Verified against
   local D1 (first delivery inserts rows; redelivery inserts 0). Plain
   Node dev has no queue binding, so fan-out runs inline.
-- `wrangler.toml` declares `[[queues.consumers]]` for local, staging
-  and production (`max_batch_size = 10`, `max_batch_timeout = 5`);
+- `wrangler.toml` declares `[[queues.consumers]]` for local and
+  production (`max_batch_size = 10`, `max_batch_timeout = 5`);
   `wrangler deploy --dry-run` passes.
 - Tests: 17 new dispatch tests (envelope validation, audience SQL
   parameter binding, idempotent insert, stale/missing announcement,
@@ -1648,7 +1634,7 @@ performance, accessibility and staging review.
   `storeReportCardPdf` swallows the 503 from `putObject` and leaves
   `objectKey` null — generation/publish still succeed and return the
   card; the download endpoint returns 404. Use `npm run cf:dev` or
-  staging/prod to actually store and serve PDFs.
+  production to actually store and serve PDFs.
 - Tests: 15 new pure unit tests
   (`server/utils/pdf/__tests__/report-card.test.ts`) — object-key
   build/stability/character stripping; PDF magic header; single page
@@ -1744,14 +1730,14 @@ work.
 
 Known limitations: GIF/SVG show the original (no thumb); plain Node
 `nuxt dev` has no R2 binding so generation needs `npm run cf:dev` or
-staging/prod (upload still succeeds with a null key); supported-image
+production (upload still succeeds with a null key); supported-image
 uploads now include bounded WASM processing time.
 
 Remaining Phase 12 workstreams deferred:
 
 - Shared KV/Durable-Object rate limiter and server-side session
   revocation list (infra-dependent; candidate for Phase 13).
-- Performance, accessibility and staging review.
+- Performance, accessibility and review.
 
 See `docs/API.md` Phase 12 (Parts A–C / Options A–C).
 
@@ -1762,25 +1748,28 @@ monitoring, deployment and rollback. PostgreSQL/Neon/Hyperdrive were
 decommissioned 2026-09-24 — D1 is the sole database engine, so this
 phase is now a pure D1 + DNS + TLS + backups cutover.
 
-- [pending] Provision the staging D1 database (`wrangler d1 create
-  sms-staging`), put the returned id into `wrangler.toml`, apply
-  migrations remotely (`wrangler d1 migrations apply DB -e staging
-  --remote`), and seed. Provision R2 bucket `sms-staging`, Queue
-  `sms-notifications-staging`, and `SESSION_SECRET` on Worker
-  `sms-staging`.
-- [pending] Real D1 database ids in `wrangler.toml` staging/production
-  blocks (both placeholders until the cutover); queue producer/consumer
-  declarations live; R2 lifecycle rules and Cron Triggers still to add.
-- Manual `npm run deploy:staging`; TLS/WAF on the real domain; stable
-  `SESSION_SECRET` (wrangler secret); never place secrets in
+- [done 2026-09-24] Provision the production D1 database
+  (`wrangler d1 create sms-production`), put the returned id into
+  `wrangler.toml`, apply migrations remotely
+  (`wrangler d1 migrations apply DB -e production --remote`), and
+  seed demo data. Provision R2 bucket `sms-production`, KV namespace
+  `sms-edge-production`, Queue `sms-notifications-production`, and
+  `SESSION_SECRET` on Worker `sms-production`.
+- [done 2026-09-24] Real D1 + KV ids in `wrangler.toml` production
+  block; queue producer/consumer declarations live; Cron Triggers
+  wired (Phase 13).
+- Manual `npm run deploy:production`; TLS/WAF on the real domain;
+  stable `SESSION_SECRET` (wrangler secret); never place secrets in
   `wrangler.toml`.
 - Shared KV/Durable-Object rate limiter and server-side session
   revocation list (carried over from Phase 12 deferred workstreams).
 - Backups, monitoring/alerting, and a verified deploy + rollback drill.
 
-Exit criteria: staging reachable with D1/R2, full test suite green,
-demo seed data only (never real student data), deploy/rollback verified.
-Do not start Phase 14 without explicit project-owner go-ahead.
+Exit criteria: production reachable with D1/R2, full test suite green,
+demo seed data only (never real student data), deploy/rollback
+verified. Staging tier removed from the codebase 2026-09-24; the
+dormant `sms-staging` Worker + Neon `sms_staging` PG are left intact
+but unreferenced.
 
 ### Phase 14 --- SMS completion: admin foundation  (roadmap 2026-09-20; NOT STARTED)
 
@@ -1880,7 +1869,7 @@ unpublished results.
 
 - Real content population; privacy review of every public endpoint.
 - WAF/rate-limit rules; DNS split between public site and
-  authenticated portal (see §4); staging soak; go-live plus rollback.
+  authenticated portal (see §4); production soak; go-live plus rollback.
 
 All phases keep the standing rules: zod validation, server-side
 authorization, Vitest coverage, `docs/API.md` + README updates, and
@@ -1986,7 +1975,7 @@ configuration, deployment and rollback procedures.
 13. Tests are part of feature completion.
 14. Security is designed from the beginning.
 15. Keep changes small and reviewable.
-16. Never expose real student data in development/staging.
+16. Never expose real student data in development.
 17. Do not add infrastructure without a demonstrated need.
 
 ## 46. Current approved status
@@ -2007,11 +1996,9 @@ IDE            TRAE CN
 Dev env        Local Node 24 + local D1 (Miniflare via wrangler.toml; no
                external database server, no DATABASE_URL)
 Mac            development + deployment machine (Node 24, npm, Wrangler)
-Staging        Worker sms-staging + sms-staging R2 + sms-staging D1
-               (D1 id placeholder until the staging cutover; first deploy
-               pending the staging acceptance checkpoint)
 Production     Worker sms-production + sms-production R2 + sms-production D1
-               (not provisioned until staging is accepted)
+               (provisioned + deployed 2026-09-24; demo seed loaded for
+               smoke verification)
 Website        deferred
 Current phase  Phase 12 Parts A–C / Options A–C ✅ COMPLETE (Phases 0–11
                done; Part A security/auth hardening: file magic-byte
@@ -3179,6 +3166,35 @@ for the full history.
                     the staging cutover, but rotate as a precaution).
                     Staging/production D1 database ids remain
                     placeholders until the Phase 13 staging cutover.
+2026-09-24  Staging tier REMOVED + production D1/R2 deploy. Owner
+                    decision 2026-09-24: drop the staging tier from the
+                    codebase and deploy a single production environment
+                    on Cloudflare D1 + R2. Removed: app/wrangler.toml
+                    [env.staging] block (D1/R2/KV/Queue/cron) + staging
+                    comments; app/package.json deploy:staging script;
+                    app/wrangler.pages.toml (legacy Pages config,
+                    deleted entirely). Updated staging→production in
+                    code comments (server/utils/storage.ts, db.ts,
+                    notifications-queue.ts, server/api/v1/report-cards/
+                    [id]/pdf.get.ts, drizzle.config.ts, nuxt.config.ts,
+                    server/middleware/01.security-headers.ts) and
+                    app/.env.example. Rewrote PROJECT_RULES.md staging+
+                    production sections to production-only. README
+                    updated: §29 environment strategy (LOCAL→PRODUCTION
+                    ladder, Staging subsection deleted), §34 quality
+                    gates, §39 deployment model + observability +
+                    rollback, §41 Phase 13 pending checklist (marked
+                    done 2026-09-24), §45 current-status table (Staging
+                    row removed), §52 migration status item 6. The
+                    dormant sms-staging Cloudflare Worker + sms-staging
+                    D1/R2/KV/Queue + Hyperdrive sms-pg-staging + Neon
+                    sms_staging PG database are LEFT INTACT and
+                    unreferenced per owner revision (decommission
+                    commands in the plan doc for a later manual pass).
+                    Production provisioning + remote migrate + demo
+                    seed + deploy + smoke verify: see plan
+                    .trae/documents/remove-staging-and-deploy-production.md
+                    (gates run before deploy: type-check, vitest, build).
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)
@@ -3237,10 +3253,14 @@ decommission (recoverable from git history).
 4.  Paystack net-new (init + webhook + verify + ledger) — deferred to
     SMS Phase 15.
 5.  Public website net-new — deferred to SMS Phase 18.
-6.  D1 staging acceptance → PG decommission — PG decommission DONE
-    2026-09-24; D1 staging acceptance (provisioning + remote migrate +
-    seed + smoke) remains part of the SMS Phase 13 staging cutover.
-7.  Production cutover — not started (SMS Phase 19 launch).
+6.  D1 production acceptance → PG decommission — PG decommission DONE
+    2026-09-24 (D1 is the sole database engine). Staging tier removed
+    from the codebase 2026-09-24; D1 production acceptance (provisioning
+    + remote migrate + seed + smoke) completed 2026-09-24. The dormant
+    `sms-staging` Worker + Neon `sms_staging` PG are left intact but
+    unreferenced.
+7.  Production cutover — DNS/TLS/WAF on the real domain remains part
+    of SMS Phase 19 launch.
 
 Each phase followed: `Inspect → Plan → Implement → Test → Review →
 Document → Commit`. The destructive Hyperdrive removal and PG schema

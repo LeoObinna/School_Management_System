@@ -86,7 +86,7 @@ export default defineNuxtConfig({
     sessionSecret: '',
     // Dev-only: surface password-reset tokens from the API until the
     // Queues-backed mailer exists (Phase 10). NEVER enabled in
-    // staging/prod. Resolved per request in the cloudflare plugin.
+    // production. Resolved per request in the cloudflare plugin.
     exposeResetTokens: false,
     // Public config exposed to client
     public: {

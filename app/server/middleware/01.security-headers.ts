@@ -10,7 +10,7 @@
  *
  * Content-Security-Policy is intentionally NOT set here yet: the Nuxt
  * hydration + inline payload scripts need a tested nonce/strict policy,
- * tracked as a Phase 13 staging-review follow-up.
+ * tracked as a Phase 13 follow-up.
  */
 import { defineEventHandler, setResponseHeaders } from 'h3'
 
