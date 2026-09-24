@@ -35,6 +35,41 @@ onMounted(load)
       <p class="mt-1 text-sm text-gray-500">{{ auth.user?.name ?? '' }}</p>
     </div>
 
+    <!-- Deep-link tab strip (Phase 7 Option B). Overview renders the
+         widgets below; the other tabs navigate to their surfaces. -->
+    <nav class="flex flex-wrap gap-1 border-b border-gray-200">
+      <NuxtLink
+        to="/teachers/me"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-indigo-600 text-indigo-700"
+      >
+        Overview
+      </NuxtLink>
+      <NuxtLink
+        to="/my-classes"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-900"
+      >
+        My Subjects
+      </NuxtLink>
+      <NuxtLink
+        to="/attendance"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-900"
+      >
+        Attendance
+      </NuxtLink>
+      <NuxtLink
+        to="/exam-results/enter"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-900"
+      >
+        Results
+      </NuxtLink>
+      <NuxtLink
+        to="/timetable"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-900"
+      >
+        Timetable
+      </NuxtLink>
+    </nav>
+
     <div
       v-if="loading"
       class="rounded-md border border-gray-200 bg-white p-6 text-sm text-gray-600"

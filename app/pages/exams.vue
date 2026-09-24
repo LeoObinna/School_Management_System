@@ -235,31 +235,15 @@ const subjectForm = reactive({
   maxScore: '100',
   examDate: '',
 })
-const scoreRows = ref<{ studentId: string; name: string; score: string }[]>([])
-const scoreBusy = ref(false)
 
 async function openManage(e: ExamListItem) {
   manageError.value = null
   try {
     managing.value = await examsApi.getExam(e.id)
-    await reloadScoreRows()
     manageOpen.value = true
   } catch (err) {
     manageError.value = formatApiError(err)
   }
-}
-
-async function reloadScoreRows() {
-  if (!managing.value) return
-  // Fetch enrolled students for the exam's class by listing students via
-  // the existing academics layer is not available here; instead drive the
-  // score grid from existing assessment_scores for the same class/subject.
-  // For an exam with no scores entered yet, the teacher enters them by
-  // admission number. To keep this page self-contained, we render an
-  // editable free-form grid keyed on previously stored exam_scores.
-  // (Full class roster requires a /classes/:id/students endpoint added
-  // in a follow-up; the bulk upsert schema accepts any student UUIDs the
-  // teacher pastes in.)
 }
 
 async function addSubject() {
@@ -287,27 +271,6 @@ async function removeSubject(subjectId: string) {
     managing.value = await examsApi.getExam(managing.value.id)
   } catch (err) {
     manageError.value = formatApiError(err)
-  }
-}
-
-async function saveBulkScores(examSubjectId: string) {
-  if (!managing.value) return
-  if (scoreRows.value.length === 0) return
-  scoreBusy.value = true
-  manageError.value = null
-  try {
-    await examsApi.bulkUpsertExamScores(managing.value.id, {
-      examSubjectId,
-      scores: scoreRows.value.map((r) => ({
-        studentId: r.studentId,
-        score: r.score,
-      })),
-    })
-    manageError.value = null
-  } catch (err) {
-    manageError.value = formatApiError(err)
-  } finally {
-    scoreBusy.value = false
   }
 }
 
@@ -688,42 +651,17 @@ async function publishReport() {
         </div>
 
         <div v-if="canEnterScores" class="mt-6">
-          <h4 class="text-sm font-medium text-gray-900">Bulk score entry</h4>
+          <h4 class="text-sm font-medium text-gray-900">Score entry</h4>
           <p class="mt-1 text-xs text-gray-500">
-            Add rows below (student UUID + score), then save per subject.
+            Use the dedicated score-entry page to enter assessment and exam
+            scores against your class roster.
           </p>
-          <div v-for="s in managing.subjects" :key="s.subjectId" class="mt-3 rounded-md border border-gray-100 p-3">
-            <p class="text-sm font-medium">{{ s.subjectName }} (max {{ s.maxScore }})</p>
-            <div class="mt-2 space-y-1">
-              <div
-                v-for="(row, idx) in scoreRows"
-                :key="idx"
-                class="flex gap-2"
-              >
-                <input
-                  v-model="row.studentId"
-                  placeholder="Student UUID"
-                  class="flex-1 rounded-md border border-gray-300 px-2 py-1 text-xs"
-                />
-                <input
-                  v-model="row.score"
-                  placeholder="Score"
-                  class="w-24 rounded-md border border-gray-300 px-2 py-1 text-xs"
-                />
-                <button class="text-xs text-red-600 hover:underline" @click="scoreRows.splice(idx, 1)">✕</button>
-              </div>
-              <button class="text-xs text-indigo-600 hover:underline" @click="scoreRows.push({ studentId: '', name: '', score: '' })">
-                + Add row
-              </button>
-            </div>
-            <button
-              class="mt-2 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
-              :disabled="scoreBusy || scoreRows.length === 0"
-              @click="saveBulkScores(s.id)"
-            >
-              Save scores
-            </button>
-          </div>
+          <NuxtLink
+            to="/exam-results/enter"
+            class="mt-2 inline-block rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+          >
+            Open score entry →
+          </NuxtLink>
         </div>
 
         <div class="mt-6 flex justify-end">

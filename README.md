@@ -3070,6 +3070,78 @@ documentation, not a second specification.
                     Hyperdrive / postgres dep / seed.ts / legacy-pg
                     migrations remain until Phase 14. No remote D1
                     provisioned; staging/production untouched.
+2026-09-24  Phase 7 Option B   Teacher self-service follow-up
+                    (README §17 phase plan item 7 Option B). Pre-flight
+                    confirmed all backend already existed: /exam-results
+                    GET/POST + /:id GET + /:id/{submit,approve,publish}
+                    POST (all actor-scoped for teachers via
+                    teacherTaughtClassIds); /exams/:id/scores PUT
+                    (bulkUpsertExamScores, exam_results.enter);
+                    /assessment-scores POST/GET + /assessment-scores/bulk
+                    PUT (bulkUpsertAssessmentScores); /teachers/me/
+                    students GET (class roster, refuses foreign classIds
+                    silently); assertCanEnterForStudent + assertScores
+                    Unlocked enforce teacher-class ownership + publication
+                    lock server-side. No new backend, no new routes, no
+                    schema changes. Frontend changes: (1) NEW pages/
+                    exam-results/enter.vue — single page with mode toggle
+                    ('ca' continuous assessment | 'exam' exam scores),
+                    shared Session/Term/Class filters (class list driven
+                    by /teacher-assignments/me so teachers only see their
+                    own), CA mode adds Subject (scoped to picked class
+                    from same assignment list) + Assessment Type + Max
+                    Score; Exam mode adds Exam (filtered by session+class)
+                    + Exam Subject (loaded from getExam); roster fetched
+                    via /teachers/me/students (perPage 100) and rendered
+                    as an editable grid; CA mode pre-loads existing scores
+                    via listAssessmentScores(sessionId+termId+subjectId+
+                    assessmentTypeId) joined client-side by studentId;
+                    Save calls bulkUpsertAssessmentScores or
+                    bulkUpsertExamScores (idempotent via onConflictDo
+                    Update). (2) pages/teachers/me.vue — added 5-tab nav
+                    strip (Overview active | My Subjects→/my-classes |
+                    Attendance→/attendance | Results→/exam-results/
+                    enter | Timetable→/timetable); Overview keeps the
+                    existing dashboard widgets unchanged. (3) pages/
+                    exams.vue — removed stub 'Bulk score entry' section
+                    (free-form UUID grid with no-op reloadScoreRows)
+                    and unused script state (scoreRows, scoreBusy,
+                    reloadScoreRows, saveBulkScores); replaced with a
+                    single 'Open score entry →' NuxtLink to /exam-
+                    results/enter. /my-timetable confirmed unnecessary
+                    (/timetable.vue already actor-scopes). Tests: no new
+                    tests (page orchestrates existing endpoints already
+                    covered by backend tests; no new shared schema).
+                    Gates: nuxt typecheck EXIT 0; vitest 495/495 across
+                    37 files (Phase 13 baseline preserved); cloudflare-
+                    module build EXIT 0 (4.39 MB total / 1.49 MB gzip).
+                    D1 smoke (wrangler dev port 8787, teacher@
+                    victoriouschildren.school T001 Ada Obi — 1 class
+                    Primary 1 English Studies 2026/2027 First Term):
+                    /teachers/me 200 + tab-nav text compiled into JS
+                    bundle Dj76wVk9.js; /exam-results/enter 200 (mode
+                    toggle + filters render); /teacher-assignments/me
+                    200 (1 row, classId d3a9e1f3-dba2-4277-8071-22455
+                    d310990, subjectId a9213a0b-2264-4ab6-a199-e560c
+                    9052ec1); /teachers/me/students?classId 200 (2
+                    students Amara STU-001 + David STU-002); PUT /
+                    assessment-scores/bulk with score 85 → 409 'Results
+                    are locked (publication status: published)' —
+                    security-correct: existing publication for Ada's
+                    class is in published state, assertScoresUnlocked
+                    refuses the write; CSRF enforced (403 without x-csrf-
+                    token, passes with sms_csrf cookie value); /exams
+                    200 (2776b) with stub removed ('Student UUID'
+                    placeholder count 0); /exam-results list 200
+                    (publication 437340f6 status=published). RBAC: page
+                    permissions enforced client-side via middleware/
+                    auth.global.ts (UX guard, README §25 — Nitro server
+                    middleware authoritative); API layer returns 401
+                    unauthed / 403 lacking perm. Unchanged: 104-slug
+                    RBAC; all backend routes/services/schemas;
+                    Hyperdrive / postgres dep / seed.ts / legacy-pg
+                    migrations remain until Phase 14. No remote D1
+                    provisioned; staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)
