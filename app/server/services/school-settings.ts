@@ -156,13 +156,48 @@ export async function updateSchoolSettings(
   event: H3Event,
   patch: SchoolSettingsUpdate,
 ): Promise<SchoolSettings> {
+  const entries: [keyof SchoolSettings, unknown][] = (
+    Object.entries(patch) as [keyof SchoolSettings, unknown][]
+  ).filter(([field]) => Boolean(FIELD_TO_KEY[field]))
+  await upsertSettingFields(entries)
+
+  // Write-through invalidation: next read repopulates from D1. Best-effort;
+  // a transient KV outage leaves at most `SETTINGS_CACHE_TTL` seconds of
+  // staleness, which the outer 60s TTL bounds.
+  await invalidate(event, SETTINGS_CACHE_KEY)
+  return getSchoolSettings(event)
+}
+
+/**
+ * Points the school logo at an already-stored R2 object key. The bytes
+ * must be persisted BEFORE this is called (storage-first ordering); the
+ * caller is responsible for best-effort cleanup of the previous object.
+ */
+export async function setSchoolLogoKey(
+  event: H3Event,
+  objectKey: string,
+): Promise<SchoolSettings> {
+  await upsertSettingFields([['logoKey', objectKey]])
+  await invalidate(event, SETTINGS_CACHE_KEY)
+  return getSchoolSettings(event)
+}
+
+/** Clears the school logo pointer (logo removed). */
+export async function clearSchoolLogoKey(
+  event: H3Event,
+): Promise<SchoolSettings> {
+  await upsertSettingFields([['logoKey', '']])
+  await invalidate(event, SETTINGS_CACHE_KEY)
+  return getSchoolSettings(event)
+}
+
+/** Upserts one or more typed settings fields into the key/value table. */
+async function upsertSettingFields(
+  entries: [keyof SchoolSettings, unknown][],
+): Promise<void> {
   const client = await db()
   const now = new Date().toISOString()
-
-  for (const [field, value] of Object.entries(patch) as [
-    keyof SchoolSettings,
-    unknown,
-  ][]) {
+  for (const [field, value] of entries) {
     const key = FIELD_TO_KEY[field]
     if (!key) continue
     const stored =
@@ -183,12 +218,6 @@ export async function updateSchoolSettings(
         set: { value: stored, updatedAt: now },
       })
   }
-
-  // Write-through invalidation: next read repopulates from D1. Best-effort;
-  // a transient KV outage leaves at most `SETTINGS_CACHE_TTL` seconds of
-  // staleness, which the outer 60s TTL bounds.
-  await invalidate(event, SETTINGS_CACHE_KEY)
-  return getSchoolSettings(event)
 }
 
 /** Derives the settings `group` for a field (matches seed conventions). */

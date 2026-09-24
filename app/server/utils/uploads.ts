@@ -14,6 +14,8 @@ export const UPLOAD_LIMITS: Record<UploadCategory, number> = {
   resource: 50 * 1024 * 1024,
   admission_document: 10 * 1024 * 1024,
   gallery_image: 25 * 1024 * 1024,
+  // Logos are small branding assets; 5 MB is generous for a raster source.
+  school_logo: 5 * 1024 * 1024,
 }
 
 export type UploadCategory =
@@ -22,6 +24,7 @@ export type UploadCategory =
   | 'resource'
   | 'admission_document'
   | 'gallery_image'
+  | 'school_logo'
 
 // Allowed declared MIME types. Magic-byte content sniffing is deferred
 // to Phase 12 hardening; for now the declared type must be a known
@@ -60,6 +63,14 @@ const MIME_EXTENSIONS: Record<string, string[]> = {
 // accepts true image uploads.
 const CATEGORY_MIME_PREFIXES: Partial<Record<UploadCategory, string[]>> = {
   gallery_image: ['image/'],
+}
+
+// Exact-MIME allowlists for categories stricter than a prefix match.
+// The school logo is served INLINE on authenticated pages, so SVG is
+// deliberately excluded (it can carry script) even though gallery
+// uploads accept it: only passive raster formats are allowed.
+const CATEGORY_MIME_EXACT: Partial<Record<UploadCategory, string[]>> = {
+  school_logo: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
 }
 
 export interface ValidatedUpload {
@@ -125,6 +136,12 @@ export function validateUpload(input: {
     categoryPrefixes &&
     !categoryPrefixes.some((prefix) => mimeType.startsWith(prefix))
   ) {
+    throw new Error(
+      `File type "${mimeType}" is not allowed for this upload category.`,
+    )
+  }
+  const categoryExact = CATEGORY_MIME_EXACT[input.category]
+  if (categoryExact && !categoryExact.includes(mimeType)) {
     throw new Error(
       `File type "${mimeType}" is not allowed for this upload category.`,
     )

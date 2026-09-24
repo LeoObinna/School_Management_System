@@ -15,6 +15,51 @@ const loadError = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const savedAt = ref<string | null>(null)
 
+const logoBusy = ref(false)
+const logoError = ref<string | null>(null)
+// Bumped after every logo change so the <img> refetches despite the
+// constant logo URL. Starts at 0 (no query param) so the server- and
+// client-rendered src are identical during hydration; a Date.now() seed
+// here would cause a hydration mismatch.
+const logoVersion = ref(0)
+const fileInput = ref<HTMLInputElement | null>(null)
+const hasLogo = computed(() => Boolean(form.logoKey))
+
+async function onLogoFileChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  logoBusy.value = true
+  logoError.value = null
+  try {
+    const updated = await schoolSettingsApi.uploadLogo(file)
+    Object.assign(form, updated)
+    logoVersion.value = Date.now()
+  } catch (err) {
+    logoError.value = formatApiError(err)
+  } finally {
+    logoBusy.value = false
+    // Reset so choosing the same file again still fires a change event.
+    input.value = ''
+  }
+}
+
+async function removeLogo() {
+  if (!form.logoKey) return
+  if (!window.confirm('Remove the school logo?')) return
+  logoBusy.value = true
+  logoError.value = null
+  try {
+    const updated = await schoolSettingsApi.removeLogo()
+    Object.assign(form, updated)
+    logoVersion.value = Date.now()
+  } catch (err) {
+    logoError.value = formatApiError(err)
+  } finally {
+    logoBusy.value = false
+  }
+}
+
 const form = reactive<SchoolSettings>({
   name: '',
   motto: '',
@@ -49,7 +94,10 @@ async function save() {
   saveError.value = null
   savedAt.value = null
   try {
+    // logoKey is managed exclusively through the logo upload/remove
+    // endpoints; never let the text-form save repoint it.
     const patch: Record<string, unknown> = { ...form }
+    delete patch.logoKey
     if (
       form.academicYearStartMonth === null ||
       form.academicYearStartMonth === undefined
@@ -112,10 +160,47 @@ onMounted(load)
 
       <section class="settings-group">
         <h2>Branding</h2>
-        <label>
-          <span>Logo (R2 object key)</span>
-          <input v-model="form.logoKey" type="text" maxlength="300" :disabled="!canUpdate" placeholder="e.g. logos/school.png" />
-        </label>
+        <div class="logo-field">
+          <span class="logo-label">School logo</span>
+          <div class="logo-row">
+            <div class="logo-preview">
+              <img
+                v-if="hasLogo"
+                :src="schoolSettingsApi.logoUrl(logoVersion)"
+                alt="School logo"
+              />
+              <span v-else class="muted">No logo set</span>
+            </div>
+            <div v-if="canUpdate" class="logo-actions">
+              <input
+                ref="fileInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                hidden
+                @change="onLogoFileChosen"
+              />
+              <button
+                type="button"
+                class="secondary-btn"
+                :disabled="logoBusy"
+                @click="fileInput?.click()"
+              >
+                {{ logoBusy ? 'Working…' : hasLogo ? 'Replace logo' : 'Upload logo' }}
+              </button>
+              <button
+                v-if="hasLogo"
+                type="button"
+                class="danger-btn"
+                :disabled="logoBusy"
+                @click="removeLogo"
+              >
+                Remove
+              </button>
+              <p class="muted logo-hint">PNG, JPEG, WebP or GIF, max 5 MB.</p>
+              <p v-if="logoError" class="error">{{ logoError }}</p>
+            </div>
+          </div>
+        </div>
         <label>
           <span>Primary color</span>
           <input v-model="form.primaryColor" type="color" :disabled="!canUpdate" />
@@ -221,6 +306,54 @@ select {
 input[type='color'] {
   height: 2.5rem;
   padding: 2px;
+}
+.logo-field {
+  margin-bottom: 0.75rem;
+}
+.logo-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #333;
+  margin-bottom: 0.4rem;
+}
+.logo-row {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+.logo-preview {
+  width: 128px;
+  height: 128px;
+  flex: 0 0 128px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #bbb;
+  border-radius: 8px;
+  background: #fafafa;
+  overflow: hidden;
+}
+.logo-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.logo-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.logo-hint {
+  margin: 0;
+}
+.secondary-btn {
+  background: #fff;
+  color: #1a237e;
+  border: 1px solid #1a237e;
+}
+.danger-btn {
+  background: #b22234;
 }
 .form-actions {
   margin-top: 1.5rem;

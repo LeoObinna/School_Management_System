@@ -83,6 +83,8 @@ import {
   getSchoolSettings,
   updateSchoolSettings,
   getPublicSchoolSettings,
+  setSchoolLogoKey,
+  clearSchoolLogoKey,
 } from '../school-settings'
 
 describe('school settings service', () => {
@@ -228,5 +230,36 @@ describe('school settings KV cache (Phase 12)', () => {
     const pub = await getPublicSchoolSettings(eventWith(kv))
     expect(pub.name).toBe('Cached Public')
     expect(pub).not.toHaveProperty('bankName')
+  })
+})
+
+describe('school logo pointer (Phase 14A)', () => {
+  beforeEach(() => {
+    storedRows = []
+    inserted.length = 0
+    updated.length = 0
+  })
+
+  it('setSchoolLogoKey upserts school.logo_key and invalidates the cache', async () => {
+    const kv = new FakeKv()
+    storedRows = [{ key: 'school.name', value: 'School' }]
+    await setSchoolLogoKey(eventWith(kv), 'school/logo/abc-logo.jpeg')
+
+    const row = inserted.find((r) => r.key === 'school.logo_key')
+    expect(row?.value).toBe('school/logo/abc-logo.jpeg')
+    expect(kv.deletes).toContain('cache:school:settings')
+  })
+
+  it('clearSchoolLogoKey stores an empty logo key and invalidates the cache', async () => {
+    const kv = new FakeKv()
+    storedRows = [
+      { key: 'school.name', value: 'School' },
+      { key: 'school.logo_key', value: 'school/logo/old.png' },
+    ]
+    await clearSchoolLogoKey(eventWith(kv))
+
+    const row = inserted.find((r) => r.key === 'school.logo_key')
+    expect(row?.value).toBe('')
+    expect(kv.deletes).toContain('cache:school:settings')
   })
 })

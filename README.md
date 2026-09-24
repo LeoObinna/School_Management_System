@@ -1741,12 +1741,21 @@ Remaining Phase 12 workstreams deferred:
 
 See `docs/API.md` Phase 12 (Parts A–C / Options A–C).
 
-### Phase 13 --- Production readiness  (roadmap approved 2026-09-20; NOT STARTED)
+### Phase 13 --- Production readiness  (infra + deploy DONE 2026-09-24; REMAINDER DEFERRED — DOMAIN BLOCKED)
 
 Cloudflare Workers, TLS/WAF, D1, R2, Queues, Cron Triggers, backups,
 monitoring, deployment and rollback. PostgreSQL/Neon/Hyperdrive were
 decommissioned 2026-09-24 — D1 is the sole database engine, so this
 phase is now a pure D1 + DNS + TLS + backups cutover.
+
+> **Status (owner decision 2026-09-24):** the domain-independent
+> groundwork is complete and production is live on the `workers.dev`
+> URL, but the custom domain is not yet available, so this phase is
+> **parked** (not cancelled) and feature work proceeds with Phase 14.
+> The remaining items are explicitly carried into Phase 19 (Launch)
+> prep: TLS/WAF/DNS on the real domain, live re-verification of the
+> KV rate limiter + session revocation list, D1/R2 backups,
+> monitoring/alerting, and the deploy + rollback drill.
 
 - [done 2026-09-24] Provision the production D1 database
   (`wrangler d1 create sms-production`), put the returned id into
@@ -1758,36 +1767,52 @@ phase is now a pure D1 + DNS + TLS + backups cutover.
 - [done 2026-09-24] Real D1 + KV ids in `wrangler.toml` production
   block; queue producer/consumer declarations live; Cron Triggers
   wired (Phase 13).
-- Manual `npm run deploy:production`; TLS/WAF on the real domain;
-  stable `SESSION_SECRET` (wrangler secret); never place secrets in
-  `wrangler.toml`.
-- Shared KV/Durable-Object rate limiter and server-side session
-  revocation list (carried over from Phase 12 deferred workstreams).
-- Backups, monitoring/alerting, and a verified deploy + rollback drill.
+- [done 2026-09-24] Manual `npm run deploy:production`; stable
+  `SESSION_SECRET` (wrangler secret); secrets never placed in
+  `wrangler.toml`. TLS/WAF on the real domain remains DEFERRED to
+  Phase 19 pending the domain.
+- [code-complete 2026-09-20, live re-verification DEFERRED to Phase
+  19] Shared KV rate limiter and server-side session revocation list
+  (carried over from Phase 12 deferred workstreams) — deployed with
+  the Worker; production behavior to be re-checked during launch prep.
+- [DEFERRED to Phase 19] Backups, monitoring/alerting, and a verified
+  deploy + rollback drill.
 
-Exit criteria: production reachable with D1/R2, full test suite green,
-demo seed data only (never real student data), deploy/rollback
-verified. Staging tier removed from the codebase 2026-09-24; the
+Exit criteria (revised): production reachable on D1/R2 — **met via
+workers.dev 2026-09-24**; full test suite green — met; demo seed data
+only (never real student data) — met; real-domain TLS/WAF, backups,
+monitoring and deploy/rollback drill — deferred to Phase 19 with the
+domain. Staging tier removed from the codebase 2026-09-24; the
 dormant `sms-staging` Worker + Neon `sms_staging` PG are left intact
 but unreferenced.
 
-### Phase 14 --- SMS completion: admin foundation  (roadmap 2026-09-20; NOT STARTED)
+### Phase 14 --- SMS completion: admin foundation  (IN PROGRESS; 14A ✅ COMPLETE 2026-09-24)
 
 Closes the authenticated-SMS gaps in the product spec (admin
 dashboard) and stores school identity/branding as **data** — never
 hard-coded.
 
-- User account, role and permission administration
-  (`GET/POST/PUT /api/v1/users`, role assignment, permission
-  management + admin UI; today roles exist only in the database/seed).
-- School settings module and UI: school name, motto, address/location,
-  email, phone, logo, brand colors, and bank details (bank name,
-  account number, account name). All downstream documents/templates
-  read from settings.
+- User account, role and permission administration — ✅ DONE (delivered
+  ahead of the roadmap as "Phase 6 admin gaps": `GET/POST/PUT/DELETE
+  /api/v1/users`, role replacement, admin password reset with session
+  revocation, roles/permissions viewers, `/users` + `/roles` pages).
+- **14A ✅ COMPLETE 2026-09-24 — School settings + logo.** Settings
+  module/service/UI (name, motto, address, email, phone, brand colors,
+  currency, bank name/account name/number, academic-year start month;
+  KV-cached) existed from the pre-D1 branch and was finished this
+  increment with a real R2-backed school logo: `POST/GET/DELETE
+  /api/v1/school-settings/logo` (raster-only `school_logo` upload
+  category, 5 MB, magic-byte sniff, inline authorized serve, old-object
+  cleanup, audited), an upload/preview/remove widget on `/settings`
+  (the free-text object-key field was removed), and seeding of the
+  owner-supplied school logo (`database/seed-assets/vcs-logo.jpeg`)
+  into local R2, idempotently and without clobbering later uploads.
+  See `docs/API.md` Phase 14A.
 - Documents module (staff document management, R2-backed, authorized
-  streaming, no public bucket URLs).
-- Inventory module (books/equipment ledger).
-- Expanded financial reports (per fee purpose, per class, per term).
+  streaming, no public bucket URLs) — 14B, not started.
+- Inventory module (books/equipment ledger) — 14C, not started.
+- Expanded financial reports (per fee purpose, per class, per term) —
+  14D, not started.
 
 ### Phase 15 --- Payments: Paystack + QR codes  (roadmap 2026-09-20; NOT STARTED)
 
@@ -2000,16 +2025,15 @@ Production     Worker sms-production + sms-production R2 + sms-production D1
                (provisioned + deployed 2026-09-24; demo seed loaded for
                smoke verification)
 Website        deferred
-Current phase  Phase 12 Parts A–C / Options A–C ✅ COMPLETE (Phases 0–11
-               done; Part A security/auth hardening: file magic-byte
-               sniffing + timetable/attendance/exams row-level scoping;
-               Part B queue consumer + async idempotent announcement
-               fan-out; Part C Option A PDF report cards with R2
-               storage + authorized download; Part C Option B xlsx
-               exports, admissions-pipeline report and on-demand PDF
-               audit certificates; Part C Option C on-Worker WASM
-               gallery image thumbnails; email delivery, payment
-               gateway/webhook still deferred).
+Current phase  Phase 14A ✅ COMPLETE (2026-09-24): school settings
+               finished with an R2-backed school logo (raster-only
+               upload, inline authorized serve, remove, /settings
+               widget, local-R2 seed of the owner-supplied logo).
+               Phases 0–12 complete; Phase 13 infra + production deploy
+               DONE but the phase is PARKED — domain unavailable;
+               TLS/WAF/DNS, live KV re-verification, backups,
+               monitoring and the rollback drill are carried into
+               Phase 19. Next: Phase 14B documents module.
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -2054,15 +2078,18 @@ with **Cloudflare D1** as the sole database engine
 -   The public school website is sequenced as Phase 18 in the approved
     2026-09-20 roadmap and remains deferred until the SMS is stable and
     production-ready.
--   Current phase: **Phases 0–12 ✅ COMPLETE; Phase 13 — Production
-    readiness NOT STARTED (awaiting project-owner go-ahead)**.
-    The approved forward roadmap (2026-09-20) is: Phase 13 production
-    readiness; Phase 14 admin foundation (users/roles, school settings,
-    documents, inventory, financial reports); Phase 15 Paystack + QR
+- Current phase: **Phases 0–12 ✅ COMPLETE; Phase 13 infra + production
+    deploy DONE but PARKED (domain blocked — TLS/WAF/DNS, backups,
+    monitoring, live KV re-verification and rollback drill carried into
+    Phase 19); Phase 14 IN PROGRESS — 14A school settings + R2 school
+    logo ✅ COMPLETE 2026-09-24.**
+    The approved forward roadmap (2026-09-20) is: Phase 14 admin
+    foundation — 14A settings/logo (done), 14B documents, 14C
+    inventory, 14D expanded financial reports; Phase 15 Paystack + QR
     payments; Phase 16 dedicated student/parent/teacher portals;
     Phase 17 email/SMS communication channels; Phase 18 public website;
-    Phase 19 launch. Payment gateway/webhook remain deferred to
-    Phase 15.
+    Phase 19 launch (including the deferred Phase 13 domain work).
+    Payment gateway/webhook remain deferred to Phase 15.
 
 ## 48. Architecture decision (summary)
 
@@ -3195,6 +3222,79 @@ for the full history.
                     seed + deploy + smoke verify: see plan
                     .trae/documents/remove-staging-and-deploy-production.md
                     (gates run before deploy: type-check, vitest, build).
+2026-09-24  Phase 13 PARKED (domain blocked) + Phase 14A school
+                    settings/logo. Owner decision: custom domain not yet
+                    available, so feature work proceeds with Phase 14
+                    while the domain-independent Phase 13 remainder
+                    (TLS/WAF/DNS, live KV rate-limiter/revocation
+                    re-verification, D1/R2 backups, monitoring/
+                    alerting, deploy+rollback drill) is carried into
+                    Phase 19 launch prep; production stays live on
+                    workers.dev. 14A delivered: (1) new school_logo
+                    upload category in server/utils/uploads.ts — 5 MB
+                    cap, exact-MIME allowlist image/png|jpeg|webp|gif;
+                    SVG deliberately excluded (logo is served inline),
+                    existing extension cross-check + magic-byte sniff
+                    inherited via readUpload. (2) 3 routes under
+                    server/api/v1/school-settings/logo/: POST multipart
+                    (school.settings.update; R2 storage-first at
+                    school/logo/<uuid>-<name>, repoint school.logo_key,
+                    best-effort delete of previous object, rollback of
+                    new bytes on metadata failure, audit
+                    school_settings.logo.upload); GET (requireUser —
+                    branding is public-to-authenticated; inline stream,
+                    Cache-Control private max-age=300, 404 when unset/
+                    missing); DELETE (school.settings.update; clear key
+                    then best-effort delete; audit .logo.remove).
+                    Service: setSchoolLogoKey/clearSchoolLogoKey +
+                    upsertSettingFields helper; writes invalidate the
+                    existing cache:school:settings KV entry. (3) Client
+                    services/school-settings.ts: uploadLogo(FormData),
+                    removeLogo, logoUrl(?v=). (4) pages/settings.vue:
+                    free-text R2-key input replaced with a 128px logo
+                    preview + hidden file picker (accept raster,
+                    Replace/Upload + Remove buttons, hint/error); logo
+                    is now written only through the logo endpoints
+                    (generic settings PUT strips logoKey); cache-bust
+                    ref seeded at 0 (not Date.now()) to keep SSR/CSR
+                    identical — fixed a hydration mismatch the widget
+                    initially introduced. (5) Real school logo supplied
+                    by owner (vcs logo.jpeg, 1080x956 progressive JPEG)
+                    copied to app/database/seed-assets/vcs-logo.jpeg
+                    (branding asset, not student data); seed-d1.ts now
+                    also seeds local R2 via the getPlatformProxy
+                    R2_BUCKET and points school.logo_key at
+                    school/logo/vcs-logo.jpeg, skipping when a key is
+                    already set so re-seeds preserve UI uploads; the
+                    D1-only SETTINGS catalog no longer resets
+                    school.logo_key. Production logo is set via the
+                    Settings UI (seeder is local-only); on plain nuxt
+                    dev (no R2 binding) upload/serve 503/404 as with
+                    other R2 routes — use cf:dev. Tests: +7 (5
+                    school_logo upload-envelope cases incl. SVG/non-
+                    image/5 MB/extension rejection; 2 logo-pointer
+                    service cases) — suite 502/502 across 37 files;
+                    type-check EXIT 0; cloudflare-module build EXIT 0
+                    (4.4 MB / 1.49 MB gzip). wrangler dev D1+R2 smoke
+                    (admin): anonymous GET 401; admin login 200;
+                    /my/school-settings logoKey set; GET logo 200
+                    image/jpeg inline, exact 1080x956 bytes (md5 match);
+                    student GET 200 / student POST 403 / POST without
+                    CSRF 403 / SVG 422 / EXE-renamed-.png 422 via
+                    magic-byte sniff / upload-with-CSRF 200 repoint +
+                    served-bytes md5 match / DELETE 200 key cleared /
+                    subsequent GET 404. Browser: /settings logo widget
+                    renders the seeded logo (naturalWidth 1080,
+                    complete, 200 image/jpeg). Known/pre-existing: a
+                    generic "Hydration completed but contains
+                    mismatches" console warning fires on ALL
+                    authenticated pages (/users, /announcements,
+                    /settings) due to the client-only auth guard vs SSR
+                    — not introduced here; candidate for later
+                    hardening. docs/API.md Phase 14A section added;
+                    README §41/§46/§47 + this entry updated. No
+                    migration, no new permission slugs, no remote/prod
+                    action taken.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

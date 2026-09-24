@@ -161,6 +161,71 @@ describe('validateUpload', () => {
       }),
     ).toThrow(/not allowed/)
   })
+
+  it('accepts raster school logos (png/jpeg/webp/gif) up to 5 MB', () => {
+    const cases: { fileName: string; mimeType: string; ext: string }[] = [
+      { fileName: 'logo.png', mimeType: 'image/png', ext: 'png' },
+      { fileName: 'logo.jpg', mimeType: 'image/jpeg', ext: 'jpg' },
+      { fileName: 'logo.webp', mimeType: 'image/webp', ext: 'webp' },
+      { fileName: 'logo.gif', mimeType: 'image/gif', ext: 'gif' },
+    ]
+    for (const c of cases) {
+      const result = validateUpload({
+        fileName: c.fileName,
+        mimeType: c.mimeType,
+        sizeBytes: 100 * 1024,
+        category: 'school_logo',
+      })
+      expect(result.extension).toBe(c.ext)
+    }
+  })
+
+  it('rejects SVG school logos (served inline)', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'logo.svg',
+        mimeType: 'image/svg+xml',
+        sizeBytes: 1024,
+        category: 'school_logo',
+      }),
+    ).toThrow(/not allowed/)
+  })
+
+  it('rejects non-image school logos', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'policy.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 1024,
+        category: 'school_logo',
+      }),
+    ).toThrow(/not allowed/)
+  })
+
+  it('rejects school logos over 5 MB', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'logo.png',
+        mimeType: 'image/png',
+        sizeBytes: 6 * 1024 * 1024,
+        category: 'school_logo',
+      }),
+    ).toThrow(/5 MB/)
+  })
+
+  it('rejects a school logo with a non-image extension', () => {
+    // Magic-byte sniffing is the defence against image bytes disguised as
+    // another image subtype; the extension check only guards non-image
+    // extensions riding an image MIME.
+    expect(() =>
+      validateUpload({
+        fileName: 'logo.exe',
+        mimeType: 'image/png',
+        sizeBytes: 1024,
+        category: 'school_logo',
+      }),
+    ).toThrow(/extension/)
+  })
 })
 
 describe('buildObjectKey', () => {

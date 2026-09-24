@@ -15,6 +15,25 @@ export const schoolSettingsApi = {
   update: (patch: SchoolSettingsUpdate) =>
     api.put<SchoolSettings>('/school-settings', patch),
 
+  /**
+   * Uploads a replacement logo (multipart; school.settings.update).
+   * Stored in R2 and repointed server-side; returns full settings.
+   */
+  uploadLogo: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<SchoolSettings>('/school-settings/logo', form)
+  },
+
+  /** Removes the current logo (school.settings.update). */
+  removeLogo: () => api.del<SchoolSettings>('/school-settings/logo'),
+
+  /** Same-origin URL for the current logo; append a version to bust cache. */
+  logoUrl: (version?: string | number) =>
+    `${useRuntimeConfig().public.apiBaseUrl}/school-settings/logo${
+      version ? `?v=${version}` : ''
+    }`,
+
   /** Public branding subset — any authenticated user. */
   getPublic: () =>
     api.get<SchoolPublicSettings>('/my/school-settings'),

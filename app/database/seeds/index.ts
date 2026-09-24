@@ -127,7 +127,9 @@ const SETTINGS: { key: string; value: string; type: string; group: string }[] = 
   { key: 'school.email', value: 'info@victoriouschildren.school', type: 'string', group: 'general' },
   { key: 'school.phone', value: '', type: 'string', group: 'general' },
   { key: 'school.address', value: 'Ojodu, Lagos', type: 'string', group: 'general' },
-  { key: 'school.logo_key', value: '', type: 'string', group: 'branding' },
+  // school.logo_key is intentionally absent here: it is seeded with real
+  // R2 bytes by seedSchoolLogo() in database/seed-d1.ts (Phase 14A) and
+  // must survive re-seeds once an admin uploads a replacement logo.
   { key: 'school.primary_color', value: '#1a237e', type: 'string', group: 'branding' },
   { key: 'school.secondary_color', value: '#1a1a2e', type: 'string', group: 'branding' },
   { key: 'school.currency', value: 'NGN', type: 'string', group: 'finance' },

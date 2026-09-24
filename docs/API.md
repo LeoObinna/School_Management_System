@@ -1130,3 +1130,70 @@ Behavior:
 - Generation adds WASM CPU time to uploads of supported images; source
   dimensions are capped at 10,000 px to bound memory use.
 
+## Phase 14A — Admin foundation: school settings + logo
+
+Settings are key/value rows in the `school_settings` table
+(`school.<field>` keys) mapped to one typed object by
+`server/services/school-settings.ts`. Reads are served through a single
+KV cache entry (`cache:school:settings`, 60 s TTL, fail-open; unbound in
+plain Node dev); every write invalidates the entry and re-reads.
+
+### Settings object
+
+- `name`, `motto`, `address`, `email`, `phone`, `logoKey`,
+  `primaryColor`, `secondaryColor` — identity/branding (public subset).
+- `currency`, `bankName`, `accountName`, `accountNumber`,
+  `academicYearStartMonth` — finance/academic (admin only).
+
+### Endpoints
+
+- `GET /api/v1/my/school-settings` — any authenticated user; returns the
+  public branding/identity subset (never bank details).
+- `GET /api/v1/school-settings` — requires `school.settings.view`;
+  returns the full object.
+- `PUT /api/v1/school-settings` — requires `school.settings.update`;
+  zod-validated partial update (`schoolSettingsUpdateSchema`); fields
+  absent from the body are untouched; audited
+  (`school_settings.update`).
+- `POST /api/v1/school-settings/logo` — requires
+  `school.settings.update`; `multipart/form-data` with a single `file`
+  part. Stores the bytes in R2 FIRST (`school/logo/<uuid>-<name>`,
+  validated as the `school_logo` category), then repoints
+  `school.logo_key` and deletes the previous object best-effort. Returns
+  the full settings object. On metadata failure the newly stored object
+  is rolled back. Audited (`school_settings.logo.upload`).
+- `GET /api/v1/school-settings/logo` — any authenticated user; streams
+  the current logo inline (`Content-Disposition: inline`,
+  `Cache-Control: private, max-age=300`). `404` when no logo is set or
+  the stored object is missing. The URL is constant while the object key
+  changes on replacement, hence the short cache TTL; the settings UI
+  appends `?v=<timestamp>` after a change to bust it.
+- `DELETE /api/v1/school-settings/logo` — requires
+  `school.settings.update`; clears `school.logo_key`, deletes the R2
+  object best-effort, audited (`school_settings.logo.remove`); returns
+  the full settings object.
+
+### Logo upload envelope (`school_logo` category)
+
+- Raster images only: `image/png`, `image/jpeg`, `image/webp`,
+  `image/gif`. SVG is deliberately rejected because the logo is served
+  inline on authenticated pages. Declared MIME + filename extension are
+  cross-checked and the leading bytes undergo the Phase 12 magic-byte
+  sniff (an executable renamed `.png` returns `422`).
+- Size cap: 5 MB. Empty files and non-multipart requests return `422`.
+- CSRF: the POST/DELETE require the double-submit `x-csrf-token` header;
+  without it they return `403` (same as every state-changing endpoint).
+
+### Seeding
+
+`database/seed-d1.ts` seeds the real school logo
+(`database/seed-assets/vcs-logo.jpeg`, the school branding supplied by
+the project owner — not student data) into local R2 at
+`school/logo/vcs-logo.jpeg` and sets `school.logo_key`. It skips when a
+key is already set, so re-runs never clobber a UI-uploaded logo; the
+D1-only catalog in `database/seeds/index.ts` deliberately omits
+`school.logo_key`. Production logo is set through the Settings UI (the
+seeder only ever runs against local emulation). Plain Node `nuxt dev`
+has no R2 binding, so uploads/serve require `npm run cf:dev` or
+production.
+
