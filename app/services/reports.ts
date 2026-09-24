@@ -11,6 +11,9 @@ import type {
   AttendanceReportClassRow,
   AuditLogListItem,
   EnrollmentReportRow,
+  FinanceByClassReport,
+  FinanceByTermReport,
+  FinanceFeePurposeReport,
   OverviewReport,
   Paginated,
 } from '~/shared/types'
@@ -20,6 +23,9 @@ import type {
   AuditCertificateQuery,
   AuditLogListQuery,
   EnrollmentReportQuery,
+  FinanceByClassReportQuery,
+  FinanceByTermReportQuery,
+  FinanceFeePurposeReportQuery,
   OverviewQuery,
 } from '~/shared/schemas'
 
@@ -44,6 +50,27 @@ export const reportsApi = {
     }),
 }
 
+/**
+ * Expanded financial reports (Phase 14D). Staff-only endpoints —
+ * parents hold invoices.view for their own children but receive 403
+ * from these school-wide aggregates.
+ */
+export const financeReportsApi = {
+  feePurposes: (params?: Partial<FinanceFeePurposeReportQuery>) =>
+    api.get<{ data: FinanceFeePurposeReport }>(
+      '/reports/finance/fee-purposes',
+      { params: params as Params },
+    ),
+  byClass: (params?: Partial<FinanceByClassReportQuery>) =>
+    api.get<{ data: FinanceByClassReport }>('/reports/finance/by-class', {
+      params: params as Params,
+    }),
+  byTerm: (params?: Partial<FinanceByTermReportQuery>) =>
+    api.get<{ data: FinanceByTermReport }>('/reports/finance/by-term', {
+      params: params as Params,
+    }),
+}
+
 export const auditLogsApi = {
   list: (params?: Partial<AuditLogListQuery>) =>
     api.get<Paginated<AuditLogListItem>>('/audit-logs', {
@@ -52,13 +79,15 @@ export const auditLogsApi = {
 }
 
 /**
- * Triggers a CSV download for the given report path. The endpoint
- * already enforces the export permission server-side.
+ * Triggers a tabular file download (CSV by default, XLSX when
+ * `format = 'xlsx'`) for the given report path. The endpoint already
+ * enforces the export permission server-side.
  */
 export async function downloadCsv(
   path: string,
   fileName: string,
   params?: Record<string, string | number | boolean | undefined>,
+  format: 'csv' | 'xlsx' = 'csv',
 ): Promise<void> {
   const config = useRuntimeConfig()
   const query = new URLSearchParams()
@@ -68,7 +97,7 @@ export async function downloadCsv(
       query.set(k, String(v))
     }
   }
-  query.set('format', 'csv')
+  query.set('format', format)
   const url = `${config.public.apiBaseUrl}${path}?${query.toString()}`
   // Use a direct window fetch so we can read credentials + the blob
   // without going through the typed api wrapper.

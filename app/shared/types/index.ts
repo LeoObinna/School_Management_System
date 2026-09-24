@@ -1135,6 +1135,76 @@ export interface FinanceSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Expanded financial reports (README §41, Phase 14D)
+//
+// All money fields are INTEGER kobo, consistent with the rest of the
+// finance API. Invoices in scope: status issued / partially_paid /
+// paid (drafts and voided are excluded).
+// ---------------------------------------------------------------------------
+
+/** Per-fee-purpose row. "Purpose" is the linked fee item name when the
+ * invoice line was generated from a fee item, otherwise the free-text
+ * line description. Collected/outstanding are allocated from
+ * invoice-level payments proportionally to each line's share of the
+ * invoice total (largest-remainder, exact to the kobo). */
+export interface FinanceFeePurposeRow {
+  purpose: string
+  lineCount: number
+  invoiceCount: number
+  billed: number
+  collected: number
+  outstanding: number
+}
+
+/** Per-class row. Class is the student's ACTIVE enrollment for the
+ * invoice session; students without one are grouped as
+ * "Unassigned". */
+export interface FinanceByClassRow {
+  classId: string | null
+  className: string
+  invoiceCount: number
+  studentCount: number
+  billed: number
+  collected: number
+  outstanding: number
+}
+
+/** Per-term row. Invoices without a term are grouped as "Unassigned". */
+export interface FinanceByTermRow {
+  termId: string | null
+  termName: string
+  invoiceCount: number
+  studentCount: number
+  billed: number
+  collected: number
+  outstanding: number
+}
+
+export interface FinanceReportBase {
+  filters: {
+    sessionId: string | null
+    termId: string | null
+    classId: string | null
+  }
+  totals: {
+    billed: number
+    collected: number
+    outstanding: number
+    invoiceCount: number
+  }
+}
+
+export interface FinanceFeePurposeReport extends FinanceReportBase {
+  data: FinanceFeePurposeRow[]
+}
+export interface FinanceByClassReport extends FinanceReportBase {
+  data: FinanceByClassRow[]
+}
+export interface FinanceByTermReport extends FinanceReportBase {
+  data: FinanceByTermRow[]
+}
+
+// ---------------------------------------------------------------------------
 // Admissions (README §20, Phase 9)
 // ---------------------------------------------------------------------------
 export type AdmissionStatus =

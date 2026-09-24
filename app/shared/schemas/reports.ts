@@ -126,3 +126,36 @@ export const auditCertificateQuerySchema = z.object({
 export type AuditCertificateQuery = z.infer<
   typeof auditCertificateQuerySchema
 >
+
+// ---------------------------------------------------------------------------
+// Expanded financial reports (Phase 14D)
+//
+// School-wide staff-only aggregates (invoices issued / partially_paid
+// / paid). Every breakdown shares the session/term/class filters that
+// make sense for it.
+// ---------------------------------------------------------------------------
+
+export const financeFeePurposeReportQuerySchema = z.object({
+  sessionId: uuidSchema.optional(),
+  termId: uuidSchema.optional(),
+  classId: uuidSchema.optional(),
+})
+export type FinanceFeePurposeReportQuery = z.infer<
+  typeof financeFeePurposeReportQuerySchema
+>
+
+export const financeByClassReportQuerySchema = z.object({
+  sessionId: uuidSchema.optional(),
+  termId: uuidSchema.optional(),
+})
+export type FinanceByClassReportQuery = z.infer<
+  typeof financeByClassReportQuerySchema
+>
+
+export const financeByTermReportQuerySchema = z.object({
+  sessionId: uuidSchema.optional(),
+  classId: uuidSchema.optional(),
+})
+export type FinanceByTermReportQuery = z.infer<
+  typeof financeByTermReportQuerySchema
+>

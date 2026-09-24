@@ -6,6 +6,9 @@ import {
   auditCertificateQuerySchema,
   auditLogListQuerySchema,
   enrollmentReportQuerySchema,
+  financeByClassReportQuerySchema,
+  financeByTermReportQuerySchema,
+  financeFeePurposeReportQuerySchema,
   overviewQuerySchema,
 } from '../schemas/reports'
 
@@ -178,6 +181,50 @@ describe('reports schemas', () => {
       })
       expect(out.action).toBe('student.create')
       expect(out).not.toHaveProperty('search')
+    })
+  })
+
+  describe('finance report query schemas (Phase 14D)', () => {
+    it('fee-purpose accepts empty object', () => {
+      expect(financeFeePurposeReportQuerySchema.parse({})).toEqual({})
+    })
+
+    it('fee-purpose accepts session/term/class UUIDs and strips others', () => {
+      const out = financeFeePurposeReportQuerySchema.parse({
+        sessionId: UUID,
+        termId: UUID,
+        classId: UUID,
+        bogus: 1,
+      })
+      expect(out).toEqual({
+        sessionId: UUID,
+        termId: UUID,
+        classId: UUID,
+      })
+    })
+
+    it('fee-purpose rejects non-UUID class id', () => {
+      expect(() =>
+        financeFeePurposeReportQuerySchema.parse({ classId: 'jss1' }),
+      ).toThrow()
+    })
+
+    it('by-class accepts session/term only', () => {
+      const out = financeByClassReportQuerySchema.parse({
+        sessionId: UUID,
+        termId: UUID,
+        classId: UUID, // not applicable to this breakdown — stripped
+      })
+      expect(out).toEqual({ sessionId: UUID, termId: UUID })
+    })
+
+    it('by-term accepts session/class only', () => {
+      const out = financeByTermReportQuerySchema.parse({
+        sessionId: UUID,
+        classId: UUID,
+        termId: UUID, // not applicable to this breakdown — stripped
+      })
+      expect(out).toEqual({ sessionId: UUID, classId: UUID })
     })
   })
 })
