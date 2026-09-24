@@ -1548,3 +1548,62 @@ export interface StudentActiveEnrollment {
   enrollmentDate: string
 }
 
+// ---------------------------------------------------------------------------
+// Parent self-service (Phase 9)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/v1/parents/me — the parent's landing payload. Aggregates
+ * profile, children with their current placement, recent announcements
+ * and an outstanding-fees summary (count + total balance across all
+ * children's invoices). Parents never see another family's data — the
+ * parentId and child list are resolved server-side from the actor.
+ */
+export interface ParentSelf {
+  profile: ParentSelfProfile
+  children: ParentChildSummary[]
+  recentAnnouncements: AnnouncementListItem[]
+  fees: ParentFeesSummary
+}
+
+export interface ParentSelfProfile {
+  id: string
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  email: string | null
+  phone: string | null
+  gender: string | null
+  occupation: string | null
+  address: string | null
+  photoUrl: string | null
+}
+
+/**
+ * A child in the parent's dashboard list: student identity + current
+ * placement (class/section) for quick navigation to results and
+ * attendance. The studentId is the server-resolved link; the client
+ * only passes it back to /parents/me/children/:studentId/* which
+ * re-verifies the link before returning data.
+ */
+export interface ParentChildSummary {
+  studentId: string
+  admissionNumber: string
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  gender: string | null
+  status: string
+  currentClassName: string | null
+  currentSectionName: string | null
+  relationship: string
+  isPrimary: boolean
+}
+
+/** Outstanding-fees roll-up across all the parent's children. */
+export interface ParentFeesSummary {
+  outstandingInvoiceCount: number
+  outstandingBalance: number
+  overdueInvoiceCount: number
+}
+

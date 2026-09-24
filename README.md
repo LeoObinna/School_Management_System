@@ -2783,6 +2783,81 @@ documentation, not a second specification.
                     Hyperdrive / postgres dep / seed.ts / legacy-pg
                     migrations remain until Phase 14. No remote D1
                     provisioned; staging/production untouched.
+2026-09-24  Phase 9 Option A  Parent self-service (PRD §6 + spec
+                    04_APPFLOW §4 parent flow). Parents now get a
+                    scoped dashboard instead of the admin overview:
+                    (1) new service
+                    server/services/parents-self.ts with
+                    getParentSelf / listMyChildren / getChildResults /
+                    getChildAttendance — every query resolves parentId
+                    + children server-side via resolveActorBusinessIds
+                    and NEVER accepts a parentId from the client;
+                    child-specific routes take a studentId path param
+                    but assertChildOf() re-verifies it is in
+                    actor.children before returning data (403 on
+                    probe). getParentSelf 404s when the caller has no
+                    linked parent record (admins/teachers/students see
+                    empty state, not 500). (2) 4 routes: GET
+                    /parents/me (dashboard.view; profile + children
+                    list with current class/section + recent
+                    announcements + outstanding fees summary
+                    computed from student_invoices for the actor's
+                    children: outstandingInvoiceCount,
+                    outstandingBalance kobo, overdueInvoiceCount),
+                    GET /parents/me/children (students.view), GET
+                    /parents/me/children/:studentId/results
+                    (exam_results.view; reuses getStudentResults which
+                    enforces parent ownership + publication lock),
+                    GET /parents/me/children/:studentId/attendance
+                    (attendance.view; reuses studentAttendance which
+                    enforces parent ownership via assertStudentAccess).
+                    (3) 1 page: /parents/me (profile card + 3 fees
+                    stat cards linking to /billing + children list
+                    with Results/Attendance links to /results and
+                    /attendance + recent announcements). (4) Parent
+                    widget on pages/index.vue (best-effort GET
+                    /parents/me; 404 hides widget — mirrors the
+                    teacher/student widget pattern). (5) Existing
+                    parent surfaces reused unchanged: /results and
+                    /attendance pages already resolve the parent's
+                    children via getMySchoolContext; /billing
+                    invoices/payments already scope parents via
+                    getFinanceActor.childIds; /timetable already
+                    parent-scopes via classifyActorScope. Files:
+                    shared/schemas/parents.ts
+                    (myChildResultsQuerySchema requires sessionId+
+                    termId UUIDs, strips smuggled parentId/studentId)
+                    + barrel; shared/types/index.ts (ParentSelf,
+                    ParentSelfProfile, ParentChildSummary,
+                    ParentFeesSummary); services/parents.ts client
+                    wrappers. Tests: shared/__tests__/parents.test.ts
+                    — 5 new zod contract tests. Gates: nuxt typecheck
+                    EXIT 0, vitest 456/456 across 35 files, nuxt build
+                    (cloudflare-module) EXIT 0 (4.36 MB total, 1.48
+                    MB gzip). Local D1 smoke (wrangler dev port 8787,
+                    demo parent Ngozi Okafor linked to STU-001 Amara
+                    Okafor Primary 1): /parents/me 200 (profile + 1
+                    child + fees {1 outstanding, 2,750,000 kobo =
+                    ₦27,500, 1 overdue} + 2 announcements);
+                    /parents/me/children 200 (1 row, studentId
+                    b3a407c9...); /parents/me/children/:id/results?
+                    sessionId+termId 200 (publicationStatus=
+                    published, English Studies 85/100 grade A);
+                    /parents/me/children/:id/results (no params) 422;
+                    /parents/me/children/:id/attendance?sessionId 200
+                    (summary + 1 row); /parents/me/children/:id/
+                    attendance (no sessionId) 422. RBAC: anonymous
+                    /parents/me 401; teacher /parents/me 404 ("No
+                    parent profile linked to this account."); parent
+                    probing FOREIGN studentId on
+                    /parents/me/children/:foreignId/results 403
+                    ("You can only view your own children.").
+                    Unchanged: 104-slug catalog + 5-role multi-role
+                    RBAC; existing attendance/exams/finance/timetable
+                    routes. Hyperdrive / postgres dep / seed.ts /
+                    legacy-pg migrations remain until Phase 14. No
+                    remote D1 provisioned; staging/production
+                    untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

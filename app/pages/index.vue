@@ -3,8 +3,14 @@ import { useAuthStore } from '~/stores/auth'
 import { reportsApi } from '~/services/reports'
 import { teachersApi } from '~/services/teachers'
 import { studentsApi } from '~/services/students'
+import { parentsApi } from '~/services/parents'
 import { formatApiError } from '~/utils/errors'
-import type { OverviewReport, StudentSelf, TeacherSelf } from '~/shared/types'
+import type {
+  OverviewReport,
+  ParentSelf,
+  StudentSelf,
+  TeacherSelf,
+} from '~/shared/types'
 import HealthStatus from '~/components/HealthStatus.vue'
 
 const auth = useAuthStore()
@@ -16,6 +22,7 @@ const overviewLoading = ref(false)
 
 const teacherSelf = ref<TeacherSelf | null>(null)
 const studentSelf = ref<StudentSelf | null>(null)
+const parentSelf = ref<ParentSelf | null>(null)
 
 async function loadOverview() {
   if (!auth.can('reports.view')) return
@@ -62,6 +69,21 @@ async function loadStudentSelf() {
   }
 }
 
+/**
+ * Best-effort fetch of the caller's parent profile. The route 404s
+ * when there is no linked parent record (admins/teachers/students),
+ * which we treat as "no parent widget" — not an error. Mirrors the
+ * teacher/student widget pattern.
+ */
+async function loadParentSelf() {
+  if (!auth.can('dashboard.view')) return
+  try {
+    parentSelf.value = await parentsApi.getMe()
+  } catch {
+    parentSelf.value = null
+  }
+}
+
 async function onLogout() {
   await auth.logout()
   await router.replace('/auth/login')
@@ -71,6 +93,7 @@ onMounted(() => {
   void loadOverview()
   void loadTeacherSelf()
   void loadStudentSelf()
+  void loadParentSelf()
 })
 </script>
 
@@ -219,6 +242,58 @@ onMounted(() => {
             </p>
             <p class="mt-1 text-2xl font-semibold text-gray-900">
               {{ studentSelf.activeEnrollment ? studentSelf.activeEnrollment.className : '—' }}
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section
+        v-if="auth.can('dashboard.view') && parentSelf"
+        class="bg-white rounded-lg shadow-sm border border-amber-200 p-6"
+      >
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-medium text-gray-900">
+            Your parent dashboard
+          </h3>
+          <NuxtLink
+            to="/parents/me"
+            class="text-sm text-amber-600 hover:underline"
+          >
+            View my dashboard →
+          </NuxtLink>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <NuxtLink
+            to="/parents/me"
+            class="rounded-lg border border-gray-200 p-4 hover:border-amber-400 hover:bg-amber-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              My children
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ parentSelf.children.length }}
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            to="/billing"
+            class="rounded-lg border border-gray-200 p-4 hover:border-amber-400 hover:bg-amber-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Outstanding invoices
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ parentSelf.fees.outstandingInvoiceCount }}
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            to="/results"
+            class="rounded-lg border border-gray-200 p-4 hover:border-amber-400 hover:bg-amber-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Children's results
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ parentSelf.children.length }}
             </p>
           </NuxtLink>
         </div>
