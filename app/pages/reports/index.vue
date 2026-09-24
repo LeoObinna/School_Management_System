@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useAuthStore } from '~/stores/auth'
-import { reportsApi, downloadCsv } from '~/services/reports'
+import { reportsApi, downloadCsv, downloadAuditCertificate } from '~/services/reports'
 import { formatApiError } from '~/utils/errors'
 import type {
+  AdmissionsPipelineReport,
   AttendanceReportClassRow,
   EnrollmentReportRow,
   OverviewReport,
@@ -12,6 +13,10 @@ definePageMeta({ permissions: ['reports.view'] })
 
 const auth = useAuthStore()
 const canExport = computed(() => auth.can('reports.export'))
+const canViewAuditLogs = computed(() => auth.can('audit_logs.view'))
+const canDownloadAuditCertificate = computed(
+  () => canExport.value && canViewAuditLogs.value,
+)
 
 const loading = ref(false)
 const loadError = ref<string | null>(null)
@@ -19,19 +24,24 @@ const overview = ref<OverviewReport | null>(null)
 
 const attendance = ref<AttendanceReportClassRow[]>([])
 const enrollments = ref<EnrollmentReportRow[]>([])
+const admissions = ref<AdmissionsPipelineReport | null>(null)
 
 async function loadOverview() {
   loading.value = true
   loadError.value = null
   try {
-    const [ov, att, enr] = await Promise.all([
+    const [ov, att, enr, adm] = await Promise.all([
       reportsApi.overview(),
       reportsApi.attendance(),
       reportsApi.enrollments(),
+      auth.can('admissions.view')
+        ? reportsApi.admissions()
+        : Promise.resolve(null),
     ])
     overview.value = ov
     attendance.value = att.data
     enrollments.value = enr.data
+    admissions.value = adm
   } catch (e) {
     loadError.value = formatApiError(e)
   } finally {
@@ -61,6 +71,30 @@ async function exportStudents() {
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Export failed.'
   }
+}
+
+async function exportAdmissionsPipeline() {
+  try {
+    await downloadCsv('/reports/admissions', 'admissions-pipeline.csv')
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Export failed.'
+  }
+}
+
+async function downloadAuditCert() {
+  try {
+    const stamp = new Date().toISOString().slice(0, 10)
+    await downloadAuditCertificate(`audit-certificate-${stamp}.pdf`)
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Export failed.'
+  }
+}
+
+function stageLabel(status: string): string {
+  return status
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }
 
 onMounted(() => {
@@ -142,28 +176,42 @@ onMounted(() => {
 
     <!-- CSV exports -->
     <section class="rounded-lg border border-gray-200 bg-white p-4">
-      <h3 class="text-sm font-medium text-gray-900">CSV exports</h3>
+      <h3 class="text-sm font-medium text-gray-900">Exports</h3>
       <div class="mt-3 flex flex-wrap gap-2">
         <button
           v-if="canExport"
           class="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           @click="exportAttendance"
         >
-          Attendance (per class)
+          Attendance CSV
         </button>
         <button
           v-if="canExport"
           class="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           @click="exportEnrollments"
         >
-          Enrollments (per class × status)
+          Enrollments CSV
         </button>
         <button
           v-if="canExport"
           class="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           @click="exportStudents"
         >
-          Student directory
+          Student directory CSV
+        </button>
+        <button
+          v-if="canExport && admissions"
+          class="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+          @click="exportAdmissionsPipeline"
+        >
+          Admissions pipeline CSV
+        </button>
+        <button
+          v-if="canDownloadAuditCertificate"
+          class="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-100"
+          @click="downloadAuditCert"
+        >
+          Audit certificate (PDF)
         </button>
         <NuxtLink
           v-if="auth.can('audit_logs.view')"
@@ -176,6 +224,49 @@ onMounted(() => {
       <p v-if="!canExport" class="mt-2 text-xs text-gray-500">
         CSV export requires the <code class="font-mono">reports.export</code> permission.
       </p>
+    </section>
+
+    <!-- Admissions pipeline -->
+    <section
+      v-if="admissions"
+      class="overflow-hidden rounded-lg border border-gray-200 bg-white"
+    >
+      <div class="border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-medium text-gray-900">Admissions pipeline</h3>
+          <p class="mt-1 text-xs text-gray-500">
+            {{ admissions.total }} application{{ admissions.total === 1 ? '' : 's' }} across all stages
+          </p>
+        </div>
+      </div>
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-4 py-2 text-left text-xs font-semibold uppercase text-gray-500">Stage</th>
+            <th class="px-4 py-2 text-right text-xs font-semibold uppercase text-gray-500">Count</th>
+            <th class="px-4 py-2 text-right text-xs font-semibold uppercase text-gray-500">Share (%)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr v-if="admissions.data.length === 0">
+            <td colspan="3" class="px-4 py-4 text-center text-gray-400">No admissions data in scope.</td>
+          </tr>
+          <template v-else>
+            <tr v-for="row in admissions.data" :key="row.status">
+              <td class="px-4 py-2 text-gray-900">{{ stageLabel(row.status) }}</td>
+              <td class="px-4 py-2 text-right text-gray-900">{{ row.count }}</td>
+              <td class="px-4 py-2 text-right text-gray-500">
+                {{ admissions.total > 0 ? ((row.count / admissions.total) * 100).toFixed(1) : '0.0' }}
+              </td>
+            </tr>
+            <tr class="bg-gray-50 font-medium">
+              <td class="px-4 py-2 text-gray-900">Total</td>
+              <td class="px-4 py-2 text-right text-gray-900">{{ admissions.total }}</td>
+              <td class="px-4 py-2 text-right text-gray-500">100.0</td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </section>
 
     <!-- Attendance per class -->

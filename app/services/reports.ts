@@ -7,6 +7,7 @@
  */
 import { api, apiFetch } from './api'
 import type {
+  AdmissionsPipelineReport,
   AttendanceReportClassRow,
   AuditLogListItem,
   EnrollmentReportRow,
@@ -14,7 +15,9 @@ import type {
   Paginated,
 } from '~/shared/types'
 import type {
+  AdmissionsPipelineQuery,
   AttendanceOverviewReportQuery,
+  AuditCertificateQuery,
   AuditLogListQuery,
   EnrollmentReportQuery,
   OverviewQuery,
@@ -33,6 +36,10 @@ export const reportsApi = {
     }),
   enrollments: (params?: Partial<EnrollmentReportQuery>) =>
     api.get<{ data: EnrollmentReportRow[] }>('/reports/enrollments', {
+      params: params as Params,
+    }),
+  admissions: (params?: Partial<AdmissionsPipelineQuery>) =>
+    api.get<AdmissionsPipelineReport>('/reports/admissions', {
       params: params as Params,
     }),
 }
@@ -65,6 +72,41 @@ export async function downloadCsv(
   const url = `${config.public.apiBaseUrl}${path}?${query.toString()}`
   // Use a direct window fetch so we can read credentials + the blob
   // without going through the typed api wrapper.
+  const res = await fetch(url, { credentials: 'include' })
+  if (!res.ok) {
+    throw new Error(`Export failed: ${res.status} ${res.statusText}`)
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(objectUrl)
+}
+
+/**
+ * Triggers a PDF download of the audit certificate attestation for the
+ * given filter window. The endpoint always returns `application/pdf`
+ * (no JSON form) and requires `audit_logs.view` + `reports.export`,
+ * enforced server-side. Mirrors `downloadCsv` but skips the `format`
+ * query param.
+ */
+export async function downloadAuditCertificate(
+  fileName: string,
+  params?: Partial<AuditCertificateQuery>,
+): Promise<void> {
+  const config = useRuntimeConfig()
+  const query = new URLSearchParams()
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === '') continue
+      query.set(k, String(v))
+    }
+  }
+  const url = `${config.public.apiBaseUrl}/reports/audit-certificate?${query.toString()}`
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) {
     throw new Error(`Export failed: ${res.status} ${res.statusText}`)

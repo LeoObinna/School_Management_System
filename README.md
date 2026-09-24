@@ -2994,6 +2994,82 @@ documentation, not a second specification.
                     seed.ts / legacy-pg migrations remain until Phase
                     14. No remote D1 provisioned; staging/production
                     untouched.
+2026-09-24  Phase 13 Option A  Reporting/Polish (MIGRATION_GAP_REPORT
+                    §17 phase plan item 7). Pre-flight inspection
+                    surfaced two backend-implemented reports that were
+                    never wired into any UI surface: GET /reports/
+                    admissions (admissions pipeline funnel, 11 stages
+                    + total, built in Phase 11) and GET /reports/
+                    audit-certificate (PDF attestation of audit-log
+                    activity, built in Phase 11 Part C Option B). Both
+                    had services + routes + types + schemas complete
+                    but no client wrappers, no admin page section, and
+                    no download button anywhere. Option A scope
+                    (confirmed by user) = surface these two existing
+                    reports in the admin UI; no new backend, no new
+                    routes, no schema changes. Changes: (1) Client
+                    wrappers in services/reports.ts: reportsApi.
+                    admissions(params?) returns AdmissionsPipeline
+                    Report; downloadAuditCertificate(fileName,
+                    params?) triggers a PDF blob download via window
+                    fetch (mirrors downloadCsv but skips the format
+                    param — the audit-certificate endpoint always
+                    returns application/pdf). (2) Admin Reports page
+                    (pages/reports/index.vue): loadOverview now
+                    Promise.all-fetches admissions pipeline alongside
+                    overview/attendance/enrollments (gated by
+                    admissions.view); new Admissions pipeline section
+                    renders an 11-stage funnel table with Stage |
+                    Count | Share (%) columns + a trailing Total row;
+                    Exports section renamed from "CSV exports" to
+                    "Exports" and gained an "Admissions pipeline CSV"
+                    button (gated by reports.export && admissions
+                    loaded) and an "Audit certificate (PDF)" button
+                    (gated by reports.export && audit_logs.view —
+                    only super_admin sees it since the admin role
+                    intentionally excludes audit_logs.view per the
+                    seed ADMIN_EXCLUDE list). (3) Audit-logs page
+                    (pages/audit-logs/index.vue): added
+                    downloadAuditCert() that passes the current
+                    filter window (action/resource/userId/dateFrom/
+                    dateTo — search intentionally excluded since
+                    AuditCertificateQuery has no search field) to
+                    downloadAuditCertificate; new "Audit certificate
+                    (PDF)" button in the page header next to Export
+                    CSV (gated by reports.export). (4) Tests: 9 new
+                    zod contract tests in shared/__tests__/reports.
+                    test.ts — admissionsPipelineQuerySchema (accepts
+                    empty; accepts session/intendedClass UUIDs;
+                    rejects non-UUID session; rejects non-UUID
+                    intendedClass) + auditCertificateQuerySchema
+                    (accepts empty; accepts all filter params;
+                    rejects non-UUID userId; rejects malformed date;
+                    strips unknown keys — verifying the schema
+                    intentionally excludes free-text search so the
+                    certificate always reflects a well-defined
+                    filter window). Gates: nuxt typecheck EXIT 0;
+                    vitest 495/495 across 37 files (Phase 12
+                    baseline 486/37 -> +9 tests); cloudflare-module
+                    build EXIT 0 (4.37 MB total / 1.48 MB gzip,
+                    unchanged). D1 smoke on wrangler dev port 8787:
+                    admin login OK (102 perms — admin role
+                    intentionally excludes audit_logs.view + roles
+                    manage per seed ADMIN_EXCLUDE); GET /reports/
+                    admissions 200 (5 applications across 11 stages:
+                    applied 1, under_review 1, accepted 1, rejected
+                    1, enrolled 1, total 5); GET /reports/audit-
+                    certificate as admin 403 (correct — admin lacks
+                    audit_logs.view, button correctly hidden);
+                    superadmin login OK (104 perms); GET /reports/
+                    audit-certificate as superadmin 200 (PDF 3481
+                    bytes, %PDF-1.7 magic header, content-type
+                    application/pdf, content-disposition inline
+                    filename="audit-certificate-2026-09-24.pdf").
+                    Unchanged: 104-slug RBAC; all backend routes/
+                    services/schemas (Phase 11 endpoints untouched);
+                    Hyperdrive / postgres dep / seed.ts / legacy-pg
+                    migrations remain until Phase 14. No remote D1
+                    provisioned; staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

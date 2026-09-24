@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   AUDIT_LOG_RESOURCES,
+  admissionsPipelineQuerySchema,
   attendanceOverviewReportQuerySchema,
+  auditCertificateQuerySchema,
   auditLogListQuerySchema,
   enrollmentReportQuerySchema,
   overviewQuerySchema,
@@ -109,6 +111,73 @@ describe('reports schemas', () => {
       expect(new Set(AUDIT_LOG_RESOURCES).size).toBe(
         AUDIT_LOG_RESOURCES.length,
       )
+    })
+  })
+
+  describe('admissionsPipelineQuerySchema', () => {
+    it('accepts empty object', () => {
+      expect(admissionsPipelineQuerySchema.parse({})).toEqual({})
+    })
+
+    it('accepts optional session/intendedClass UUIDs', () => {
+      const out = admissionsPipelineQuerySchema.parse({
+        sessionId: UUID,
+        intendedClassId: UUID,
+      })
+      expect(out).toEqual({ sessionId: UUID, intendedClassId: UUID })
+    })
+
+    it('rejects non-UUID session id', () => {
+      expect(() =>
+        admissionsPipelineQuerySchema.parse({ sessionId: 'nope' }),
+      ).toThrow()
+    })
+
+    it('rejects non-UUID intended class id', () => {
+      expect(() =>
+        admissionsPipelineQuerySchema.parse({ intendedClassId: 'abc' }),
+      ).toThrow()
+    })
+  })
+
+  describe('auditCertificateQuerySchema', () => {
+    it('accepts empty object', () => {
+      expect(auditCertificateQuerySchema.parse({})).toEqual({})
+    })
+
+    it('accepts all filter params', () => {
+      const out = auditCertificateQuerySchema.parse({
+        action: 'student.create',
+        resource: 'student',
+        userId: UUID,
+        dateFrom: '2026-09-01',
+        dateTo: '2026-09-30',
+      })
+      expect(out.action).toBe('student.create')
+      expect(out.userId).toBe(UUID)
+    })
+
+    it('rejects non-UUID userId', () => {
+      expect(() =>
+        auditCertificateQuerySchema.parse({ userId: 'nope' }),
+      ).toThrow()
+    })
+
+    it('rejects malformed date', () => {
+      expect(() =>
+        auditCertificateQuerySchema.parse({ dateFrom: '2026/09/01' }),
+      ).toThrow()
+    })
+
+    it('strips unknown keys (no free-text search on the certificate)', () => {
+      const out = auditCertificateQuerySchema.parse({
+        action: 'student.create',
+        // `search` is intentionally absent from this schema so the
+        // certificate always reflects a well-defined filter window.
+        ...{ search: 'anything' },
+      })
+      expect(out.action).toBe('student.create')
+      expect(out).not.toHaveProperty('search')
     })
   })
 })

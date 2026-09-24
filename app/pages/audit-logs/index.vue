@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useAuthStore } from '~/stores/auth'
-import { auditLogsApi, downloadCsv } from '~/services/reports'
+import { auditLogsApi, downloadCsv, downloadAuditCertificate } from '~/services/reports'
 import { AUDIT_LOG_RESOURCES } from '~/shared/schemas'
 import { formatApiError } from '~/utils/errors'
 import type { AuditLogListItem } from '~/shared/types'
@@ -104,6 +104,21 @@ async function exportCsv() {
   }
 }
 
+async function downloadAuditCert() {
+  try {
+    const stamp = new Date().toISOString().slice(0, 10)
+    await downloadAuditCertificate(`audit-certificate-${stamp}.pdf`, {
+      action: filters.action || undefined,
+      resource: filters.resource || undefined,
+      userId: filters.userId || undefined,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+    })
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Export failed.'
+  }
+}
+
 function fmtTimestamp(value: string): string {
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? value : d.toLocaleString()
@@ -123,13 +138,20 @@ onMounted(() => {
           Security and sensitive-operation events across the SMS.
         </p>
       </div>
-      <button
-        v-if="canExport"
-        class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        @click="exportCsv"
-      >
-        Export CSV
-      </button>
+      <div v-if="canExport" class="flex gap-2">
+        <button
+          class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          @click="exportCsv"
+        >
+          Export CSV
+        </button>
+        <button
+          class="rounded-md border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
+          @click="downloadAuditCert"
+        >
+          Audit certificate (PDF)
+        </button>
+      </div>
     </div>
 
     <p v-if="loadError" class="rounded-md bg-red-50 p-3 text-sm text-red-700">
