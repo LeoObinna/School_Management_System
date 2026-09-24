@@ -655,6 +655,39 @@ export interface LearningResourceListItem extends LearningResource {
 }
 
 // ---------------------------------------------------------------------------
+// Staff document library (README §23, Phase 14B)
+// ---------------------------------------------------------------------------
+
+export type DocumentVisibility = 'staff' | 'admin'
+export type DocumentOwnerType = 'school' | 'staff'
+
+export interface Document {
+  id: string
+  ownerType: DocumentOwnerType
+  ownerId: string | null
+  objectKey: string
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  title: string
+  description: string | null
+  category: string | null
+  visibility: DocumentVisibility
+  createdById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DocumentListItem extends Document {
+  createdByName: string | null
+}
+
+export interface DocumentAccess {
+  document: Document
+  objectKey: string
+}
+
+// ---------------------------------------------------------------------------
 // Exams, assessments, grading, results & report cards (README §18, Phase 7)
 // ---------------------------------------------------------------------------
 

@@ -110,6 +110,8 @@ export const PERMISSION_SLUGS = [
   'events.manage',
   'gallery.view',
   'gallery.manage',
+  'documents.view',
+  'documents.manage',
   'reports.view',
   'reports.export',
   'audit_logs.view',
@@ -233,6 +235,7 @@ const TEACHER_PERMISSIONS: PermissionSlug[] = [
   'messages.send',
   'events.view',
   'gallery.view',
+  'documents.view',
   'reports.view',
 ]
 

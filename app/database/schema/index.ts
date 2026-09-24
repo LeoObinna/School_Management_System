@@ -21,6 +21,7 @@ export * from './finance'
 export * from './admissions'
 export * from './communication'
 export * from './events'
+export * from './documents'
 
 import * as core from './core'
 import * as academics from './academics'
@@ -33,6 +34,7 @@ import * as finance from './finance'
 import * as admissions from './admissions'
 import * as communication from './communication'
 import * as events from './events'
+import * as documents from './documents'
 
 export const schema = {
   ...core,
@@ -46,6 +48,7 @@ export const schema = {
   ...admissions,
   ...communication,
   ...events,
+  ...documents,
 }
 
 export type Schema = typeof schema

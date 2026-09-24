@@ -640,6 +640,16 @@ onMounted(() => {
               Shared documents and learning materials
             </p>
           </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('documents.view')"
+            to="/documents"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Documents</p>
+            <p class="mt-1 text-sm text-gray-500">
+              School policies, letters, certificates and staff files
+            </p>
+          </NuxtLink>
         </div>
       </section>
 

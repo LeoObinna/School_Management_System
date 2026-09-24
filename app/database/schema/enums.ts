@@ -175,3 +175,9 @@ export const weekdayEnum = sqliteEnum([
   'saturday',
   'sunday',
 ] as const)
+
+// Document visibility (Phase 14B) — who may read a staff document.
+export const documentVisibilityEnum = sqliteEnum([
+  'staff', // any authenticated staff member (admin or teacher)
+  'admin', // admins only
+] as const)

@@ -228,6 +228,61 @@ describe('validateUpload', () => {
   })
 })
 
+describe('validateUpload school_document category (Phase 14B)', () => {
+  it('accepts the full document MIME range (pdf, office, image, text)', () => {
+    const cases: { fileName: string; mimeType: string }[] = [
+      { fileName: 'policy.pdf', mimeType: 'application/pdf' },
+      { fileName: 'report.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      { fileName: 'budget.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      { fileName: 'letter.doc', mimeType: 'application/msword' },
+      { fileName: 'scan.png', mimeType: 'image/png' },
+      { fileName: 'notes.txt', mimeType: 'text/plain' },
+    ]
+    for (const c of cases) {
+      const result = validateUpload({
+        fileName: c.fileName,
+        mimeType: c.mimeType,
+        sizeBytes: 100 * 1024,
+        category: 'school_document',
+      })
+      expect(result.fileName).toBe(c.fileName)
+    }
+  })
+
+  it('rejects disallowed MIME types for school documents', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'app.exe',
+        mimeType: 'application/x-msdownload',
+        sizeBytes: 1024,
+        category: 'school_document',
+      }),
+    ).toThrow(/not allowed/)
+  })
+
+  it('rejects school documents over 25 MB', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'policy.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 26 * 1024 * 1024,
+        category: 'school_document',
+      }),
+    ).toThrow(/25 MB/)
+  })
+
+  it('rejects a document whose extension does not match the declared type', () => {
+    expect(() =>
+      validateUpload({
+        fileName: 'policy.png',
+        mimeType: 'application/pdf',
+        sizeBytes: 1024,
+        category: 'school_document',
+      }),
+    ).toThrow(/extension/)
+  })
+})
+
 describe('buildObjectKey', () => {
   it('composes prefix, sanitized scope and a unique filename', () => {
     const key = buildObjectKey(

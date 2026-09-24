@@ -16,6 +16,9 @@ export const UPLOAD_LIMITS: Record<UploadCategory, number> = {
   gallery_image: 25 * 1024 * 1024,
   // Logos are small branding assets; 5 MB is generous for a raster source.
   school_logo: 5 * 1024 * 1024,
+  // Staff documents (policies, contracts, certificates, letters): the
+  // full document MIME range (PDF, Office, text, raster scans) at 25 MB.
+  school_document: 25 * 1024 * 1024,
 }
 
 export type UploadCategory =
@@ -25,6 +28,7 @@ export type UploadCategory =
   | 'admission_document'
   | 'gallery_image'
   | 'school_logo'
+  | 'school_document'
 
 // Allowed declared MIME types. Magic-byte content sniffing is deferred
 // to Phase 12 hardening; for now the declared type must be a known
