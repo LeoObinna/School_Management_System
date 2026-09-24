@@ -2717,6 +2717,72 @@ documentation, not a second specification.
                     seed.ts / legacy-pg migrations remain until
                     Phase 14. No remote D1 provisioned;
                     staging/production untouched.
+2026-09-24  Phase 8 Option A  Student self-service (PRD §6 + spec
+                    04_APPFLOW §4 student flow). Students now get
+                    a scoped dashboard instead of the admin
+                    overview: (1) new service
+                    server/services/students-self.ts with
+                    getStudentSelf / listMyTimetable /
+                    getMyResults — every query resolves studentId
+                    server-side via resolveActorBusinessIds +
+                    studentEnrolledClassIds and NEVER accepts a
+                    studentId from the client; 404s when the caller
+                    has no linked student record (admins/teachers/
+                    parents hitting /students/me see empty state,
+                    not 500). (2) 3 routes: GET /students/me
+                    (dashboard.view; profile + active enrollment +
+                    today's timetable top 10 + 5 pending
+                    assignments + 5 recent announcements), GET
+                    /students/me/timetable (timetable.view; full
+                    weekly view, 100-row page, optional
+                    sessionId/weekday filter), GET
+                    /students/me/results (exam_results.view;
+                    reuses getStudentResults which enforces the
+                    publication lock — students see nothing until
+                    published; requires sessionId+termId UUIDs).
+                    (3) 1 page: /students/me (profile card + 3
+                    quick-stats linking to /timetable,
+                    /my/assignments, /results; today's timetable
+                    list; pending assignments list; recent
+                    announcements list). (4) Student widget on
+                    pages/index.vue (best-effort GET /students/me;
+                    404/other failure hides the widget —
+                    admins/teachers/parents unaffected; mirrors
+                    the teacher widget pattern). (5) Existing
+                    student surfaces reused unchanged: /my/
+                    assignments, /assignments/[id]/submission*,
+                    /attendance/students/[id], /students/[id]/
+                    results, /students/[id]/enrollments,
+                    /timetable, /announcements, /resources,
+                    /results page. Files: shared/schemas/students.ts
+                    (myTimetableQuerySchema, myResultsQuerySchema)
+                    + barrel; shared/types/index.ts (StudentSelf,
+                    StudentSelfProfile, StudentActiveEnrollment);
+                    services/students.ts client wrappers. Tests:
+                    shared/__tests__/students.test.ts — 9 new zod
+                    contract tests (weekday allowlist, UUID
+                    rejection, no-silent-default for results,
+                    strips smuggled studentId). Gates: nuxt
+                    typecheck EXIT 0, vitest 451/451 across 34
+                    files, nuxt build (cloudflare-module) EXIT 0
+                    (4.34 MB total, 1.47 MB gzip). Local D1 smoke
+                    (wrangler dev, demo student STU-001):
+                    /students/me 200 (profile + activeEnrollment +
+                    todayTimetable 1 + pendingAssignments 0 +
+                    recentAnnouncements 2); /students/me/timetable
+                    200 (7 entries weekly view);
+                    /students/me/results?sessionId+termId 200
+                    (publicationStatus=published, English Studies
+                    85/100 grade A); /students/me/results (no
+                    params) 422 zod validation; RBAC: anonymous
+                    /students/me 401; teacher /students/me 404
+                    ("No student profile linked to this
+                    account"). Unchanged: 104-slug catalog +
+                    5-role multi-role RBAC; existing
+                    assignments/attendance/timetable/exams routes.
+                    Hyperdrive / postgres dep / seed.ts / legacy-pg
+                    migrations remain until Phase 14. No remote D1
+                    provisioned; staging/production untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

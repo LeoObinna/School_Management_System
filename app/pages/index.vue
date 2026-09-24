@@ -2,8 +2,9 @@
 import { useAuthStore } from '~/stores/auth'
 import { reportsApi } from '~/services/reports'
 import { teachersApi } from '~/services/teachers'
+import { studentsApi } from '~/services/students'
 import { formatApiError } from '~/utils/errors'
-import type { OverviewReport, TeacherSelf } from '~/shared/types'
+import type { OverviewReport, StudentSelf, TeacherSelf } from '~/shared/types'
 import HealthStatus from '~/components/HealthStatus.vue'
 
 const auth = useAuthStore()
@@ -14,6 +15,7 @@ const overviewError = ref<string | null>(null)
 const overviewLoading = ref(false)
 
 const teacherSelf = ref<TeacherSelf | null>(null)
+const studentSelf = ref<StudentSelf | null>(null)
 
 async function loadOverview() {
   if (!auth.can('reports.view')) return
@@ -44,6 +46,22 @@ async function loadTeacherSelf() {
   }
 }
 
+/**
+ * Best-effort fetch of the caller's student profile. The route 404s
+ * when there is no linked student record (admins/teachers/parents),
+ * which we treat as "no student widget" — not an error. Mirrors the
+ * teacher widget pattern so an unrelated network blip doesn't push
+ * the dashboard offline.
+ */
+async function loadStudentSelf() {
+  if (!auth.can('dashboard.view')) return
+  try {
+    studentSelf.value = await studentsApi.getMe()
+  } catch {
+    studentSelf.value = null
+  }
+}
+
 async function onLogout() {
   await auth.logout()
   await router.replace('/auth/login')
@@ -52,6 +70,7 @@ async function onLogout() {
 onMounted(() => {
   void loadOverview()
   void loadTeacherSelf()
+  void loadStudentSelf()
 })
 </script>
 
@@ -148,6 +167,58 @@ onMounted(() => {
             </p>
             <p class="mt-1 text-2xl font-semibold text-gray-900">
               {{ teacherSelf.pendingSubmissionsCount }}
+            </p>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section
+        v-if="auth.can('dashboard.view') && studentSelf"
+        class="bg-white rounded-lg shadow-sm border border-emerald-200 p-6"
+      >
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-medium text-gray-900">
+            Your student dashboard
+          </h3>
+          <NuxtLink
+            to="/students/me"
+            class="text-sm text-emerald-600 hover:underline"
+          >
+            View my dashboard →
+          </NuxtLink>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <NuxtLink
+            to="/timetable"
+            class="rounded-lg border border-gray-200 p-4 hover:border-emerald-400 hover:bg-emerald-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Today's periods
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ studentSelf.todayTimetable.length }}
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            to="/my/assignments"
+            class="rounded-lg border border-gray-200 p-4 hover:border-emerald-400 hover:bg-emerald-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Pending assignments
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ studentSelf.pendingAssignments.length }}
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            to="/results"
+            class="rounded-lg border border-gray-200 p-4 hover:border-emerald-400 hover:bg-emerald-50"
+          >
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              My results
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-gray-900">
+              {{ studentSelf.activeEnrollment ? studentSelf.activeEnrollment.className : '—' }}
             </p>
           </NuxtLink>
         </div>

@@ -1488,3 +1488,63 @@ export interface TeacherAssignmentToGradeRow {
   pendingCount: number
 }
 
+// ---------------------------------------------------------------------------
+// Student self-service (Phase 8)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/v1/students/me — the student's landing payload. Aggregates
+ * profile, current active enrollment (class/section/session/term), today's
+ * timetable, pending assignments (no submission yet / still in draft) and
+ * recent announcements. Built for the dashboard view; not a generic
+ * student record. Students never see another student's data — the
+ * studentId is resolved server-side from the actor.
+ */
+export interface StudentSelf {
+  profile: StudentSelfProfile
+  activeEnrollment: StudentActiveEnrollment | null
+  todayTimetable: TimetableEntryDetail[]
+  pendingAssignments: AssignmentListItem[]
+  recentAnnouncements: AnnouncementListItem[]
+}
+
+export interface StudentSelfProfile {
+  id: string
+  admissionNumber: string
+  firstName: string
+  lastName: string
+  otherNames: string | null
+  gender: string | null
+  dateOfBirth: string | null
+  status: string
+  photoUrl: string | null
+  // Convenience denormalised placement (README §13: historical
+  // enrollment must still be read from student_enrollments).
+  currentClassName: string | null
+  currentSectionName: string | null
+  // Primary guardian (read-only) — resolved via student_parents.is_primary.
+  guardianFirstName: string | null
+  guardianLastName: string | null
+  guardianEmail: string | null
+  guardianPhone: string | null
+}
+
+/**
+ * The student's active enrollment in the current academic session, with
+ * class/section/session/term names joined for dashboard display. Null
+ * when the student has no active enrollment in the current session
+ * (e.g. applicant, archived, between sessions).
+ */
+export interface StudentActiveEnrollment {
+  classId: string
+  className: string
+  sectionId: string | null
+  sectionName: string | null
+  sessionId: string
+  sessionName: string
+  termId: string | null
+  termName: string | null
+  rollNumber: string | null
+  enrollmentDate: string
+}
+
