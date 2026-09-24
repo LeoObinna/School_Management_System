@@ -3,19 +3,16 @@
  *
  * Usage:
  *   npm run db:d1:seed
+ *   npm run db:seed        (alias)
  *
  * Connects to the local D1 binding declared in `wrangler.toml` via
  * `wrangler`'s `getPlatformProxy` (Miniflare-backed local emulation,
- * state persisted under `.wrangler/state/v3/d1/`). Seeds the same
- * idempotent demo data as the legacy PG seeder, with values adapted
- * for the D1/SQLite schema (kobo integers, ×100 fixed-point scores,
- * ISO-8601 text timestamps).
+ * state persisted under `.wrangler/state/v3/d1/`). Seeds idempotent
+ * demo data (kobo integers, ×100 fixed-point scores, ISO-8601 text
+ * timestamps).
  *
  * Requires the D1 migration to be applied first:
- *   npm run db:d1:migrate
- *
- * The legacy PostgreSQL runner lives in `seed.ts` and is retained
- * only until Phase 6 removes the PG fallback.
+ *   npm run db:migrate
  */
 import { getPlatformProxy } from 'wrangler'
 import { drizzle } from 'drizzle-orm/d1'

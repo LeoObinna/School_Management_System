@@ -1,3 +1,0 @@
-ALTER TABLE "notifications" ADD COLUMN "announcement_id" uuid;--> statement-breakpoint
-ALTER TABLE "notifications" ADD CONSTRAINT "notifications_announcement_id_announcements_id_fk" FOREIGN KEY ("announcement_id") REFERENCES "public"."announcements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "notifications_user_announcement_idx" ON "notifications" USING btree ("user_id","announcement_id") WHERE announcement_id IS NOT NULL;

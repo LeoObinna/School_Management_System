@@ -3,7 +3,7 @@
  *
  * A thumbnail is a derived JPEG cache: the original R2 object is the
  * source of truth; the thumb object (key derived deterministically,
- * `thumb_object_key` in PostgreSQL) may be missing or regenerated at
+ * `thumb_object_key` in D1) may be missing or regenerated at
  * any time. All failures here are swallowed by design — thumbnailing
  * must never block an upload or an image view; the UI falls back to
  * the original bytes.

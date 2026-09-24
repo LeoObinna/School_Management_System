@@ -18,12 +18,12 @@ export default defineNuxtConfig({
 
   // Deploy to Cloudflare Workers via the Nitro cloudflare-module preset:
   // outputs .output/server/index.mjs (Worker) + .output/public (assets),
-  // deployed manually with `wrangler deploy`. Supports R2, KV, Hyperdrive,
+  // deployed manually with `wrangler deploy`. Supports R2, KV, D1,
   // Queues, cron and Durable Object bindings via wrangler.toml.
   nitro: {
     preset: 'cloudflare-module',
     // Enables h3's AsyncLocalStorage event context so shared utilities
-    // (e.g. the DB layer resolving the per-request HYPERDRIVE client) can
+    // (e.g. the DB layer resolving the per-request D1 client) can
     // call useEvent() outside the route handler, including in Workers.
     experimental: {
       asyncContext: true,
@@ -78,12 +78,11 @@ export default defineNuxtConfig({
   runtimeConfig: {
     // Server-only secrets. These MUST stay empty here: Nuxt serializes
     // runtimeConfig defaults INTO the deployed Worker bundle, so reading
-    // process.env at build time would ship DATABASE_URL/SESSION_SECRET
-    // to anyone who can fetch the Worker script. Values are injected
-    // PER REQUEST at runtime instead — see
-    // server/plugins/cloudflare.ts (Cloudflare bindings in Workers,
-    // process.env loaded from app/.env in plain Node dev).
-    databaseUrl: '',
+    // process.env at build time would ship SESSION_SECRET to anyone who
+    // can fetch the Worker script. Values are injected PER REQUEST at
+    // runtime instead — see server/plugins/cloudflare.ts (Cloudflare
+    // bindings in Workers, process.env loaded from app/.env in plain
+    // Node dev).
     sessionSecret: '',
     // Dev-only: surface password-reset tokens from the API until the
     // Queues-backed mailer exists (Phase 10). NEVER enabled in

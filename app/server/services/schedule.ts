@@ -94,7 +94,7 @@ const WEEKDAY_LABELS: Record<string, string> = {
 const activeStudent = isNull(students.deletedAt)
 
 // SQL order expression: Monday first ... Sunday last. Portable CASE
-// (PostgreSQL's array_position(ARRAY[...]) has no SQLite equivalent).
+// WHEN (D1/SQLite has no array_position-style helper).
 const weekdayOrder = sql`case ${timetableEntries.weekday} when 'monday' then 1 when 'tuesday' then 2 when 'wednesday' then 3 when 'thursday' then 4 when 'friday' then 5 when 'saturday' then 6 when 'sunday' then 7 end`
 
 // Row-level scoping helpers (classifyActorScope, studentEnrolledClassIds,

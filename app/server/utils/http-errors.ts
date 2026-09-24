@@ -1,7 +1,6 @@
 /**
- * Uniform HTTP error helpers and database error inspection
- * (PostgreSQL + SQLite/D1). Unique `sms*` names avoid collisions with
- * Nitro auto-imports.
+ * Uniform HTTP error helpers and database error inspection (SQLite/D1).
+ * Unique `sms*` names avoid collisions with Nitro auto-imports.
  */
 import { createError } from 'h3'
 
@@ -40,13 +39,13 @@ export function smsFieldError(field: string, message: string) {
 }
 
 /**
- * Unique-constraint violation detection across both supported engines.
+ * Unique-constraint violation detection.
  *
- * - PostgreSQL (legacy Hyperdrive path): SQLSTATE 23505.
- * - SQLite/D1: SQLITE_CONSTRAINT_UNIQUE (extended code 2067; generic
- *   constraint code 19) with a "UNIQUE constraint failed" message. D1
- *   sometimes nests the driver error under `cause`, so unwrap a few
- *   levels.
+ * SQLite/D1 reports SQLITE_CONSTRAINT_UNIQUE (extended code 2067; the
+ * generic constraint code 19) with a "UNIQUE constraint failed" message.
+ * D1 sometimes nests the driver error under `cause`, so unwrap a few
+ * levels. A SQLSTATE `23505` short-circuit is kept defensively in case
+ * a future driver surfaces the standard SQL state.
  */
 export function isUniqueViolation(error: unknown): boolean {
   if (isPgCode(error, '23505')) return true
@@ -73,9 +72,10 @@ export function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Foreign-key violation detection across both engines (PG SQLSTATE
- * 23503; SQLite SQLITE_CONSTRAINT_FOREIGNKEY 787 / generic 19 with
- * "FOREIGN KEY constraint failed" message).
+ * Foreign-key violation detection. D1 reports
+ * SQLITE_CONSTRAINT_FOREIGNKEY (extended 787 / generic 19) with a
+ * "FOREIGN KEY constraint failed" message; the same `cause`-unwrap
+ * loop applies. A SQLSTATE `23503` short-circuit is kept defensively.
  */
 export function isForeignKeyViolation(error: unknown): boolean {
   if (isPgCode(error, '23503')) return true

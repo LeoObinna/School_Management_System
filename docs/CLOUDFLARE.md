@@ -10,7 +10,6 @@ is no Git integration or CI deployment.
 | Service         | Purpose                                          |
 |-----------------|--------------------------------------------------|
 | Workers + Static Assets | Application runtime (`sms-staging`, `sms-production`) |
-| Hyperdrive      | PostgreSQL connection pooling from Workers       |
 | R2              | Private object storage via the R2_BUCKET binding |
 | Queues/Cron     | Background jobs/schedules (from Phase 10)        |
 | DNS / TLS / WAF / Rate Limiting | Edge security                          |
@@ -20,7 +19,7 @@ is no Git integration or CI deployment.
 
 `app/wrangler.toml` declares the Worker entry (`.output/server/index.mjs`),
 the `[assets]` ASSETS binding, and named environments `staging` and
-`production`, each with its own Hyperdrive id and R2 bucket. The retired
+`production`, each with its own D1 database and R2 bucket. The retired
 Pages config is preserved in `app/wrangler.pages.toml` (not loaded).
 
 Bindings reach the application per request on
@@ -73,18 +72,7 @@ report-cards/ receipts/     (planned)
   disabled.
 - **Upload validation**: server-side — type, MIME, size, authorization;
   safe generated keys (`buildObjectKey`); never trust client filenames.
-- **Metadata**: PostgreSQL stores object metadata; R2 stores bytes.
-
-## Hyperdrive
-
-``` text
-sms-pg-staging     -> staging managed PostgreSQL
-sms-pg-production  -> production managed PostgreSQL
-```
-
-Workers open one connection per isolate (`max: 1`); Hyperdrive handles
-pooling. Migrations are never run through Hyperdrive — use the direct
-database URL.
+- **Metadata**: D1 stores object metadata; R2 stores bytes.
 
 ## Secrets
 
@@ -103,13 +91,11 @@ out. `EXPOSE_RESET_TOKENS=true` is allowed in local dev only.
 ## DNS / TLS / WAF
 
 - TLS mode: **Full (strict)**; only 443 exposed publicly
-- PostgreSQL is never publicly exposed beyond the managed provider's TLS
-  endpoint consumed by Hyperdrive
 - WAF managed rules + rate limiting on `/api/v1/auth/login`
 - Cache public static assets only; never cache authenticated responses
 
 ## What Cloudflare does NOT replace
 
 Application authorization (RBAC), session/authentication logic, zod input
-validation, and PostgreSQL constraints all remain enforced server-side
+validation, and D1 constraints all remain enforced server-side
 in the Worker. Cloudflare is the runtime and edge-security layer.

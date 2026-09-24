@@ -6,12 +6,6 @@
  * Each person profile may optionally link to a `users` row for login.
  * Historical identity records are never deleted merely because a
  * student leaves (README lifecycle rule).
- *
- * Phase 2 of the D1 migration (2026-09-22) converted this file from
- * PostgreSQL to SQLite/D1: `pgTable` → `sqliteTable`, `uuid` → `text`
- * with `crypto.randomUUID()` runtime default, `varchar` → `text`,
- * `timestamp` → `text` ISO-8601, `date` → `text` YYYY-MM-DD,
- * `boolean` → `integer` 0/1 (Drizzle `{ mode: 'boolean' }`).
  */
 import {
   sqliteTable,

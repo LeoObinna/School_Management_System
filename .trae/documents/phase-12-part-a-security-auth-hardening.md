@@ -226,8 +226,7 @@ No new permissions, no migrations, no schema changes.
 
 ### Tests
 
-No live PostgreSQL on the dev box for endpoint tests, so scoping is covered
-by:
+No live D1 on the dev box for endpoint tests, so scoping is covered by:
 - Pure unit tests of the `ActorProfile`-aware WHERE-clause builder. Extract
   the scope-clause builder as a pure function `buildActorScopeClauses(actor,
   query)` returning `SQL[]`, and unit-test the teacher/student/parent/staff

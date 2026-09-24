@@ -1,7 +1,7 @@
 /**
  * Learning resource library services (README §17, Phase 6).
  *
- * Resources are R2 objects with PostgreSQL metadata. Staff
+ * Resources are R2 objects with D1 metadata. Staff
  * (resources.manage) upload/see everything; students see only published
  * resources that are school-wide or target a class they are enrolled
  * in. Routes own the R2 byte transfer and purge returned object keys.

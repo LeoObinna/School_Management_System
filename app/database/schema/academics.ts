@@ -5,12 +5,6 @@
  * Sessions/terms/classes/sections/subjects are all configurable data
  * rows — nothing (Nursery/Primary/JSS/SS, A/B/C, term names) is
  * hard-coded in application logic.
- *
- * Phase 2 of the D1 migration (2026-09-22) converted this file from
- * PostgreSQL to SQLite/D1: `pgTable` → `sqliteTable`, `uuid` → `text`
- * with `crypto.randomUUID()` runtime default, `varchar` → `text`,
- * `timestamp` → `text` ISO-8601, `date` → `text` YYYY-MM-DD,
- * `boolean` → `integer` 0/1 (Drizzle `{ mode: 'boolean' }`).
  */
 import {
   sqliteTable,

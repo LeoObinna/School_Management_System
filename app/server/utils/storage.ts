@@ -2,8 +2,8 @@
  * Object storage access (README §23).
  *
  * Bytes live in Cloudflare R2 through the `R2_BUCKET` Worker binding
- * declared in wrangler.toml. PostgreSQL stores only metadata + the
- * object key. This module defines the small structural surface the SMS
+ * declared in wrangler.toml. D1 stores only metadata + the object key.
+ * This module defines the small structural surface the SMS
  * uses (put/get/delete) so the app does not depend on
  * @cloudflare/workers-types at build time.
  *

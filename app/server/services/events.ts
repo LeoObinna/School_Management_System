@@ -2,8 +2,8 @@
  * Events and gallery domain service (README §22, Phase 10).
  *
  * Events have a simple draft/published/cancelled lifecycle. Gallery
- * images are stored in R2 with metadata in PostgreSQL; the route
- * handler handles R2 byte transfer and calls service methods for DB
+ * images are stored in R2 with metadata in D1; the route handler
+ * handles R2 byte transfer and calls service methods for DB
  * state. Thumbnails are deferred to Phase 12.
  */
 import {

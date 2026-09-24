@@ -55,16 +55,6 @@ function bridgeRuntimeConfig(event: H3Event): void {
       config.sessionSecret = sessionSecret
     }
 
-    // DATABASE_URL is only used by the legacy PostgreSQL tooling kept
-    // until Phase 6; the D1 runtime reads the DB binding instead.
-    const databaseUrl =
-      (cloudflareEnv?.DATABASE_URL as string | undefined)
-        || process.env.DATABASE_URL
-        || ''
-    if (databaseUrl) {
-      config.databaseUrl = databaseUrl
-    }
-
     // Bindings arrive as strings in Workers; keep the boolean parse
     // identical in both runtimes. Default stays false (fail closed).
     const exposeRaw = cloudflareEnv && 'EXPOSE_RESET_TOKENS' in cloudflareEnv

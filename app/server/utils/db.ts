@@ -5,9 +5,8 @@ import { schema } from '../../database/schema'
 /**
  * Central database connection — Cloudflare D1 (SQLite) only.
  *
- * As of Phase 3 of the D1 migration (2026-09-23) every query uses the
- * SQLite dialect (LIKE, `db.batch()`, SQLite raw-SQL fragments), so the
- * application can no longer run against PostgreSQL. Two runtimes:
+ * Every query uses the SQLite dialect (LIKE, `db.batch()`, SQLite
+ * raw-SQL fragments). Two runtimes:
  *
  * 1. Cloudflare Workers (staging/production, `wrangler dev`, queue
  *    consumers and cron triggers): the D1 binding is reached through
@@ -26,10 +25,6 @@ import { schema } from '../../database/schema'
  * The exported `db` is a lazy forwarding proxy, so existing call sites
  * (`const { db } = await import('./db')`) keep working unchanged in
  * both runtimes without needing the H3 event at import time.
- *
- * The legacy Hyperdrive/postgres.js code paths were removed here in
- * Phase 3; the HYPERDRIVE binding in wrangler.toml, the `postgres`
- * dependency and database/seed.ts stay until Phase 6 (decommissioning).
  */
 
 const REQUEST_D1_CLIENT = Symbol('sms-request-d1-db')

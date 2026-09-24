@@ -89,10 +89,10 @@ const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'password123'
 const isoNow = () => new Date().toISOString()
 
 /**
- * D1/SQLite caps bound variables at 100 per statement (PostgreSQL has
- * no practical limit), so bulk inserts must be chunked. Splits `rows`
- * into batches sized by the per-row column count, keeping each
- * statement at most `maxVars` binds (90 leaves headroom).
+ * D1/SQLite caps bound variables at 100 per statement, so bulk
+ * inserts must be chunked. Splits `rows` into batches sized by the
+ * per-row column count, keeping each statement at most `maxVars`
+ * binds (90 leaves headroom).
  */
 function chunkForBindVars<T>(
   rows: T[],

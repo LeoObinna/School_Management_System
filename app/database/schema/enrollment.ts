@@ -7,12 +7,6 @@
  * Enrollment preserves full historical context (session, term, class,
  * section). Historical placement is NEVER inferred from the student's
  * current class (README §13).
- *
- * Phase 2 of the D1 migration (2026-09-22) converted this file from
- * PostgreSQL to SQLite/D1: `pgTable` → `sqliteTable`, `uuid` → `text`
- * with `crypto.randomUUID()` runtime default, `varchar` → `text`,
- * `timestamp` → `text` ISO-8601, `date` → `text` YYYY-MM-DD,
- * `time` → `text` HH:MM:SS, `boolean` → `integer` 0/1.
  */
 import {
   sqliteTable,

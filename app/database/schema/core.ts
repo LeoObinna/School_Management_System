@@ -4,14 +4,10 @@
  * users, roles, permissions, join tables, school settings, audit logs.
  * Follows README §12 and the dependency order in README §40.
  *
- * Phase 2 of the D1 migration (2026-09-22) converted this file from
- * PostgreSQL (`pgTable` + `uuid`/`varchar`/`timestamp`/`boolean`) to
- * SQLite/D1 (`sqliteTable` + `text` IDs + `text` ISO-8601 timestamps
- * + `integer` 0/1 booleans). The 5-table RBAC shape (users, roles,
- * permissions, role_permissions, user_roles) is preserved verbatim
- * per migration decision D3 — no flattening to a single users.role
- * column. Sessions stay stateless signed cookies + KV revocation
- * (decision D4); there is NO sessions table here.
+ * The 5-table RBAC shape (users, roles, permissions, role_permissions,
+ * user_roles) is preserved verbatim — no flattening to a single
+ * users.role column. Sessions stay stateless signed cookies + KV
+ * revocation; there is NO sessions table here.
  */
 import {
   sqliteTable,

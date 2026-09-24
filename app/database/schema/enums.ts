@@ -1,16 +1,15 @@
 /**
  * SQLite TEXT+CHECK enums shared across the SMS schema.
  *
- * Phase 2 of the D1 migration (2026-09-22) replaced PostgreSQL
- * `pgEnum` (a typed PostgreSQL enum column type) with a small
- * compatibility shim that produces `text(name, { enum: values })`.
- * Drizzle's SQLite core generates a CHECK constraint from the
- * `enum` option, so the database-level guarantee is preserved.
+ * `sqliteEnum(values)` produces a `text(name, { enum: values })`
+ * column factory. Drizzle's SQLite core generates a CHECK constraint
+ * from the `enum` option, so the database-level guarantee is
+ * preserved at write time.
  *
- * The factory pattern `genderEnum('gender')` is also preserved so
- * service-layer code that calls these enums as column builders
- * keeps compiling unchanged. Each export retains its TypeScript
- * literal-union type so callers can use values as type parameters.
+ * The factory pattern `genderEnum('gender')` lets service-layer
+ * code call these enums as column builders. Each export retains its
+ * TypeScript literal-union type so callers can use values as type
+ * parameters.
  *
  * Fixed workflow statuses only — never hard-coded school policy
  * (class levels, section names, term names, grading ranges are
@@ -20,12 +19,11 @@ import { text } from 'drizzle-orm/sqlite-core'
 
 /**
  * Builds a `text` column factory with a CHECK constraint enforcing
- * the supplied values. Mirrors the calling convention of Drizzle's
- * `pgEnum('name', ['a','b'])` factory so call sites do not change.
+ * the supplied values.
  *
- * Like `pgEnum`, the returned factory exposes an `enumValues` array
- * (typed as the readonly literal tuple), supporting both runtime
- * iteration (`[...statusEnum.enumValues]`) and type extraction
+ * The returned factory exposes an `enumValues` array (typed as the
+ * readonly literal tuple), supporting both runtime iteration
+ * (`[...statusEnum.enumValues]`) and type extraction
  * (`(typeof statusEnum.enumValues)[number]`).
  *
  * Usage:

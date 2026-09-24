@@ -2,7 +2,7 @@
  * Assignment, attachment and submission services (README §17, Phase 6).
  *
  * File bytes live in R2 (see storage.ts); these functions own the
- * PostgreSQL metadata and all authorization-sensitive rules. Staff
+ * D1 metadata and all authorization-sensitive rules. Staff
  * (users holding assignments.create) manage work; students interact
  * only with published assignments for classes they are enrolled in and
  * only with their own submission. Teachers — even when they hold

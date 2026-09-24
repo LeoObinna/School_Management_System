@@ -9,23 +9,18 @@
 >
 > This README is the single authoritative project specification. The
 > v2.0 D1 spec package at `docs/spec/v2/` (placed 2026-09-21) is the
-> canonical directive for the D1 migration and supersedes earlier
-> PostgreSQL-retention statements in this README per the project
-> owner's 2026-09-21 decision (see §51 change log and §52). The
-> supporting historical documents
-> `ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`,
-> `ARCHITECTURE_DECISION_RECORD.md`, and `MIGRATION_PLAN.md` record
-> the reasoning and migration history; they do not override this README.
+> canonical directive for the D1 migration. PostgreSQL/Neon/Hyperdrive
+> were decommissioned on 2026-09-24; D1 is the sole database engine
+> (see §51 change log and §52).
 
 ## 1. Final architecture
 
 This project uses the following approved stack:
 
 -   Frontend + server: Nuxt 4 (Vue 3, TypeScript, Nitro server routes).
--   Database: Cloudflare D1 (authoritative per v2.0 spec, 2026-09-21).
-    PostgreSQL/Neon/Hyperdrive retained as live staging fallback ONLY
-    until D1 staging passes acceptance (Phase 6).
--   ORM: Drizzle ORM (PostgreSQL temporarily; D1 from Phase 2).
+-   Database: Cloudflare D1 (SQLite) — sole database engine in every
+    environment (decommissioned PostgreSQL/Neon/Hyperdrive 2026-09-24).
+-   ORM: Drizzle ORM (SQLite dialect).
 -   Validation: zod schemas shared between client and server.
 -   Compute: Cloudflare Workers + Workers Static Assets (Nitro
     `cloudflare-module` preset, deployed manually with Wrangler).
@@ -51,8 +46,6 @@ Nuxt 4 — Vue 3 + TypeScript (pages/components)
 Nitro server routes /api/v1 (auth, RBAC, validation, domain logic)
    |
    +---- Cloudflare D1 (authoritative; via env.DB binding)
-   |       PostgreSQL via Hyperdrive (env.HYPERDRIVE) — FALLBACK ONLY
-   |       until Phase 6 D1 staging acceptance
    +---- Cloudflare R2 (objects/files)
    +---- Cloudflare KV (rate limit + session revocation; non-authoritative)
    +---- Cloudflare Queues (background jobs)
@@ -61,9 +54,8 @@ Nitro server routes /api/v1 (auth, RBAC, validation, domain logic)
 Do not introduce React/Next.js, Laravel, MySQL/MongoDB, Supabase,
 Firebase, PlanetScale, Docker, Codespaces, or a second backend
 framework without an explicitly approved Architecture Decision
-Record. PostgreSQL/Neon/Hyperdrive are permitted ONLY as the live
-staging fallback until Phase 6; they are decommissioned once D1
-staging passes acceptance.
+Record. PostgreSQL, Neon, and Hyperdrive are decommissioned
+(2026-09-24); D1 is the sole database engine.
 
 ### Type conventions (v2.0 D1 spec, 2026-09-21)
 
@@ -186,7 +178,7 @@ Create `PROJECT_RULES.md` at repository root. It must include:
 ``` text
 Mission: production-ready School Management System.
 Frontend + backend: Nuxt 4 + TypeScript (Vue 3 + Nitro).
-Database: PostgreSQL.
+Database: Cloudflare D1 (SQLite).
 Object storage: Cloudflare R2.
 Compute: Cloudflare Workers. Background jobs: Cloudflare Queues.
 
@@ -197,8 +189,8 @@ Use zod schemas for validation (shared in shared/schemas/).
 Use Nitro server middleware for authentication and RBAC.
 Use server/services/ for multi-step domain workflows.
 Use database transactions for multi-write operations.
-Use D1 as the authoritative source of truth (policy reversed 2026-09-21;
-see §52; PostgreSQL retained as live staging fallback until Phase 6).
+Use D1 as the sole authoritative source of truth (PostgreSQL/Neon/
+Hyperdrive decommissioned 2026-09-24; see §52).
 Use R2 for objects, D1 for file metadata.
 Keep server routes thin; domain logic lives in server/services/.
 Never hard-code secrets or school policy.
@@ -438,8 +430,8 @@ audit_logs
 
 Rules:
 
--   D1 is the authoritative source of truth (per v2.0 spec, 2026-09-21;
-    PostgreSQL retained as live staging fallback until Phase 6 — see §52).
+-   D1 is the sole authoritative source of truth (PostgreSQL/Neon/
+    Hyperdrive decommissioned 2026-09-24 — see §52).
 -   Use foreign keys and meaningful unique constraints.
 -   Index real query paths.
 -   Use exact decimal types for money.
@@ -512,7 +504,7 @@ Submissions contain student, assignment, text/file, submitted time,
 score, feedback, grader and grading time.
 
 Resources may include PDFs, slides, handouts and images. Store objects
-in R2 and metadata in PostgreSQL.
+in R2 and metadata in D1.
 
 ## 18. Exams/results/grading
 
@@ -613,8 +605,8 @@ gallery/
 exports/
 ```
 
-PostgreSQL stores object metadata. R2 stores the object. Private objects
-must remain private and be served through authorized backend access or
+D1 stores object metadata. R2 stores the object. Private objects must
+remain private and be served through authorized backend access or
 temporary/presigned URLs.
 
 Validate uploads server-side by type, MIME, size, category and
@@ -769,36 +761,32 @@ to a queue.
 Three environments:
 
 ``` text
-LOCAL DEV (Mac + DATABASE_URL) -> STAGING -> PRODUCTION
+LOCAL DEV (Mac + local D1) -> STAGING -> PRODUCTION
 ```
 
 ### Local development
 
 Development runs on the local machine with Node 24 and npm from `app/`.
-PostgreSQL runs locally through **Postgres.app** (database `sms_dev`,
-trust auth on localhost) and is reached via `DATABASE_URL` in the
-gitignored `app/.env` for `nuxt dev`, drizzle-kit and the seeder. Under
-`wrangler dev` the same database is reached through a locally emulated
-HYPERDRIVE binding (`localConnectionString` in `wrangler.toml`), with R2
-emulated on local disk — no remote Cloudflare resources are needed for
-development. No Docker, Kubernetes, Redis, Codespace, PHP, Composer or
-Laravel tooling is required; background jobs will use Cloudflare Queues
+The D1 `DB` binding declared in `wrangler.toml` is reached through
+`wrangler`'s `getPlatformProxy({ persist: true })` during both
+`nuxt dev` and `wrangler dev`, with R2 emulated on local disk — no
+remote Cloudflare resources and no external database server are needed
+for development. No Docker, Kubernetes, Redis, Codespace, PHP, Composer
+or Laravel tooling is required; background jobs use Cloudflare Queues
 (Phase 10).
 
 ``` text
 npm install
-npm run dev       # Nuxt dev server (Node runtime)
+npm run dev       # Nuxt dev server (Node runtime; local D1 via proxy)
 npm run cf:dev    # build + wrangler dev (Workers + binding emulation)
 ```
 
 ### Remote / managed services
 
--   Staging and production PostgreSQL run on a managed provider
-    (selected 2026-09-20: Neon PostgreSQL, replacing the earlier
-    PlanetScale plan — free tier, direct host for Hyperdrive),
-    reached from Workers via separate
-    Cloudflare Hyperdrive configs. Nothing is provisioned remotely
-    during local development.
+-   Staging and production D1 databases are Cloudflare-managed
+    (provisioned with `wrangler d1 create`); the same `DB` binding is
+    reached through the Workers runtime. Nothing is provisioned
+    remotely during local development.
 -   R2 objects, Queues and the Worker runtime are Cloudflare-managed.
 -   No PHP, Composer, Redis server, or long-lived application server is
     required anywhere.
@@ -806,15 +794,15 @@ npm run cf:dev    # build + wrangler dev (Workers + binding emulation)
 ### Staging
 
 Worker `sms-staging` (Wrangler named environment `staging`), separate
-`sms-staging` R2 bucket, separate staging Hyperdrive config and managed
-PostgreSQL database, and separate secrets.
+`sms-staging` R2 bucket, separate `sms-staging` D1 database, and
+separate secrets.
 
 ### Production
 
 Worker `sms-production` (Wrangler named environment `production`),
-`sms-production` R2 bucket, separate production Hyperdrive config and
-PostgreSQL, Full (strict) TLS and WAF. Never share production
-credentials with staging. Never use real student data in staging.
+`sms-production` R2 bucket, separate `sms-production` D1 database,
+Full (strict) TLS and WAF. Never share production credentials with
+staging. Never use real student data in staging.
 
 Environments are deployed only by manual Wrangler commands from the
 local machine (see §39); there is no Git-based automatic deployment.
@@ -832,9 +820,10 @@ TRAE CN (IDE)
 Node.js 24 + npm 11 (verified: Node v24.11.1 / npm 11.6.2)
 Git
 A modern browser
-Postgres.app (verified: PostgreSQL server 16.15; creates a local
-superuser matching the macOS user, trust auth on localhost)
 ```
+
+No external database server is required — D1 is emulated locally by
+`wrangler` (Miniflare-backed SQLite under `.wrangler/state/v3/d1/`).
 
 ## 31. Local setup
 
@@ -843,23 +832,18 @@ superuser matching the macOS user, trust auth on localhost)
 cd app
 npm install
 
-# 2. Create the local development database once (Postgres.app running,
-#    default server on localhost:5432; -U is the macOS username):
-/Applications/Postgres.app/Contents/Versions/latest/bin/createdb \
-  -h localhost -p 5432 -U "$USER" sms_dev
-#    Connection string used below:
-#    postgresql://$USER@127.0.0.1:5432/sms_dev (no password; trust auth)
-
-# 3. Create your local environment file (never committed)
+# 2. Create your local environment file (never committed)
 cp .env.example .env
-#    edit .env: set DATABASE_URL to the sms_dev URL above and a random
-#    SESSION_SECRET (openssl rand -base64 48)
+#    edit .env: set a random SESSION_SECRET (openssl rand -base64 48).
+#    No DATABASE_URL is needed — D1 is reached through the DB binding
+#    in wrangler.toml via wrangler's getPlatformProxy.
 
-# 4. Prepare the database (direct connection, not Hyperdrive)
+# 3. Prepare the local D1 database (Miniflare-backed, persisted under
+#    .wrangler/state/v3/d1/)
 npm run db:migrate
 npm run db:seed        # fake demo data only
 
-# 5. Authenticate Wrangler once (opens the browser) — only required for
+# 4. Authenticate Wrangler once (opens the browser) — only required for
 #    deploys/remote operations; plain `wrangler dev` works without it
 npx wrangler login
 npx wrangler whoami
@@ -877,10 +861,10 @@ git --version
 Run the app:
 
 ``` text
-npm run dev       # http://localhost:3000 (Node runtime, DATABASE_URL)
+npm run dev       # http://localhost:3000 (Node runtime; local D1 proxy)
 npm run cf:dev    # Workers runtime emulation with local R2 on disk and
-                  # local Hyperdrive -> sms_dev (wrangler.toml
-                  # localConnectionString). Never use --remote locally.
+                  # local D1 (wrangler.toml [[d1_databases]]). Never use
+                  # --remote locally.
 ```
 
 Do not start feature work until these checks pass. The quality gate
@@ -953,9 +937,9 @@ npm run build        # Nitro cloudflare-module Worker build
 
 Releases are then initiated **manually** from the local machine with
 Wrangler (`npm run deploy:staging` / `npm run deploy:production`; see
-§39). Never deploy without passing the local checks, and never run
-migrations through Hyperdrive — apply them against the direct managed
-PostgreSQL URL first (`npm run db:migrate`).
+§39). Never deploy without passing the local checks. Apply migrations
+locally with `npm run db:migrate` (D1) or remotely with `wrangler d1
+migrations apply DB -e staging --remote` before deploying.
 
 ## 35. Testing
 
@@ -997,8 +981,8 @@ Approved Cloudflare services and their purpose:
 
 ``` text
 Workers     — Nuxt/Nitro application runtime (SSR + API)
+D1          — SQLite database (authoritative; sole database engine)
 R2          — object storage (files, photos, documents, receipts)
-Hyperdrive  — PostgreSQL connection pooling from Workers
 Queues      — background jobs (reports, emails, notifications, images)
 Cron Triggers — scheduled tasks
 DNS         — domain management
@@ -1008,14 +992,13 @@ Rate Limiting — edge-level throttling (e.g. /api/v1/auth/login)
 ```
 
 KV is permitted only for non-authoritative caching or server-side
-sessions if required; the relational database remains the source of
-truth. Durable Objects are permitted only where strong-consistency
-coordination is demonstrated (e.g. a timetable booking lock). **D1 is
-not used for primary data.**
+sessions if required; D1 remains the source of truth. Durable Objects
+are permitted only where strong-consistency coordination is
+demonstrated (e.g. a timetable booking lock).
 
 Configure safe caching only for public/static content. Do not cache
-private authenticated responses. Do not expose PostgreSQL ports
-publicly. Cloudflare does not replace application authorization.
+private authenticated responses. Cloudflare does not replace
+application authorization.
 
 ### Deployment model — manual Wrangler to Workers
 
@@ -1023,12 +1006,11 @@ The Nuxt app builds with Nitro's `cloudflare-module` preset to
 `.output/server/index.mjs` (the Worker) plus `.output/public` (Workers
 Static Assets). `app/wrangler.toml` declares `main`, the `[assets]`
 binding (`ASSETS`), and named environments `staging` and `production`,
-each with its own Hyperdrive id and R2 bucket. Bindings reach the app
-through `event.context.cloudflare.env`; the database client is
-initialised from `env.HYPERDRIVE.connectionString` per isolate
-(`server/plugins/cloudflare.ts` + `server/utils/db.ts`), and R2 is used
-exclusively via the `R2_BUCKET` binding (no S3 key/secret in the
-Worker).
+each with its own D1 database id and R2 bucket. Bindings reach the app
+through `event.context.cloudflare.env`; the D1 client is initialised
+from `env.DB` per isolate (`server/plugins/cloudflare.ts` +
+`server/utils/db.ts`), and R2 is used exclusively via the `R2_BUCKET`
+binding (no S3 key/secret in the Worker).
 
 ``` text
 Local Mac ── git push ──► GitHub (version history only; never deploys)
@@ -1038,8 +1020,8 @@ Local Mac ── wrangler ──► Cloudflare Workers (staging / production)
 One-time provisioning (resources are not created by deploys):
 
 ``` text
-wrangler hyperdrive create sms-pg-staging    --caching-disabled --connection-string="$STAGING_DIRECT_PG_URL"
-wrangler hyperdrive create sms-pg-production --caching-disabled --connection-string="$PROD_DIRECT_PG_URL"
+wrangler d1 create sms-staging
+wrangler d1 create sms-production
 wrangler r2 bucket create sms-staging
 wrangler r2 bucket create sms-production
 wrangler queues create sms-notifications-staging
@@ -1048,34 +1030,32 @@ wrangler secret put SESSION_SECRET -e staging
 wrangler secret put SESSION_SECRET -e production
 ```
 
-Put the returned Hyperdrive ids into `app/wrangler.toml` (replacing the
-`REPLACE_WITH_*` placeholders). Use the managed provider's DIRECT
-endpoint (Neon: host without `-pooler`) and disable Hyperdrive read
-caching so the app's read-after-write paths stay correct.
+Put the returned D1 database ids into `app/wrangler.toml` (replacing
+the `REPLACE_WITH_*_D1_ID` placeholders). Apply schema remotely with
+`wrangler d1 migrations apply DB -e staging --remote` (or production).
 
-STAGING STATUS (2026-09-20): complete and live — Neon `sms_staging`,
-Hyperdrive `sms-pg-staging` (id in `wrangler.toml`), R2/Queue/secret
-provisioned, Worker deployed at the `sms-staging` workers.dev URL.
-Production is intentionally not provisioned yet (acceptance gate).
-A full database reset drops BOTH `public` and the Drizzle journal
-schema `drizzle` before re-running migrations.
+STAGING STATUS: PostgreSQL/Neon/Hyperdrive decommissioned
+2026-09-24. The staging D1 database id is a placeholder until the
+staging cutover (Phase 13); R2/Queue/secret provisioning will occur
+during that cutover. Production is intentionally not provisioned yet
+(acceptance gate).
 
 Daily commands, run from `app/`:
 
 ``` text
-npm run dev                # Nuxt dev server (Node; DATABASE_URL, no bindings)
+npm run dev                # Nuxt dev server (Node; local D1 via proxy)
 npm run cf:dev             # build + wrangler dev (full Worker emulation;
-                           # local Hyperdrive -> sms_dev via
-                           # localConnectionString in wrangler.toml,
+                           # local D1 via [[d1_databases]] in wrangler.toml,
                            # R2 emulated on disk; never pass --remote)
 npm run deploy:staging     # build + wrangler deploy -e staging
 npm run deploy:production  # build + wrangler deploy -e production
 ```
 
-Release order: local quality gate (§34) → `npm run db:migrate` against
-the environment's direct PostgreSQL URL → manual Wrangler deploy.
-`SESSION_SECRET` must remain stable across deploys;
-`EXPOSE_RESET_TOKENS` must never be enabled outside local development.
+Release order: local quality gate (§34) → `npm run db:migrate` (local
+D1) or `wrangler d1 migrations apply DB -e staging --remote` (staging)
+→ manual Wrangler deploy. `SESSION_SECRET` must remain stable across
+deploys; `EXPOSE_RESET_TOKENS` must never be enabled outside local
+development.
 
 The original Cloudflare Pages configuration is preserved in
 `app/wrangler.pages.toml` for reference/rollback; it is not loaded by
@@ -1100,13 +1080,13 @@ npx wrangler deployments list -e production
 
 The dashboard shows per-deployment request volume, CPU time, errors and
 the currently active version id. The application emits no secrets to
-logs; audit events go to the PostgreSQL `audit_logs` table, not to
-Worker logs.
+logs; audit events go to the D1 `audit_logs` table, not to Worker
+logs.
 
 ### Manual rollback (code only — never destructive to the database)
 
 Each `wrangler deploy` creates an immutable Worker version. Rolling back
-re-points traffic at a previous version and does not touch PostgreSQL,
+re-points traffic at a previous version and does not touch D1,
 R2 objects, or migrations:
 
 ``` text
@@ -1618,7 +1598,7 @@ performance, accessibility and staging review.
   already exports a `queue()` handler that emits the
   `cloudflare:queue` Nitro hook, so no custom Worker entry is needed.
   `server/plugins/cloudflare-queue.ts` handles the batch with a
-  short-lived Hyperdrive client (`createWorkerDatabase` in
+  short-lived D1 client (`createWorkerD1Database` in
   `server/utils/db.ts`), ack on success, `message.retry()` on
   transient failure, ack of malformed poison messages.
 - Dispatch logic in `server/services/notification-dispatch.ts`: zod
@@ -1629,8 +1609,8 @@ performance, accessibility and staging review.
   `notifications.announcement_id` + a partial unique index
   `(user_id, announcement_id) WHERE announcement_id IS NOT NULL`;
   the consumer INSERTs `ON CONFLICT … DO NOTHING`. Verified against
-  local PostgreSQL (first delivery inserts rows; redelivery inserts
-  0). Plain Node dev has no queue binding, so fan-out runs inline.
+  local D1 (first delivery inserts rows; redelivery inserts 0). Plain
+  Node dev has no queue binding, so fan-out runs inline.
 - `wrangler.toml` declares `[[queues.consumers]]` for local, staging
   and production (`max_batch_size = 10`, `max_batch_timeout = 5`);
   `wrangler deploy --dry-run` passes.
@@ -1777,20 +1757,20 @@ See `docs/API.md` Phase 12 (Parts A–C / Options A–C).
 
 ### Phase 13 --- Production readiness  (roadmap approved 2026-09-20; NOT STARTED)
 
-Cloudflare Workers, TLS/WAF, managed PostgreSQL, Hyperdrive, R2, Queues,
-Cron Triggers, backups, monitoring, deployment and rollback.
+Cloudflare Workers, TLS/WAF, D1, R2, Queues, Cron Triggers, backups,
+monitoring, deployment and rollback. PostgreSQL/Neon/Hyperdrive were
+decommissioned 2026-09-24 — D1 is the sole database engine, so this
+phase is now a pure D1 + DNS + TLS + backups cutover.
 
-- [staging DONE 2026-09-20; production pending acceptance] Provision
-  managed PostgreSQL on Neon (provider switched from PlanetScale on
-  2026-09-20) and run `npm run db:migrate` against the direct managed-PG
-  URL from the local Mac (never via Hyperdrive). Staging resources live:
-  Neon `sms_staging`, Hyperdrive `sms-pg-staging` (read caching
-  disabled), R2 bucket `sms-staging`, Queue `sms-notifications-staging`,
-  `SESSION_SECRET` on Worker `sms-staging` (deployed, login verified).
-- [staging partial] Real Hyperdrive IDs in `wrangler.toml`
-  staging/production blocks (staging id set; production placeholder
-  remains); queue producer/consumer live in staging; R2 lifecycle rules
-  and Cron Triggers still to add.
+- [pending] Provision the staging D1 database (`wrangler d1 create
+  sms-staging`), put the returned id into `wrangler.toml`, apply
+  migrations remotely (`wrangler d1 migrations apply DB -e staging
+  --remote`), and seed. Provision R2 bucket `sms-staging`, Queue
+  `sms-notifications-staging`, and `SESSION_SECRET` on Worker
+  `sms-staging`.
+- [pending] Real D1 database ids in `wrangler.toml` staging/production
+  blocks (both placeholders until the cutover); queue producer/consumer
+  declarations live; R2 lifecycle rules and Cron Triggers still to add.
 - Manual `npm run deploy:staging`; TLS/WAF on the real domain; stable
   `SESSION_SECRET` (wrangler secret); never place secrets in
   `wrangler.toml`.
@@ -1798,10 +1778,9 @@ Cron Triggers, backups, monitoring, deployment and rollback.
   revocation list (carried over from Phase 12 deferred workstreams).
 - Backups, monitoring/alerting, and a verified deploy + rollback drill.
 
-Exit criteria: staging reachable with managed PostgreSQL/R2, full test
-suite green, demo seed data only (never real student data),
-deploy/rollback verified. Do not start Phase 14 without explicit
-project-owner go-ahead.
+Exit criteria: staging reachable with D1/R2, full test suite green,
+demo seed data only (never real student data), deploy/rollback verified.
+Do not start Phase 14 without explicit project-owner go-ahead.
 
 ### Phase 14 --- SMS completion: admin foundation  (roadmap 2026-09-20; NOT STARTED)
 
@@ -1994,8 +1973,8 @@ configuration, deployment and rollback procedures.
 1.  SMS first; public website later.
 2.  Nuxt 4 + Vue 3 + TypeScript is the approved application stack.
 3.  Nitro server routes (Cloudflare Workers) are the approved backend/API.
-4.  D1 is the primary database (per v2.0 spec, 2026-09-21; PostgreSQL
-    retained as live staging fallback until Phase 6 — see §52).
+4.  D1 is the sole database engine (PostgreSQL/Neon/Hyperdrive
+    decommissioned 2026-09-24 — see §52).
 5.  Cloudflare Queues handle background jobs; the DB is the source of truth.
 6.  Cloudflare R2 is object storage.
 7.  Cloudflare is the compute, edge and security layer.
@@ -2015,8 +1994,9 @@ configuration, deployment and rollback procedures.
 ``` text
 Application    Nuxt 4 (Vue 3 + TypeScript) + Nitro server routes
 Runtime        Cloudflare Workers + Static Assets (cloudflare-module preset)
-Database       PostgreSQL 16 (managed dev/staging/prod; Hyperdrive in Workers)
-ORM            Drizzle
+Database       Cloudflare D1 (SQLite) — sole engine in every environment
+               (PostgreSQL/Neon/Hyperdrive decommissioned 2026-09-24)
+ORM            Drizzle (SQLite dialect)
 Validation     zod (shared schemas)
 Background     Cloudflare Queues + Cron Triggers (from Phase 10)
 Storage        Cloudflare R2 (R2_BUCKET binding only)
@@ -2024,13 +2004,14 @@ Edge           Cloudflare DNS / TLS / WAF / rate limiting
 Source control GitHub (version history only; no Git-driven deployments)
 Deployment     Manual Wrangler from the local Mac (wrangler deploy -e …)
 IDE            TRAE CN
-Dev env        Local Node 24 + reachable dev PostgreSQL (no devcontainer)
+Dev env        Local Node 24 + local D1 (Miniflare via wrangler.toml; no
+               external database server, no DATABASE_URL)
 Mac            development + deployment machine (Node 24, npm, Wrangler)
-Staging        Worker sms-staging + sms-staging R2 + staging Hyperdrive/PG
-               (resources provisioned manually; first deploy pending the
-               staging acceptance checkpoint)
-Production     Worker sms-production + sms-production R2 + prod Hyperdrive/PG
-               (provisioned but not deployed until staging is accepted)
+Staging        Worker sms-staging + sms-staging R2 + sms-staging D1
+               (D1 id placeholder until the staging cutover; first deploy
+               pending the staging acceptance checkpoint)
+Production     Worker sms-production + sms-production R2 + sms-production D1
+               (not provisioned until staging is accepted)
 Website        deferred
 Current phase  Phase 12 Parts A–C / Options A–C ✅ COMPLETE (Phases 0–11
                done; Part A security/auth hardening: file magic-byte
@@ -2050,7 +2031,8 @@ Current phase  Phase 12 Parts A–C / Options A–C ✅ COMPLETE (Phases 0–11
 
 The project has **approved the migration** from the previously planned
 Vue 3 + Laravel 12 architecture to **Nuxt 4 + Cloudflare Workers**,
-while **retaining PostgreSQL** as the primary database.
+with **Cloudflare D1** as the sole database engine
+(PostgreSQL/Neon/Hyperdrive decommissioned 2026-09-24).
 
 -   Phase 0 feasibility assessment and decision: complete.
 -   Phase 0 infrastructure (Nuxt 4 scaffold, Nitro Cloudflare preset,
@@ -2101,26 +2083,28 @@ while **retaining PostgreSQL** as the primary database.
 PostgreSQL, Redis, Cloudflare R2/edge.
 
 **Approved direction:** Nuxt 4 + TypeScript + Vue 3 + Nitro on
-Cloudflare Workers, PostgreSQL (via Hyperdrive), R2, Queues.
+Cloudflare Workers, Cloudflare D1 (SQLite), R2, Queues.
 
-**Reason (evidence-based; full detail in the assessment document):**
-single TypeScript stack for client and server; reduced infrastructure
-and operational overhead (no PHP/Redis servers); native Cloudflare
-compute, scaling and generous free tier; good fit for the 2017 MacBook
-via Codespaces; PostgreSQL retained for relational, financial and
-reporting correctness; the backend had not yet been built, so the move
-was low-risk. Weighted score: Nuxt option 8.75 vs Laravel option 7.60.
+**Reason (evidence-based):** single TypeScript stack for client and
+server; reduced infrastructure and operational overhead (no PHP/Redis
+servers, no external database server); native Cloudflare compute,
+scaling and generous free tier; D1 gives binding-managed local/remote
+databases with no connection-string management; the backend had not yet
+been built, so the move was low-risk. Weighted score: Nuxt option 8.75
+vs Laravel option 7.60.
 
 ## 49. Documentation hierarchy
 
 1.  **Primary source of truth:** this `README.md`.
-2.  **Supporting decision records** (history and rationale; they do not
-    override this README):
-    -   `ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`
-    -   `ARCHITECTURE_DECISION_RECORD.md`
-    -   `MIGRATION_PLAN.md`
+2.  **Canonical migration spec:** the `docs/spec/v2/` package (placed
+    2026-09-21) — the directive for the D1 migration.
 3.  Operational docs live in `docs/`; hard rules live in
     `PROJECT_RULES.md`.
+4.  The PG-era decision records (`ARCHITECTURE_FEASIBILITY_ASSESSMENT.md`,
+    `ARCHITECTURE_DECISION_RECORD.md`, `MIGRATION_PLAN.md`,
+    `MIGRATION_GAP_REPORT.md`) were deleted 2026-09-24 as part of the
+    PostgreSQL/Neon/Hyperdrive decommission; they remain recoverable
+    from git history.
 
 A future significant architecture change requires updating this README
 and creating/updating an Architecture Decision Record — never a
@@ -2128,11 +2112,12 @@ competing README.
 
 ## 50. Migration plan reference
 
-Migration is incremental and sequential (see `MIGRATION_PLAN.md` for
-full detail). Existing work must be preserved; each phase must pass its
-tests and quality gate before the next begins; destructive changes
-require explicit approval. The migration plan is supporting
-documentation, not a second specification.
+Migration is incremental and sequential. Existing work must be
+preserved; each phase must pass its tests and quality gate before the
+next begins; destructive changes require explicit approval. The
+PG→D1 migration is complete (PostgreSQL/Neon/Hyperdrive decommissioned
+2026-09-24); see §52 for the migration status and the §51 change log
+for the full history.
 
 ## 51. Change log
 
@@ -3142,6 +3127,58 @@ documentation, not a second specification.
                     Hyperdrive / postgres dep / seed.ts / legacy-pg
                     migrations remain until Phase 14. No remote D1
                     provisioned; staging/production untouched.
+2026-09-24  PG/Neon/Hyperdrive DECOMMISSION. Total removal of every
+                    PostgreSQL / Neon / Hyperdrive artefact so the
+                    database stack focuses purely on Cloudflare D1.
+                    Deleted: app/database/seed.ts (PG seed runner,
+                    superseded by seed-d1.ts); app/drizzle.pg.config.ts
+                    (PG drizzle config); app/database/migrations/
+                    legacy-pg/ (4 SQL + 5 meta files); root PG-era
+                    decision records MIGRATION_PLAN.md,
+                    ARCHITECTURE_DECISION_RECORD.md,
+                    ARCHITECTURE_FEASIBILITY_ASSESSMENT.md,
+                    MIGRATION_GAP_REPORT.md (recoverable from git).
+                    Edited app/wrangler.toml: removed all 3
+                    [[hyperdrive]] blocks (local/staging/production)
+                    + the staging Hyperdrive id; rewrote provision-once
+                    headers to D1/R2/KV/Queues/Cron only. Edited
+                    app/package.json: dropped the `postgres` dependency;
+                    removed db:pg:* / db:push / db:studio scripts;
+                    repointed db:migrate -> db:d1:migrate and
+                    db:seed -> db:d1:seed. Edited app/.env.example +
+                    gitignored app/.env: removed DATABASE_URL and
+                    STAGING_DATABASE_URL blocks (preserved
+                    SESSION_SECRET); no DATABASE_URL is needed — D1
+                    is reached via the DB binding. Edited
+                    app/nuxt.config.ts: removed the databaseUrl
+                    runtimeConfig key + Hyperdrive comments. Cleaned
+                    stale PG-fallback prose in server/utils/db.ts,
+                    server/plugins/cloudflare.ts (removed the dead
+                    DATABASE_URL runtime bridge),
+                    database/seed-d1.ts, drizzle.config.ts, schema
+                    file headers (enums/core/people/academics/
+                    enrollment), seeds/index.ts, and service/utils
+                    comments (assignments/events/schedule/resources/
+                    storage/gallery-thumbnails/http-errors — kept the
+                    defensive SQLSTATE branches). Documentation
+                    rewrites: README §§1/6/29/30/31/39/40/45/46/47/
+                    48/49/50/52 + this change-log entry;
+                    PROJECT_RULES.md; .trae/rules/project_rules.md;
+                    docs/DATABASE.md (D1-only); docs/CLOUDFLARE.md
+                    (Hyperdrive section removed). NOT touched
+                    (per owner decision, separate pass): frontend/
+                    Vue+Vite scaffold and app/wrangler.pages.toml
+                    (still contains [[hyperdrive]] text but is not
+                    loaded by Wrangler — flagged as known-deferred).
+                    Gates re-run: npm install, type-check, test,
+                    build, wrangler deploy --dry-run, db:d1:migrate +
+                    db:d1:seed, cf:dev smoke. ACTION FOR OWNER:
+                    rotate the Neon staging password (npg_8bGUASvCfL1H
+                    was in the now-deleted .env STAGING_DATABASE_URL
+                    line — the Neon db will be decommissioned during
+                    the staging cutover, but rotate as a precaution).
+                    Staging/production D1 database ids remain
+                    placeholders until the Phase 13 staging cutover.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)
@@ -3166,13 +3203,18 @@ Authority order (per package README §4): explicit project-owner
 decision → this README → PRD → TRD → UI/UX → AppFlow → Backend Schema
 → Implementation Plan.
 
-Phase 0 deliverable: [MIGRATION_GAP_REPORT.md](file:///Users/mac/Documents/School_Management_System/MIGRATION_GAP_REPORT.md) at repo root (approved 2026-09-21).
+Phase 0 deliverable: the MIGRATION_GAP_REPORT.md at repo root was the
+first-repository-inspection template (approved 2026-09-21); it was
+deleted 2026-09-24 as part of the PostgreSQL/Neon/Hyperdrive
+decommission (recoverable from git history).
 
 ### Migration status
 
--   **D1 authoritative; PostgreSQL decommissioned only AFTER D1
-    staging passes acceptance.** The live PG-backed staging Worker
-    (`sms-staging`) remains as fallback until then.
+-   **PostgreSQL/Neon/Hyperdrive decommissioned 2026-09-24; D1 is the
+    sole database engine.** The `postgres` npm dependency, all
+    `[[hyperdrive]]` blocks, the PG seed runner, the PG drizzle config,
+    and the `legacy-pg/` migration tree are gone. No `DATABASE_URL` or
+    `STAGING_DATABASE_URL` is read anywhere.
 -   Money = INTEGER kobo (₦150,000 = 15,000,000); scores/weights/
     boundaries = INTEGER fixed-point ×100; timestamps TEXT ISO-8601
     UTC; dates `YYYY-MM-DD`; times `HH:MM:SS`; IDs TEXT app-generated
@@ -3184,20 +3226,22 @@ Phase 0 deliverable: [MIGRATION_GAP_REPORT.md](file:///Users/mac/Documents/Schoo
 -   Drizzle generates SQLite DDL; `wrangler d1 migrations` is the
     single applier/tracker.
 
-### Migration phases (from MIGRATION_GAP_REPORT.md §16)
+### Migration phases (historical — from the deleted MIGRATION_GAP_REPORT §16)
 
-1.  Architecture reset (config only — D1 binding alongside Hyperdrive,
-    no behavior deletion).
+1.  Architecture reset (D1 binding declared) — ✅ COMPLETE.
 2.  Schema rewrite (52 PG tables → SQLite DDL; 16 pgEnums → TEXT +
-    CHECK; 201 PG-specific call sites adapted).
+    CHECK; 201 PG-specific call sites adapted) — ✅ COMPLETE.
 3.  Query dialect migration (40 `ilike` → `LIKE`; 17 interactive
-    transactions → D1 batch; ~20 PG raw-SQL fragments rewritten).
-4.  Paystack net-new (init + webhook + verify + ledger).
-5.  Public website net-new (deferred until SMS foundation stable).
-6.  D1 staging acceptance → PG decommission.
-7.  Production cutover.
+    transactions → D1 batch; ~20 PG raw-SQL fragments rewritten) —
+    ✅ COMPLETE.
+4.  Paystack net-new (init + webhook + verify + ledger) — deferred to
+    SMS Phase 15.
+5.  Public website net-new — deferred to SMS Phase 18.
+6.  D1 staging acceptance → PG decommission — PG decommission DONE
+    2026-09-24; D1 staging acceptance (provisioning + remote migrate +
+    seed + smoke) remains part of the SMS Phase 13 staging cutover.
+7.  Production cutover — not started (SMS Phase 19 launch).
 
-Each phase follows: `Inspect → Plan → Implement → Test → Review →
-Document → Commit`. Destructive changes (Hyperdrive removal, PG
-schema deletion) require explicit project-owner approval at the
-phase boundary.
+Each phase followed: `Inspect → Plan → Implement → Test → Review →
+Document → Commit`. The destructive Hyperdrive removal and PG schema
+deletion were authorized by the project owner on 2026-09-24.

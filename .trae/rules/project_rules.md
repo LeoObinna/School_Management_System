@@ -3,9 +3,10 @@
 ## Environment
 
 Development runs **locally** on the Mac (Node 24 + npm). There is no
-Codespace, devcontainer, Docker, Redis, PHP, or Composer. PostgreSQL is
-reached via a local or remote dev connection string (`DATABASE_URL` in
-the gitignored `app/.env`).
+Codespace, devcontainer, Docker, Redis, PHP, or Composer. Cloudflare D1
+(SQLite) is the database in every environment, reached locally via
+`wrangler getPlatformProxy({ persist: true })` against the `DB` binding
+declared in `app/wrangler.toml`. No connection string is required.
 
 All Cloudflare deployments are **manual Wrangler deploys from the local
 terminal** (`npm run deploy:staging` / `npm run deploy:production` from
@@ -44,23 +45,24 @@ Before every change TRAE must:
 -   introduce duplicate models/routes/migrations
 -   build the public website before the SMS foundation is stable
 -   require PHP/Composer/Redis/Docker/Codespaces — development is local
-    Node 24 + a reachable PostgreSQL
+    Node 24 + the local D1 binding
 -   configure GitHub Actions deploys, Pages Git integration, or Workers
     Builds — all deploys are manual `wrangler deploy` from the Mac
--   run database migrations through Hyperdrive — use the direct
-    PostgreSQL URL with `npm run db:migrate`
+-   run database migrations through Hyperdrive or any direct DB
+    connection string — use `npm run db:migrate` (wrangler d1
+    migrations apply DB --local)
 
 ## Commands (local machine, from `app/`)
 
 ```bash
 npm install          # install dependencies
-npm run dev          # Nuxt dev server (Node; DATABASE_URL)
+npm run dev          # Nuxt dev server (Node; D1 via wrangler getPlatformProxy)
 npm run cf:dev       # build + wrangler dev (Workers emulation + bindings)
 npm run test         # Vitest
 npm run type-check   # nuxt typecheck
 npm run build        # cloudflare-module Worker build
-npm run db:migrate   # Drizzle migrations against direct DATABASE_URL
-npm run db:seed      # seed fake demo data (never real student data)
+npm run db:migrate   # wrangler d1 migrations apply DB --local
+npm run db:seed      # seed fake demo data via D1 (never real student data)
 npm run deploy:staging     # build + wrangler deploy -e staging
 npm run deploy:production  # build + wrangler deploy -e production
 ```
@@ -69,9 +71,10 @@ npm run deploy:production  # build + wrangler deploy -e production
 
 - Frontend + API: Nuxt 4 (Vue 3 + TypeScript) + Nitro server routes
 - Runtime: Cloudflare Workers + Static Assets (cloudflare-module preset)
-- Database: PostgreSQL (dev local/remote; staging/prod managed;
-  Hyperdrive binding in Workers; Drizzle ORM; NUMERIC for money)
-- Storage: Cloudflare R2 via R2_BUCKET binding (metadata in PostgreSQL)
+- Database: Cloudflare D1 (SQLite) in every environment; Drizzle ORM
+  SQLite dialect; INTEGER kobo for money; local dev via wrangler
+  getPlatformProxy against the D1 binding in wrangler.toml
+- Storage: Cloudflare R2 via R2_BUCKET binding (metadata in D1)
 - Background: Cloudflare Queues + Cron Triggers (from Phase 10)
 - Edge: Cloudflare DNS, TLS, WAF, rate limiting
 - Source control: GitHub (version history only; no Git-driven deploys)
