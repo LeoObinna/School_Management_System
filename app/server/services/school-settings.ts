@@ -1,5 +1,5 @@
 /**
- * School settings domain service (Phase 14A).
+ * School settings domain service (Phase 14A; KV-cached in Phase 12).
  *
  * Settings live in the `school_settings` key/value table (schema/core.ts).
  * This module owns the mapping between DB keys and the typed
@@ -9,7 +9,15 @@
  * Two read paths:
  * - {@link getSchoolSettings}: full object (admin)
  * - {@link getPublicSchoolSettings}: branding/identity subset (any auth user)
+ *
+ * Both reads flow through a single KV cache entry (TRD §12 + §16) —
+ * settings change rarely but are read on every authenticated page, so a
+ * 60-second TTL with write-through invalidation cuts D1 reads without
+ * introducing perceptible staleness. KV is non-authoritative; a miss
+ * transparently falls through to D1, and unbound environments (plain
+ * `nuxt dev`) bypass the cache entirely.
  */
+import type { H3Event } from 'h3'
 import { inArray } from 'drizzle-orm'
 import { schoolSettings } from '../../database/schema'
 import type { SchoolSettings } from '../../shared/types'
@@ -20,10 +28,15 @@ import {
   type SchoolPublicSettings,
 } from '../../shared/schemas'
 import type { SmsDb } from '../utils/pagination'
+import { cacheKey, getOrSet, invalidate } from '../utils/cache'
 
 async function db(): Promise<SmsDb> {
   return (await import('../utils/db')).db
 }
+
+/** Single cache entry; the public subset derives from the cached full. */
+const SETTINGS_CACHE_KEY = cacheKey('school', 'settings')
+const SETTINGS_CACHE_TTL = 60
 
 /**
  * Maps the typed settings object to/from the `school.<field>` DB keys
@@ -93,8 +106,19 @@ function coerce(field: keyof SchoolSettings, value: string | null): unknown {
   return value
 }
 
-/** Reads all known keys and returns the merged, typed settings object. */
-export async function getSchoolSettings(): Promise<SchoolSettings> {
+/**
+ * Reads all known keys, returns the merged typed settings object.
+ * Cached in KV for {@link SETTINGS_CACHE_TTL} seconds; a miss falls
+ * through to D1. The cache is best-effort and non-authoritative.
+ */
+export async function getSchoolSettings(event: H3Event): Promise<SchoolSettings> {
+  return getOrSet(event, SETTINGS_CACHE_KEY, SETTINGS_CACHE_TTL, () =>
+    loadSchoolSettingsFromDb(),
+  )
+}
+
+/** Loads settings from D1 (cache miss path). Exposed for tests. */
+async function loadSchoolSettingsFromDb(): Promise<SchoolSettings> {
   const client = await db()
   const rows = await client
     .select({ key: schoolSettings.key, value: schoolSettings.value })
@@ -112,8 +136,10 @@ export async function getSchoolSettings(): Promise<SchoolSettings> {
 }
 
 /** Public branding/identity subset for any authenticated user. */
-export async function getPublicSchoolSettings(): Promise<SchoolPublicSettings> {
-  const all = await getSchoolSettings()
+export async function getPublicSchoolSettings(
+  event: H3Event,
+): Promise<SchoolPublicSettings> {
+  const all = await getSchoolSettings(event)
   const subset: Record<string, unknown> = {}
   for (const field of PUBLIC_FIELDS) {
     subset[field] = all[field]
@@ -123,9 +149,11 @@ export async function getPublicSchoolSettings(): Promise<SchoolPublicSettings> {
 
 /**
  * Applies a partial update. Only keys present in `patch` are written
- * (upsert). Returns the merged full settings after the update.
+ * (upsert). Invalidates the cache (best-effort) so the next read sees
+ * fresh data. Returns the merged full settings after the update.
  */
 export async function updateSchoolSettings(
+  event: H3Event,
   patch: SchoolSettingsUpdate,
 ): Promise<SchoolSettings> {
   const client = await db()
@@ -156,7 +184,11 @@ export async function updateSchoolSettings(
       })
   }
 
-  return getSchoolSettings()
+  // Write-through invalidation: next read repopulates from D1. Best-effort;
+  // a transient KV outage leaves at most `SETTINGS_CACHE_TTL` seconds of
+  // staleness, which the outer 60s TTL bounds.
+  await invalidate(event, SETTINGS_CACHE_KEY)
+  return getSchoolSettings(event)
 }
 
 /** Derives the settings `group` for a field (matches seed conventions). */

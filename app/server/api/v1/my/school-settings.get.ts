@@ -10,5 +10,5 @@ import { getPublicSchoolSettings } from '~/server/services/school-settings'
 
 export default defineEventHandler(async (event) => {
   requireUser(event)
-  return getPublicSchoolSettings()
+  return getPublicSchoolSettings(event)
 })

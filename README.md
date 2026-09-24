@@ -2913,6 +2913,87 @@ documentation, not a second specification.
                     postgres dep / seed.ts / legacy-pg migrations
                     remain until Phase 14. No remote D1 provisioned;
                     staging/production untouched.
+2026-09-24  Phase 12 Option A  KV caching (TRD §12 + §16;
+                    MIGRATION_GAP_REPORT §17 phase plan item 6).
+                    Pre-flight confirmed the EDGE_KV binding is already
+                    declared in wrangler.toml (local/staging/
+                    production) and that the two prior KV consumers
+                    are already production-shaped: the rate limiter
+                    (server/utils/auth/throttle.ts) uses `rl:` prefix
+                    counters with in-memory fallback and fails OPEN on
+                    KV errors, and the session revocation list
+                    (server/utils/auth/revocation.ts) uses `sess:rev:`
+                    and `sess:nb:` markers and fails CLOSED on bound-KV
+                    lookup errors (security-correct). Both have full
+                    FakeKv/ThrowingKv test coverage. The remaining
+                    caching opportunity was school-settings (read on
+                    every authenticated page via GET /api/v1/my/
+                    school-settings; admin-only writes via PUT
+                    /api/v1/school-settings; rarely changes). Public-
+                    website content cache was N/A (Phase 5 skipped).
+                    Changes: (1) added server/utils/cache.ts — a small
+                    read-through KV cache utility: cacheKey(parts)
+                    joins parts under the `cache:` namespace (kept
+                    distinct from `rl:` and `sess:`); getOrSet(event,
+                    key, ttl, loader) returns the cached JSON value on
+                    a hit, otherwise calls loader, persists the JSON-
+                    serialised result with expirationTtl clamped to
+                    the KV minimum of 60s, and returns it; invalidate
+                    (event, key) and invalidateMany(event, keys[])
+                    provide best-effort deletes (empty list is a
+                    no-op; individual delete errors are swallowed).
+                    Fail-open: when EDGE_KV is unbound (plain nuxt
+                    dev) the loader result is returned directly and
+                    nothing is written; KV get/put/delete errors are
+                    caught, logged, and the loader result is still
+                    returned. (2) Wired school-settings service to
+                    the cache: getSchoolSettings(event) and
+                    getPublicSchoolSettings(event) now read through a
+                    single KV entry `cache:school:settings` with a 60s
+                    TTL; the public subset derives from the cached full
+                    object (no second cache key, no double-
+                    invalidation). updateSchoolSettings(event, patch)
+                    upserts the patched keys, then invalidate()s the
+                    cache and re-reads so the returned value is fresh
+                    and the next caller's read is repopulated. (3)
+                    Threaded H3Event through the three API call sites
+                    (index.get, index.put, my/school-settings.get).
+                    No routes added, no schema change, no migrations.
+                    Tests: 16 new in server/utils/__tests__/cache.test
+                    ts (cacheKey shape; getOrSet hit/miss/TTL clamp/
+                    null-as-miss/no-binding bypass/get-throws/
+                    put-throws; invalidate noop-on-empty + swallow-
+                    errors; invalidateMany batch + continue-on-error)
+                    and 5 new cache cases in server/services/__tests__/
+                    school-settings.test.ts (cache-after-first-read;
+                    fall-through on miss; bypass when unbound;
+                    invalidate-on-update + fresh re-read; public
+                    subset reads from same cache entry). Drive-by:
+                    fixed two pre-existing TS2339 errors in
+                    server/utils/__tests__/storage.test.ts (Phase 11
+                    regression that slipped past the typecheck gate —
+                    `bucket.delete.mock.calls` lost the Mock typing
+                    through `as unknown as R2BucketLike`; extracted
+                    deleteMock as a typed vi.fn() variable before the
+                    cast). Gates: nuxt typecheck EXIT 0; vitest 486/
+                    486 across 37 files (Phase 11 baseline 465/36 ->
+                    +21 tests +1 file); cloudflare-module build EXIT
+                    0 (4.37 MB total / 1.48 MB gzip, unchanged). D1
+                    smoke on wrangler dev port 8787 (admin@victorious
+                    children.school): GET /api/v1/my/school-settings
+                    200 (twice, identical payloads — second served
+                    from cache); GET /api/v1/school-settings 200
+                    (admin full); PUT /api/v1/school-settings 200 with
+                    {motto:"...smoke"} — trailing read repopulated
+                    cache with the new value; follow-up GET returned
+                    the fresh motto (invalidation proven); restored
+                    motto to seed value; anonymous GET on both routes
+                    401 (RBAC unchanged). Unchanged: 104-slug RBAC;
+                    EDGE_KV binding and its rl:/sess: consumers; all
+                    other services. Hyperdrive / postgres dep /
+                    seed.ts / legacy-pg migrations remain until Phase
+                    14. No remote D1 provisioned; staging/production
+                    untouched.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

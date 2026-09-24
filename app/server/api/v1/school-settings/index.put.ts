@@ -13,7 +13,7 @@ import { writeAudit } from '~/server/utils/audit'
 export default defineEventHandler(async (event) => {
   const auth = requirePermission(event, 'school.settings.update')
   const patch = parseBody(schoolSettingsUpdateSchema, await readBody(event))
-  const updated = await updateSchoolSettings(patch)
+  const updated = await updateSchoolSettings(event, patch)
   await writeAudit(event, {
     userId: auth.user.id,
     action: 'school_settings.update',

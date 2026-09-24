@@ -8,5 +8,5 @@ import { getSchoolSettings } from '~/server/services/school-settings'
 
 export default defineEventHandler(async (event) => {
   requirePermission(event, 'school.settings.view')
-  return getSchoolSettings()
+  return getSchoolSettings(event)
 })

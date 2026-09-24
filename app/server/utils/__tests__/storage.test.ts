@@ -72,19 +72,18 @@ describe('headObject / objectExists', () => {
 describe('deleteObjects', () => {
   it('deletes every key in order and no-ops on an empty list', async () => {
     const deletes: string[] = []
-    const bucket = {
-      delete: vi.fn(async (key: string) => {
-        deletes.push(key)
-      }),
-    } as unknown as R2BucketLike
+    const deleteMock = vi.fn(async (key: string) => {
+      deletes.push(key)
+    })
+    const bucket = { delete: deleteMock } as unknown as R2BucketLike
     await deleteObjects(makeEvent(bucket), ['a', 'b', 'c'])
     expect(deletes).toEqual(['a', 'b', 'c'])
 
     deletes.length = 0
-    const callCountBefore = bucket.delete.mock.calls.length
+    const callCountBefore = deleteMock.mock.calls.length
     await deleteObjects(makeEvent(bucket), [])
     expect(deletes).toEqual([])
-    expect(bucket.delete.mock.calls.length).toBe(callCountBefore)
+    expect(deleteMock.mock.calls.length).toBe(callCountBefore)
   })
 
   it('fails fast on the first delete error', async () => {
