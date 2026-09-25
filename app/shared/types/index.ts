@@ -1099,6 +1099,34 @@ export interface PaymentDetail extends PaymentListItem {
   receipt: PaymentReceipt | null
 }
 
+// --- Paystack online checkout (Phase 15) -----------------------------------
+export interface PaystackConfigStatus {
+  /** False when no PAYSTACK_SECRET_KEY is configured — UI hides checkout. */
+  enabled: boolean
+}
+
+export interface PaystackInitializeResult {
+  authorizationUrl: string
+  reference: string
+}
+
+export interface PaystackVerifyResult {
+  /** True when the payment is verified after this call (or already was). */
+  verified: boolean
+  /** True when the payment was already verified (idempotent replay). */
+  alreadyVerified: boolean
+  /** Raw gateway transaction status when verification did not happen. */
+  gatewayStatus: string | null
+  payment: PaymentDetail
+}
+
+/** GET /finance/bank-details — transfer info for the billing page. */
+export interface OfficeBankDetails {
+  bankName: string | null
+  accountName: string | null
+  accountNumber: string | null
+}
+
 // GET /finance/outstanding row — invoice + derived overdue flag.
 export interface OutstandingRow {
   id: string

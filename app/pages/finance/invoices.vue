@@ -280,9 +280,11 @@ const detailOpen = ref(false)
 const detailInvoice = ref<InvoiceDetail | null>(null)
 const detailError = ref<string | null>(null)
 const busy = ref(false)
+const invoiceQrFailed = ref(false)
 
 async function openDetail(inv: InvoiceListItem) {
   detailError.value = null
+  invoiceQrFailed.value = false
   try {
     detailInvoice.value = await financeApi.getInvoice(inv.id)
     detailOpen.value = true
@@ -699,6 +701,25 @@ async function refundPayment(paymentId: string) {
           </button>
         </div>
 
+        <!-- Per-invoice bank-transfer QR (Phase 15); 404s without bank details -->
+        <div
+          v-if="
+            !invoiceQrFailed &&
+            detailInvoice.balance > 0 &&
+            ['issued', 'partially_paid'].includes(detailInvoice.status)
+          "
+          class="mt-4"
+        >
+          <img
+            :src="financeApi.invoiceQrUrl(detailInvoice.id)"
+            alt="Invoice bank-transfer QR code"
+            class="h-28 w-28 rounded border border-gray-200"
+            loading="lazy"
+            title="Bank-transfer details + amount due"
+            @error="invoiceQrFailed = true"
+          >
+        </div>
+
         <!-- Payments -->
         <h3 class="mt-6 text-sm font-semibold uppercase tracking-wide text-gray-500">
           Payments
@@ -739,6 +760,13 @@ async function refundPayment(paymentId: string) {
               </p>
             </div>
             <div class="flex gap-2">
+              <a
+                v-if="p.receiptNumber"
+                :href="`/api/v1/payments/${p.id}/receipt/download`"
+                class="text-xs font-medium text-indigo-600 hover:underline"
+              >
+                Receipt PDF
+              </a>
               <button
                 v-if="canVerify && p.status === 'pending'"
                 :disabled="busy"

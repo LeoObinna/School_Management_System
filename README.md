@@ -1786,7 +1786,7 @@ domain. Staging tier removed from the codebase 2026-09-24; the
 dormant `sms-staging` Worker + Neon `sms_staging` PG are left intact
 but unreferenced.
 
-### Phase 14 --- SMS completion: admin foundation  (IN PROGRESS; 14A ✅ COMPLETE 2026-09-24)
+### Phase 14 --- SMS completion: admin foundation  (✅ COMPLETE 2026-09-25 — 14A–14D all done)
 
 Closes the authenticated-SMS gaps in the product spec (admin
 dashboard) and stores school identity/branding as **data** — never
@@ -1809,24 +1809,72 @@ hard-coded.
   into local R2, idempotently and without clobbering later uploads.
   See `docs/API.md` Phase 14A.
 - Documents module (staff document management, R2-backed, authorized
-  streaming, no public bucket URLs) — 14B, not started.
-- Inventory module (books/equipment ledger) — 14C, not started.
+  streaming, no public bucket URLs) — **14B ✅ COMPLETE 2026-09-24.**
+  `documents` table (polymorphic owner_type/owner_id, visibility
+  staff|admin) + migration 0001; `documents.view` (admin+teacher) and
+  `documents.manage` (admin) permissions; 6 routes
+  (`GET/POST /documents`, `GET/PUT/DELETE /documents/:id`,
+  `GET /documents/:id/download`); `school_document` upload category
+  (25 MB, full doc MIME range, magic-byte sniff); visibility-enforced
+  service (teachers see only `staff` docs, admin-only returns 404 not
+  403); `/documents` page (list, search, upload/edit/delete modals,
+  download); dashboard nav link. See `docs/API.md` Phase 14B.
+- Inventory module (books/equipment ledger) — **14C ✅ COMPLETE
+  2026-09-24.** `inventory_items` table + migration 0002 (type
+  book|equipment, condition, status active|retired, ISBN/asset-tag
+  identifier unique per type, bulk quantity + available quantity with
+  the `0 <= available <= quantity` invariant); `inventory.view`
+  (admin+teacher) and `inventory.manage` (admin) permissions; 5 routes
+  (`GET/POST /inventory`, `GET/PUT/DELETE /inventory/:id`, JSON,
+  paginated + filters, audited); `/inventory` table page (search,
+  type/condition/status filters, pagination, add/edit modal, retire vs
+  delete, in/low/out-of-stock badges); dashboard card. Pure D1 — no R2.
+  Loans/check-out to students explicitly deferred. See
+  `docs/API.md` Phase 14C.
 - Expanded financial reports (per fee purpose, per class, per term) —
-  14D, not started.
+  **14D ✅ COMPLETE 2026-09-25.** Three read-only staff-only report
+  endpoints (no migration, no new permissions — reuses
+  `invoices.view` plus a staff-actor check, `finance.export` for
+  exports): `GET /reports/finance/fee-purposes`,
+  `/reports/finance/by-class`, `/reports/finance/by-term`, each JSON
+  (integer kobo) plus `csv`/`xlsx` (naira 2-dp columns). Fee purpose =
+  linked fee-item name else line description; invoice-level payments
+  are allocated to purposes with a kobo-exact largest-remainder split;
+  class grouping uses the active enrollment in the invoice's session
+  ("Unassigned" bucket), term grouping keeps term-less invoices under
+  "Unassigned term"; issued/partially_paid/paid invoices only;
+  optional sessionId/termId/classId filters; parents (who hold
+  invoices.view for their own children) and teachers get 403. New
+  financial section on `/reports` with shared filters, three tables +
+  totals and per-table CSV/XLSX buttons. See `docs/API.md` Phase 14D.
 
-### Phase 15 --- Payments: Paystack + QR codes  (roadmap 2026-09-20; NOT STARTED)
+### Phase 15 --- Payments: Paystack + QR codes  (✅ COMPLETE 2026-09-25)
 
-- Paystack integration: initialize → checkout → verify → signed,
-  idempotent webhook; use the already-anticipated
-  `provider_reference`/`idempotency_key` fields. No trust of
-  client-supplied payment status.
-- Branded PDF receipts generated server-side, with bank details
-  sourced from School Settings.
-- QR codes: static office QR (bank details) plus a dynamic QR per
-  student/invoice carrying the payment reference; shown in the parent
-  portal and on receipts.
-- Surface fee purposes (tuition, sports, excursion, library, etc.) in
-  the UI; they remain configurable data, never hard-coded.
+Delivered in three increments (15A checkout, 15B receipts, 15C QR).
+
+- Paystack hosted-redirect checkout: server-side initialize → Paystack
+  checkout → callback page → server-side verify; signed (HMAC-SHA512),
+  idempotent webhook (`charge.success` only; replays are no-ops) using
+  the `provider_reference`/`idempotency_key` fields. The browser
+  callback never verifies — amount (exact kobo), currency and status
+  are re-verified against Paystack before any accounting. Graceful
+  no-key mode hides checkout when `PAYSTACK_SECRET_KEY` is unset.
+- Parents/students pay their own issued/partially-paid invoices, any
+  amount ≥ ₦50 up to the balance. No schema change, no new
+  permissions.
+- Branded PDF receipts generated server-side (pdf-lib), school
+  name/motto/colour + bank details from School Settings, verification
+  QR embedded; lazily stored in R2 (`receipts/{receiptNumber}.pdf`) and
+  streamed via `GET /payments/{id}/receipt/download` (parent-scoped,
+  audited).
+- QR codes (pure-JS, Workers-safe): static office QR (bank details) at
+  `GET /finance/office-qr.svg` plus a dynamic per-invoice QR (bank +
+  invoice reference + amount due) at `GET /invoices/{id}/qr.svg`;
+  bank-details JSON for the billing page's transfer card; receipt PDF
+  embeds its QR as vector modules.
+- Fee purposes (tuition, sports, etc.) shown per invoice line in the
+  billing drawer; they remain configurable data, never hard-coded.
+  See `docs/API.md` Phase 15.
 
 ### Phase 16 --- Dedicated role portals  (roadmap 2026-09-20; NOT STARTED)
 
@@ -2025,15 +2073,17 @@ Production     Worker sms-production + sms-production R2 + sms-production D1
                (provisioned + deployed 2026-09-24; demo seed loaded for
                smoke verification)
 Website        deferred
-Current phase  Phase 14A ✅ COMPLETE (2026-09-24): school settings
-               finished with an R2-backed school logo (raster-only
-               upload, inline authorized serve, remove, /settings
-               widget, local-R2 seed of the owner-supplied logo).
-               Phases 0–12 complete; Phase 13 infra + production deploy
-               DONE but the phase is PARKED — domain unavailable;
-               TLS/WAF/DNS, live KV re-verification, backups,
-               monitoring and the rollback drill are carried into
-               Phase 19. Next: Phase 14B documents module.
+Current phase  Phase 15 ✅ COMPLETE (2026-09-25): Paystack hosted-
+               redirect checkout + signed idempotent webhook, branded PDF
+               receipts (R2, lazy), office/invoice QR codes; Phase 14 ✅
+               COMPLETE (2026-09-25): 14A school settings + R2 logo, 14B
+               staff documents, 14C inventory ledger, 14D expanded
+               financial reports. Phases 0–12 complete; Phase 13 infra +
+               production deploy DONE but PARKED (domain blocked;
+               TLS/WAF/DNS, backups, monitoring, KV re-verification and
+               rollback drill → Phase 19). Next: Phase 16 role portals
+               (16/17 deferred per owner 2026-09-25; Phase 18 public
+               website plan approved-in-principle, on hold).
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -2081,15 +2131,23 @@ with **Cloudflare D1** as the sole database engine
 - Current phase: **Phases 0–12 ✅ COMPLETE; Phase 13 infra + production
     deploy DONE but PARKED (domain blocked — TLS/WAF/DNS, backups,
     monitoring, live KV re-verification and rollback drill carried into
-    Phase 19); Phase 14 IN PROGRESS — 14A school settings + R2 school
-    logo ✅ COMPLETE 2026-09-24.**
+    Phase 19); Phase 14 ✅ COMPLETE 2026-09-25 — 14A school settings +
+    R2 school logo, 14B staff documents, 14C inventory ledger,
+    14D expanded financial reports (per fee purpose/class/term);
+    Phase 15 ✅ COMPLETE 2026-09-25 — Paystack hosted-redirect checkout
+    with signed idempotent webhook (server-side re-verification only),
+    branded PDF receipts lazily stored in R2 with embedded verification
+    QR, and office/per-invoice bank-transfer QR codes.**
     The approved forward roadmap (2026-09-20) is: Phase 14 admin
-    foundation — 14A settings/logo (done), 14B documents, 14C
-    inventory, 14D expanded financial reports; Phase 15 Paystack + QR
-    payments; Phase 16 dedicated student/parent/teacher portals;
-    Phase 17 email/SMS communication channels; Phase 18 public website;
-    Phase 19 launch (including the deferred Phase 13 domain work).
-    Payment gateway/webhook remain deferred to Phase 15.
+    foundation — 14A settings/logo (done), 14B documents (done), 14C
+    inventory (done), 14D expanded financial reports (done); Phase 15
+    Paystack + QR payments (done); Phase 16 dedicated
+    student/parent/teacher portals; Phase 17 email/SMS communication
+    channels; Phase 18 public website; Phase 19 launch (including the
+    deferred Phase 13 domain work). Per owner direction 2026-09-25,
+    Phases 16 and 17 are deferred for later and the Phase 18 public
+    website plan (`.trae/documents/phase18_public_website_plan.md`) is
+    on hold pending owner comments.
 
 ## 48. Architecture decision (summary)
 
@@ -3295,6 +3353,326 @@ for the full history.
                     README §41/§46/§47 + this entry updated. No
                     migration, no new permission slugs, no remote/prod
                     action taken.
+2026-09-24  Phase 14B staff documents module. Built a staff document
+                    library (R2-backed, authorized streaming, no public
+                    bucket URLs) modeled on the existing resources +
+                    gallery modules. (1) New `documents` table
+                    (database/schema/documents.ts + enums
+                    documentVisibilityEnum in enums.ts) following the
+                    v2 spec polymorphic owner_type/owner_id design:
+                    id, owner_type, owner_id, object_key, file_name,
+                    mime_type, size_bytes, title, description, category,
+                    visibility (CHECK IN staff|admin), created_by_id
+                    (FK users, set null), created_at, updated_at;
+                    indexes on owner, visibility, category. Migration
+                    0001_documents.sql applied locally (no remote
+                    action). (2) Permissions documents.view +
+                    documents.manage added to catalog; admin gets both
+                    (ALL-minus-exclude), teacher gets documents.view
+                    only, student/parent get none. (3) New
+                    school_document upload category (uploads.ts):
+                    25 MB cap, full document MIME range (pdf, office,
+                    text, raster) inheriting existing extension
+                    cross-check + Phase 12 magic-byte sniff. (4) Shared
+                    schemas (documents.ts) + types (Document /
+                    DocumentListItem / DocumentAccess). (5) Service
+                    documents.ts: listDocuments (visibility-scoped:
+                    admins see all, teachers see visibility=staff only,
+                    admin-only filtered from non-admin lists),
+                    getDocumentForActor (404 not 403 for admin-only to
+                    avoid leaking existence), createDocument /
+                    updateDocument / deleteDocument all admin-gated
+                    (403 otherwise), delete returns objectKey for the
+                    route to purge R2. (6) 6 routes under
+                    server/api/v1/documents/: index.get (list,
+                    documents.view), index.post (multipart upload,
+                    documents.manage, storage-first to documents/<owner
+                    Type>/<ownerId|school>/<uuid>-<name>, rollback on
+                    metadata failure, audit document.upload), [id].get
+                    (metadata), [id]/download.get (authorized
+                    attachment stream), [id].put (partial metadata
+                    update, immutable bytes, audit document.update),
+                    [id].delete (assertR2Available, delete row + purge
+                    R2, audit document.delete). (7) Client
+                    services/documents.ts + pages/documents.vue (list
+                    with search + visibility filter, upload modal, edit
+                    metadata modal, delete confirm, download link, R2
+                    notice, BaseModal reuse); dashboard Documents card
+                    in the Teaching section of pages/index.vue
+                    (documents.view gated). (8) Tests: +4
+                    school_document upload-envelope cases (accept
+                    pdf/office/image/text, reject exe MIME, >25 MB,
+                    extension mismatch) in uploads.test.ts; +13
+                    documents service tests (visibility list mapping,
+                    admin no-visibility-constraint, teacher staff
+                    constraint, admin reads admin-only, teacher 404 on
+                    admin-only, 404 missing; create/update/delete
+                    admin-gating, 404 update missing, updatedAt bump)
+                    in server/services/__tests__/documents.test.ts.
+                    Suite 519/519 across 38 files; type-check EXIT 0;
+                    cloudflare-module build EXIT 0 (4.45 MB / 1.51 MB
+                    gzip). wrangler dev D1+R2 smoke (admin + teacher +
+                    student): list empty; upload pdf 201; GET metadata;
+                    download 200 bytes md5 match; PUT title+visibility
+                    200 + updatedAt bumped; teacher list excludes
+                    admin-only doc (empty) / GET admin-only 404 /
+                    download 200 once visibility=staff / POST 403 /
+                    DELETE 403; student list+download 403; admin DELETE
+                    200 ok then list empty + GET 404; exe-renamed-.pdf
+                    POST 422 via magic-byte sniff; no-CSRF POST 403;
+                    JSON POST 422. Re-seed required to add the new
+                    permission rows to an existing local DB. Browser:
+                    /documents renders heading, Upload button, modal
+                    with Title/Description/Category/Visibility/file
+                    fields, empty-state; only the pre-existing global
+                    hydration warning (all authenticated pages) in
+                    console. docs/API.md Phase 14B section added;
+                    README §41/§46/§47 + this entry updated. No
+                    production/remote deploy; no commit.
+2026-09-24  Phase 14C inventory ledger (books/equipment stock catalog).
+                    Owner-confirmed scope: stock ledger only (no
+                    loans/check-out), bulk quantities. Pure D1 — no R2
+                    and no file upload. (1) New enums in
+                    database/schema/enums.ts: inventoryItemTypeEnum
+                    (book|equipment), inventoryConditionEnum
+                    (new|good|fair|poor|damaged), inventoryStatusEnum
+                    (active|retired). New table inventory_items
+                    (database/schema/inventory.ts; registered in the
+                    schema barrel): id, name, item_type, category,
+                    identifier, quantity, available_quantity, location,
+                    condition, status, notes, created_by_id FK users
+                    set null, created_at, updated_at; CHECK constraints
+                    for the three enums; UNIQUE (item_type, identifier)
+                    so an ISBN/asset tag maps to one row per type
+                    (NULL identifiers never collide); indexes on
+                    item_type/category/status. Migration
+                    0002_inventory.sql applied locally (6 commands; no
+                    remote action). (2) Permissions inventory.view +
+                    inventory.manage added to catalog; admin gets both
+                    via ALL-minus-exclude, teacher granted
+                    inventory.view only, student/parent none.
+                    (3) Shared schemas/inventory.ts: create/update/list
+                    zod schemas — quantity int >=1, availableQuantity
+                    int 0..quantity (refine; defaults to quantity when
+                    omitted), enum checks, blank optional text
+                    normalized to null, numeric strings coerced;
+                    InventoryItem/ListItem types in shared/types.
+                    (4) Service server/services/inventory.ts:
+                    paginated listInventoryItems (filters
+                    itemType/category/status/condition + search over
+                    name/identifier/category; order by type then name),
+                    getInventoryItem (404 unknown), createInventoryItem
+                    (defaults available=quantity; UNIQUE violation →
+                    422 field error on identifier), updateInventoryItem
+                    (merges partial quantity/available against the
+                    existing row then enforces 0<=available<=quantity,
+                    bumps updatedAt), deleteInventoryItem (404 unknown),
+                    plus a pure applyStockDelta helper for future
+                    write-off/restock increments. (5) 5 JSON routes
+                    under server/api/v1/inventory/: index.get
+                    (inventory.view, paginated), index.post
+                    (inventory.manage, 201, audit inventory.create),
+                    [id].get, [id].put (audit inventory.update),
+                    [id].delete (audit inventory.delete); standard
+                    CSRF double-submit; malformed UUID 422, unknown id
+                    404. (6) Client services/inventory.ts +
+                    pages/inventory.vue (responsive ledger table:
+                    search + type/condition/status filters,
+                    Prev/Next pagination with total count, add/edit
+                    BaseModal with all fields incl. client-side
+                    invariant guard, delete confirm, and
+                    in/low/out-of-stock + retired badges); dashboard
+                    "Inventory" section card gated on inventory.view.
+                    (7) Tests +26: 13 shared zod contract tests
+                    (defaults, blank→null, numeric coercion,
+                    quantity/available/enum rejection, partial update,
+                    list filters) and 13 service tests (pagination
+                    mapping, 404, available defaults to quantity, UNIQUE
+                    →422, partial-update invariant both directions,
+                    update/delete 404, applyStockDelta arithmetic +
+                    rejects) — suite 545/545 across 40 files;
+                    type-check EXIT 0; cloudflare-module build EXIT 0
+                    (4.5 MB / 1.53 MB gzip). Re-seeded local DB to add
+                    the new permission rows (required on pre-14C DBs).
+                    wrangler dev D1 smoke (admin/teacher/student): list
+                    empty paginated; create book 201 with uploader name;
+                    get; equipment create defaults available=quantity;
+                    PUT available>qty 422 field message; partial
+                    status=retired 200; duplicate same-type identifier
+                    422 identifier; qty0/bad enum/available>qty all
+                    422; same identifier other type 201; itemType and
+                    status filters correct; malformed id 422 vs
+                    well-formed unknown 404; teacher list 200 but
+                    POST/PUT 403; student list 403; no-CSRF POST 403;
+                    admin DELETE 200 then total 0. Browser: /inventory
+                    renders heading, Add button, filters, all table
+                    headers; add→row appears→delete→empty state returns;
+                    only the pre-existing global hydration warning in
+                    console. docs/API.md Phase 14C section added;
+                    README §41/§46/§47 + this entry updated. Loans /
+                    student check-out deferred to a later increment.
+                    No production/remote deploy; no commit.
+2026-09-25  Phase 14D expanded financial reports (per fee purpose, per
+                    class, per term) — FINAL increment of Phase 14;
+                    read-only analytics, no migration, no new
+                    permissions, pure D1. (1) Shared types in
+                    shared/types/index.ts "Expanded financial reports"
+                    block: FinanceFeePurposeRow, FinanceByClassRow,
+                    FinanceByTermRow + FinanceReportBase
+                    ({ sessionId, termId, classId } echo + totals
+                    { billed, collected, outstanding, invoiceCount })
+                    and the three report wrappers; all money INTEGER
+                    kobo. (2) shared/schemas/reports.ts:
+                    financeFeePurposeReportQuerySchema (sessionId/
+                    termId/classId), financeByClassReportQuerySchema
+                    (sessionId/termId), financeByTermReportQuerySchema
+                    (sessionId/classId) — optional UUIDs, unknown keys
+                    stripped. (3) New server/services/finance-reports.ts
+                    with pure, unit-tested reducers:
+                    allocateAcrossLines (largest-remainder allocation
+                    of an invoice-level amount across lines weighted by
+                    lineTotal — exact to the kobo, allocations always
+                    sum to amountPaid), aggregateFeePurposes (purpose =
+                    COALESCE(fee_items.name, invoice_items.description);
+                    billed gross of line charges, collected allocated,
+                    outstanding = billed-collected per line, distinct
+                    invoice count, sorted billed desc),
+                    resolveStudentSessionClass (deterministic single
+                    class per student+session), aggregateByClass
+                    (active enrollment of the invoice's own session;
+                    Unassigned bucket sorted last; distinct student
+                    count; invoice totals incl. discount/tax),
+                    aggregateByTerm (Unassigned term bucket; assigned
+                    terms sorted by start date then sequence). DB layer
+                    fetches scoped invoices (status IN issued/
+                    partially_paid/paid, correlated active-enrollment
+                    subquery for classId), invoice lines LEFT JOIN fee
+                    items, active enrollments, class and term metadata.
+                    Access: reuses getFinanceActor and asserts isStaff
+                    so parents (who hold invoices.view for their own
+                    children) get 403 on school-wide aggregates.
+                    (4) 3 routes under server/api/v1/reports/finance/:
+                    fee-purposes.get, by-class.get, by-term.get — JSON
+                    requires invoices.view (service then enforces
+                    staff); format=csv|xlsx additionally requires
+                    finance.export; bad format 422; spreadsheet money
+                    columns are 2-dp naira strings with (NGN) headers
+                    (koboToNaira), JSON stays kobo integers; standard
+                    sendCsv/sendWorkbook; filenames finance-by-*.
+                    (5) Client: financeReportsApi (feePurposes/
+                    byClass/byTerm) added to services/reports.ts;
+                    downloadCsv gained an optional 4th format param
+                    ('csv'|'xlsx', backward compatible). (6) /reports
+                    page gains a staff-only "Financial reports"
+                    section (gated on invoices.create /
+                    fees.manage_structure / payments.record /
+                    finance.export): shared session/term/class filter
+                    bar (term depends on session and applies to
+                    purpose+class, class applies to purpose+term),
+                    three tables with totals rows, per-table
+                    CSV/XLSX buttons, ₦ formatting via formatMoney;
+                    teachers keep reports.view but never see the
+                    section. (7) Tests +25: 5 shared schema contract
+                    tests and 20 reducer tests (exact/indivisible/
+                    over-payment allocation, per-purpose balancing,
+                    cross-invoice merging, billing order, no-line
+                    invoices, class grouping + duplicate-enrollment
+                    determinism + cross-session isolation, term
+                    chronology, Unassigned buckets, distinct counts,
+                    empty scope) — suite 570/570 across 41 files;
+                    type-check EXIT 0; cloudflare-module build EXIT 0
+                    (4.54 MB / 1.54 MB gzip). wrangler dev D1 smoke
+                    (admin): seeded ₦57,500 invoice / ₦30,000 paid
+                    allocates 2,608,696 + 260,869 + 130,435 kobo
+                    (exact sum) across Tuition/Books/Activity Fee;
+                    by-class → Primary 1; by-term → First Term; CSV
+                    rows render 57500.00/30000.00/27500.00; XLSX valid
+                    Office 2007+ file; format=pdf 422; unknown-session
+                    UUID → zeroed empty report; malformed UUID 422;
+                    parent JSON 403 (staff actor) and CSV 403
+                    (finance.export); teacher 403 at permission gate;
+                    anonymous 401. Browser: admin /reports shows the
+                    three tables with naira amounts, totals and
+                    export buttons, session filter reloads; teacher
+                    view hides the entire section; only the
+                    pre-existing global hydration warning in console.
+                    docs/API.md Phase 14D section added; README
+                    §41/§46/§47 + this entry updated; Phase 14 marked
+                    COMPLETE. No production/remote deploy; no commit.
+2026-09-25  Phase 15 payments — Paystack + QR codes, COMPLETE in three
+                    increments; no migration (payments table already
+                    carried provider_reference / unique idempotency_key
+                    / webhook_payload), no new permissions. 15A Paystack
+                    end-to-end (hosted redirect, owner-approved over
+                    inline JS): runtimeConfig plumbing with per-request
+                    injection of PAYSTACK_SECRET_KEY
+                    (nuxt.config.ts empty default + cloudflare.ts
+                    plugin; .env.example documented); server/utils/
+                    paystack/{client,signature,reference,decision}.ts —
+                    typed fetch client (502 gateway errors, secrets
+                    never logged), Web Crypto HMAC-SHA512 hex webhook
+                    signature with timing-safe compare, VCS-{invoice}-
+                    {hex} reference generator, pure decideVerification
+                    state machine; server/services/paystack.ts
+                    orchestration (parent-child scope, payable-status +
+                    amount ≤ balance validation, initialize-before-
+                    insert ordering, extracted finance.ts
+                    applyPaymentVerification batch shared by staff
+                    verify and gateway verify with nullable
+                    verifiedById); routes payments/paystack/{config.
+                    get,initialize.post,verify.post,webhook.post} —
+                    webhook unauthenticated (signature is its guard;
+                    CSRF middleware only fires with a session cookie),
+                    fail-closed 403/409, charge.success only, always-200
+                    after valid signature, unknown refs and replays
+                    no-op; pages/payments/callback.vue verify flow;
+                    billing.vue Pay Online section (partial ≥ ₦50 up to
+                    balance) hidden when config reports disabled.
+                    15B branded PDF receipts: server/utils/pdf/receipt.ts
+                    pure renderer (settings-branded header, item table,
+                    totals, bank block only when configured, ASCII-safe
+                    NGN money — ₦ not encodable by standard PDF fonts);
+                    server/services/receipts.ts lazy ensureReceiptPdf
+                    (R2 receipts/{receiptNumber}.pdf + object_key
+                    persist) reusing actor-scoped finance reads; GET
+                    /payments/{id}/receipt/download (receipts.view,
+                    audited); download links on /billing drawer and
+                    staff /finance/invoices. 15C QR codes: qrcode
+                    package via the pure-JS lib/browser.js entry (no
+                    fs/canvas/pngjs in Workers) with ambient types in
+                    shared/types/qrcode-browser.d.ts (server/types would
+                    be invisible to the app tsconfig project);
+                    server/utils/qr/{payload,render}.ts — office/invoice
+                    bank-transfer payloads (plain-text, null when bank
+                    unconfigured), receipt authenticity payload, SVG
+                    string renderer + module matrix; routes GET
+                    /finance/office-qr.svg (payments.view, 300s cache),
+                    GET /finance/bank-details (payments.view JSON),
+                    GET /invoices/{id}/qr.svg (parent-scoped, no-store);
+                    billing.vue bank-transfer card + office QR and
+                    per-invoice QR in the payable drawer (fallback path
+                    when Paystack disabled); staff invoice drawer QR;
+                    receipt PDF embeds the QR as vector rectangles.
+                    Tests 604 → 614 across 46 files (signature vectors,
+                    reference/decision branches, receipt renderer 19,
+                    QR payload/SVG/matrix 10); type-check EXIT 0;
+                    cloudflare-module build EXIT 0 (4.62 MB / 1.57 MB
+                    gzip). wrangler dev D1 smoke: no-key config
+                    {enabled:false} + initialize 409; fake-key
+                    initialize 502 "Invalid key"; webhook bad signature
+                    403 / valid + unknown ref 200 / non-charge.success
+                    acked; parent receipt download PDF with branding,
+                    bank block and QR caption; second download
+                    byte-identical from R2; object_key persisted; office
+                    + invoice QR SVGs 200 with correct cache headers;
+                    bank-details JSON 200; all unauthenticated 401.
+                    docs/API.md Phase 15 section added; docs/SECURITY.md
+                    payment-gateway notes; docs/CLOUDFLARE.md
+                    PAYSTACK_SECRET_KEY + webhook ops; README §41/§46/
+                    §47 + this entry updated. Refunds stay manual
+                    (out of scope); a real-transaction smoke needs the
+                    owner's Paystack test keys. No production/remote
+                    deploy; no commit.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

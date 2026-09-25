@@ -8,11 +8,15 @@ import type {
   FinanceSummary,
   InvoiceDetail,
   InvoiceListItem,
+  OfficeBankDetails,
   OutstandingRow,
   Paginated,
   PaymentDetail,
   PaymentListItem,
   PaymentReceipt,
+  PaystackConfigStatus,
+  PaystackInitializeResult,
+  PaystackVerifyResult,
 } from '~/shared/types'
 import type {
   FeeStructureCreate,
@@ -28,6 +32,7 @@ import type {
   PaymentListQuery,
   PaymentRefund,
   PaymentVerify,
+  PaystackInitialize,
 } from '~/shared/schemas'
 
 type Params = Record<string, string | number | boolean | undefined>
@@ -85,6 +90,20 @@ export const financeApi = {
     api.post<PaymentDetail>(`/payments/${id}/refund`, body),
   getReceipt: (id: string) =>
     api.get<PaymentReceipt>(`/payments/${id}/receipt`),
+
+  // --- Paystack online checkout (Phase 15) --------------------------------
+  getPaystackConfig: () =>
+    api.get<PaystackConfigStatus>('/payments/paystack/config'),
+  initializePaystack: (body: PaystackInitialize) =>
+    api.post<PaystackInitializeResult>('/payments/paystack/initialize', body),
+  verifyPaystack: (reference: string) =>
+    api.post<PaystackVerifyResult>('/payments/paystack/verify', { reference }),
+
+  // --- Bank transfer + QR (Phase 15) ----------------------------------------
+  getOfficeBankDetails: () =>
+    api.get<OfficeBankDetails>('/finance/bank-details'),
+  officeQrUrl: () => '/api/v1/finance/office-qr.svg',
+  invoiceQrUrl: (id: string) => `/api/v1/invoices/${id}/qr.svg`,
 
   // --- Reports -----------------------------------------------------------
   listOutstanding: (params?: Partial<OutstandingQuery>) =>

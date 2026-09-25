@@ -84,6 +84,11 @@ export default defineNuxtConfig({
     // bindings in Workers, process.env loaded from app/.env in plain
     // Node dev).
     sessionSecret: '',
+    // Paystack secret key (Phase 15). Empty default — injected per
+    // request by server/plugins/cloudflare.ts from the PAYSTACK_SECRET_KEY
+    // binding/secret (Workers) or process.env (plain Node dev). When
+    // absent, online checkout is disabled and the UI hides it.
+    paystackSecretKey: '',
     // Dev-only: surface password-reset tokens from the API until the
     // Queues-backed mailer exists (Phase 10). NEVER enabled in
     // production. Resolved per request in the cloudflare plugin.

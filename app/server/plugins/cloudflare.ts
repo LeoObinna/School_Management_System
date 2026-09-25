@@ -55,6 +55,15 @@ function bridgeRuntimeConfig(event: H3Event): void {
       config.sessionSecret = sessionSecret
     }
 
+    // Paystack secret key (Phase 15). Empty = online checkout disabled.
+    const paystackSecret =
+      (cloudflareEnv?.PAYSTACK_SECRET_KEY as string | undefined)
+        || process.env.PAYSTACK_SECRET_KEY
+        || ''
+    if (paystackSecret) {
+      config.paystackSecretKey = paystackSecret
+    }
+
     // Bindings arrive as strings in Workers; keep the boolean parse
     // identical in both runtimes. Default stays false (fail closed).
     const exposeRaw = cloudflareEnv && 'EXPOSE_RESET_TOKENS' in cloudflareEnv

@@ -53,6 +53,24 @@ env file that may be committed; `.gitignore` blocks `.env`, `.dev.vars`
 and credential files (`*.pem`, `*.key`, `*.crt`). Secrets are never
 placed in `wrangler.toml`.
 
+## Payment gateway (Phase 15)
+
+- **The browser callback never verifies a payment.** Both the callback
+  page (`POST /payments/paystack/verify`) and the webhook re-verify
+  server-side against Paystack and require exact kobo amount match,
+  `currency == NGN` and `status == success` before any accounting runs.
+- Webhook authentication is the `x-paystack-signature` HMAC-SHA512 hex
+  of the raw request body (timing-safe compare, fail-closed — bad
+  signature → 403, unconfigured key → 409). The route is intentionally
+  outside CSRF/session middleware; the signature is its only guard.
+- Idempotency: `payments.idempotency_key = paystack:{reference}` plus a
+  status guard make webhook/callback replays no-ops.
+- `PAYSTACK_SECRET_KEY` lives only in `app/.env` (local) or
+  `wrangler secret put` (deployed); it is injected per request and never
+  ships in the client bundle or appears in logs.
+- School bank details (used by the bank-transfer QR and receipts) are
+  served only to authenticated users holding `payments.view`.
+
 ## Audit logging
 
 Audit: auth events, role/permission changes, student/enrollment edits,

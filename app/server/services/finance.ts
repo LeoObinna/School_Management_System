@@ -280,11 +280,12 @@ async function runDocNumberBatch(
 // Returns a batch statement that inserts a receipt for `paymentId`
 // (allocating the RCT number), or null when a receipt already exists.
 // The existence read runs before the batch because D1 batches cannot
-// branch on query results.
+// branch on query results. issuedById is null for system-triggered
+// receipts (Phase 15 gateway verification).
 async function receiptInsert(
   client: SmsDb,
   paymentId: string,
-  issuedById: string,
+  issuedById: string | null,
 ): Promise<D1BatchItem | null> {
   const [existing] = await client
     .select({ id: paymentReceipts.id })
@@ -1326,13 +1327,32 @@ export async function recordPayment(
   return getPayment(paymentId, actor)
 }
 
-export async function verifyPayment(
+// System actor used for gateway-triggered writes (Phase 15): there is
+// no staff user behind a Paystack webhook, so verifiedById stays null
+// and read-back uses an internal full-access actor.
+const SYSTEM_ACTOR: FinanceActor = {
+  userId: '',
+  isAdmin: true,
+  isStaff: true,
+  canVerify: true,
+  parentId: null,
+  childIds: [],
+}
+
+interface ApplyVerificationOptions {
+  providerReference?: string | null
+  notes?: string | null
+  verifiedById: string | null
+  webhookPayload?: string | null
+}
+
+// Shared pending → verified transition: updates the payment, applies
+// the amount to the invoice and inserts the receipt, atomically.
+// Permission/actor checks belong to the callers.
+async function applyPaymentVerification(
   id: string,
-  input: PaymentVerify,
-  actor: FinanceActor,
+  opts: ApplyVerificationOptions,
 ): Promise<PaymentDetail> {
-  assertStaff(actor)
-  if (!actor.canVerify) throw smsForbidden()
   const client = await db()
 
   const [payment] = await client
@@ -1369,20 +1389,26 @@ export async function verifyPayment(
 
   // Receipt number is allocated before the batch; all three writes run
   // atomically together.
-  const receipt = await receiptInsert(client, id, actor.userId)
+  const receipt = await receiptInsert(client, id, opts.verifiedById)
   const statements: D1BatchItem[] = [
     client
       .update(payments)
       .set({
         status: 'verified',
         providerReference:
-          input.providerReference !== undefined
-            ? input.providerReference
+          opts.providerReference !== undefined
+            ? opts.providerReference
             : payment.providerReference,
-        notes:
-          input.notes !== undefined ? input.notes : payment.notes,
+        notes: opts.notes !== undefined ? opts.notes : payment.notes,
+        webhookPayload:
+          opts.webhookPayload !== undefined
+            ? opts.webhookPayload
+            : payment.webhookPayload,
+        // Gateway payments are created with paidAt null (Phase 15);
+        // manual payments carry paidAt from recording time.
+        paidAt: payment.paidAt ?? new Date().toISOString(),
         verifiedAt: new Date().toISOString(),
-        verifiedById: actor.userId,
+        verifiedById: opts.verifiedById,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(payments.id, id)),
@@ -1398,7 +1424,92 @@ export async function verifyPayment(
   ]
   if (receipt) statements.push(receipt)
   await runBatch(client, statements)
-  return getPayment(id, actor)
+  return getPayment(id, SYSTEM_ACTOR)
+}
+
+export async function verifyPayment(
+  id: string,
+  input: PaymentVerify,
+  actor: FinanceActor,
+): Promise<PaymentDetail> {
+  assertStaff(actor)
+  if (!actor.canVerify) throw smsForbidden()
+  return applyPaymentVerification(id, {
+    providerReference: input.providerReference,
+    notes: input.notes,
+    verifiedById: actor.userId,
+  })
+}
+
+/**
+ * Gateway-triggered verification (Phase 15). No staff actor exists for
+ * webhook/callback verification; the caller (paystack service) is
+ * responsible for authenticating the event BEFORE calling this.
+ */
+export async function verifyGatewayPayment(
+  id: string,
+  opts: { notes?: string | null; webhookPayload?: string | null } = {},
+): Promise<PaymentDetail> {
+  return applyPaymentVerification(id, {
+    notes: opts.notes,
+    webhookPayload: opts.webhookPayload,
+    verifiedById: null,
+  })
+}
+
+/**
+ * Records a pending online-gateway payment (Phase 15). The payable
+ * checks mirror recordPayment; the row becomes visible to parents only
+ * after verification (parents never see pending payments).
+ */
+export async function createGatewayPendingPayment(input: {
+  invoiceId: string
+  amount: number
+  providerReference: string
+  idempotencyKey: string
+  notes?: string | null
+}): Promise<{ paymentId: string; paymentReference: string }> {
+  const client = await db()
+  const [invoice] = await client
+    .select()
+    .from(studentInvoices)
+    .where(eq(studentInvoices.id, input.invoiceId))
+    .limit(1)
+  if (!invoice) throw smsFieldError('invoiceId', 'Invoice not found.')
+  if (!['issued', 'partially_paid'].includes(invoice.status)) {
+    throw smsConflict(
+      `Payments can only be recorded for issued or partially paid invoices (current: ${invoice.status}).`,
+    )
+  }
+  if (input.amount > invoice.balance) {
+    throw smsFieldError(
+      'amount',
+      `Amount exceeds the invoice balance of ${koboToNaira(invoice.balance)}.`,
+    )
+  }
+
+  const paymentId = crypto.randomUUID()
+  let paymentReference = ''
+  await runDocNumberBatch(client, 'PAY', (reference) => {
+    paymentReference = reference
+    const paymentInsert = client.insert(payments)
+    return [
+      paymentInsert.values({
+        id: paymentId,
+        paymentReference: reference,
+        invoiceId: input.invoiceId,
+        studentId: invoice.studentId,
+        amount: input.amount,
+        method: 'online_gateway',
+        status: 'pending',
+        providerReference: input.providerReference,
+        idempotencyKey: input.idempotencyKey,
+        notes: input.notes ?? null,
+        paidAt: null,
+      }),
+    ]
+  })
+  return { paymentId, paymentReference }
 }
 
 export async function refundPayment(

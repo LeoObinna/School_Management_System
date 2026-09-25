@@ -1197,3 +1197,318 @@ seeder only ever runs against local emulation). Plain Node `nuxt dev`
 has no R2 binding, so uploads/serve require `npm run cf:dev` or
 production.
 
+## Phase 14B — Admin foundation: documents module
+
+A staff document library: R2 object storage with D1 metadata, served
+only through the authorized download endpoint (no public bucket URLs).
+The table follows the v2 spec's polymorphic `owner_type` / `owner_id`
+design; Phase 14B ships the school-wide library (`owner_type='school'`,
+`owner_id=null`), with the same columns available for per-staff
+attachment (`owner_type='staff'`, `owner_id=staff_profiles.id`).
+
+### Table `documents`
+
+`id, owner_type, owner_id, object_key, file_name, mime_type, size_bytes,
+title, description, category, visibility, created_by_id, created_at,
+updated_at` with indexes on `(owner_type, owner_id)`, `visibility`,
+`category`, and a CHECK `visibility IN ('staff','admin')`.
+
+### Permissions
+
+- `documents.view` — admins (super_admin/admin) and teachers. Students
+  and parents have no access.
+- `documents.manage` — admins only (super_admin/admin; admin inherits
+  via the ALL-minus-exclude rule). Teachers can list/download staff
+  documents but cannot upload, edit or delete.
+
+### Visibility model
+
+- `visibility='staff'` — any authenticated staff member (admin or
+  teacher) can list/read/download.
+- `visibility='admin'` — admins only. A teacher requesting an
+  admin-only document gets `404` (not `403`) so existence is not
+  leaked; the list endpoint filters it out entirely.
+- Visibility is enforced in both the list and the single-read/download
+  paths.
+
+### Endpoints
+
+- `GET /api/v1/documents` — requires `documents.view`. Query filters:
+  `ownerType`, `ownerId`, `category`, `visibility`, `search` (title +
+  description), plus the standard `page`/`perPage`/`sort`/`order`.
+  Returns `{ data: DocumentListItem[] }`. Non-admin callers are scoped
+  to `visibility='staff'` regardless of the `visibility` filter.
+- `POST /api/v1/documents` — requires `documents.manage`;
+  `multipart/form-data` with a `file` part plus `title` (required),
+  `description`, `category`, `visibility` (default `staff`),
+  `ownerType` (default `school`), `ownerId`. Storage-first: bytes go to
+  R2 at `documents/<ownerType>/<ownerId|school>/<uuid>-<name>` under
+  the `school_document` upload category (25 MB, full document MIME
+  range, magic-byte sniff), then the D1 row is inserted and audited
+  (`document.upload`). On metadata failure the R2 object is rolled
+  back. Returns the created `DocumentListItem`.
+- `GET /api/v1/documents/:id` — requires `documents.view`; returns the
+  document metadata (no bytes).
+- `GET /api/v1/documents/:id/download` — requires `documents.view`;
+  streams the object with `Content-Disposition: attachment` and the
+  stored filename. `404` if the row or R2 object is missing.
+- `PUT /api/v1/documents/:id` — requires `documents.manage`; partial
+  update of `title`, `description`, `category`, `visibility` only
+  (file bytes are immutable — replace by delete + re-upload). Bumps
+  `updated_at`; audited (`document.update`).
+- `DELETE /api/v1/documents/:id` — requires `documents.manage`; asserts
+  R2 availability first, deletes the D1 row, purges the R2 object,
+  audited (`document.delete`). Returns `{ ok: true }`.
+
+### Upload envelope (`school_document` category)
+
+- Full document MIME range: PDF, Office (doc/docx/xls/xlsx/ppt/pptx),
+  text, and raster images. 25 MB cap. Magic-byte sniff applies — an
+  executable renamed `.pdf` returns `422` ("File content does not match
+  the declared type").
+- CSRF: POST/PUT/DELETE require the double-submit `x-csrf-token`
+  header; without it they return `403`.
+
+### Seeding
+
+No document rows are seeded — documents are admin-generated content.
+A fresh database (or one seeded before 14B) must be re-seeded
+(`npm run db:seed`) to add the `documents.view`/`documents.manage`
+permission rows and the teacher role assignment. Plain Node
+`nuxt dev` has no R2 binding, so upload/download require
+`npm run cf:dev` or production (same as gallery/resources/logo).
+
+## Phase 14C — Admin foundation: inventory ledger
+
+A stock catalog of books and equipment. Pure D1 (no R2, no file
+upload), bulk-quantity tracking. Loans/check-out to students are a
+later increment and are intentionally out of scope here.
+
+### Table `inventory_items`
+
+`id, name, item_type, category, identifier, quantity,
+available_quantity, location, condition, status, notes, created_by_id,
+created_at, updated_at`.
+
+- `item_type` CHECK IN (`book`,`equipment`).
+- `condition` CHECK IN (`new`,`good`,`fair`,`poor`,`damaged`),
+  default `good`.
+- `status` CHECK IN (`active`,`retired`), default `active`.
+- Unique index on `(item_type, identifier)` — an ISBN/asset tag is one
+  catalog row per type. NULL identifiers never conflict (SQLite treats
+  NULLs as distinct), so items without an identifier can repeat.
+- Indexes on `item_type`, `category`, `status`.
+- Stock invariant (enforced in the service, not just by a CHECK):
+  `0 <= available_quantity <= quantity`.
+
+### Permissions
+
+- `inventory.view` — admins and teachers. Students and parents have no
+  access.
+- `inventory.manage` — admins only. Teachers can browse but cannot
+  create/update/delete.
+
+### Endpoints
+
+All list/create/update/delete use the standard CSRF double-submit for
+state-changing methods (`403` without `x-csrf-token`).
+
+- `GET /api/v1/inventory` — requires `inventory.view`; paginated
+  `{ data, meta }`. Query filters: `itemType`, `category`, `status`,
+  `condition`, `search` (matches name, identifier, category) plus
+  `page`/`perPage`/`sort`/`order`. Each `data[]` item includes
+  `createdByName` (uploader).
+- `POST /api/v1/inventory` — requires `inventory.manage`. JSON body
+  (not multipart):
+  - `name` (required, ≤255), `itemType` (default `book`), `category`,
+    `identifier`, `location`, `notes` (blank strings normalized to
+    null), `quantity` (int ≥1), `availableQuantity` (int 0..quantity;
+    defaults to `quantity` when omitted), `condition` (default
+    `good`), `status` (default `active`).
+  - Returns `201` + the created item; audited `inventory.create`.
+  - `422` for failed validation, including `availableQuantity >
+    quantity`; a duplicate `(itemType, identifier)` returns `422` with
+    a field error on `identifier`.
+- `GET /api/v1/inventory/:id` — requires `inventory.view`; returns one
+  item. Malformed UUID → `422`; well-formed but unknown id → `404`.
+- `PUT /api/v1/inventory/:id` — requires `inventory.manage`; partial
+  update of any editable field. `quantity`/`availableQuantity` are
+  merged with the existing row before the invariant is re-checked, so
+  lowering total below current available (or raising available above
+  total) returns `422`; bumps `updated_at`; audited
+  `inventory.update`.
+- `DELETE /api/v1/inventory/:id` — requires `inventory.manage`;
+  intended for erroneous entries (normal decommissioning uses
+  `status='retired'`). Audited `inventory.delete`; returns
+  `{ ok: true }`.
+
+### Seeding
+
+No item rows are seeded — inventory is staff-entered data. A database
+seeded before 14C must be re-seeded (`npm run db:seed`) to add the
+`inventory.view`/`inventory.manage` permission rows and the teacher
+`inventory.view` grant. Unlike documents/gallery this module is pure
+D1, so it also works under plain `nuxt dev` (no R2 binding needed).
+
+## Phase 14D — Expanded financial reports ✅
+
+Read-only staff-only analytics over issued / partially_paid / paid
+invoices (drafts and voided are excluded, matching
+`GET /finance/summary`). No schema change and no new permissions —
+these reports reuse the existing finance permission slugs.
+
+### Access model (important)
+
+The JSON endpoints require `invoices.view`, but **parents also hold
+`invoices.view`** so they can view their own children's fees. Because
+these are school-wide aggregates, the service additionally requires a
+finance staff actor (`getFinanceActor(...).isStaff` — admin or a holder
+of a finance write/export slug). Parents therefore receive `403` from
+these endpoints despite holding `invoices.view`; teachers lack
+`invoices.view` entirely and are rejected at the permission gate. The
+`csv`/`xlsx` formats require `finance.export`.
+
+### Endpoints
+
+Common response envelope: `{ data: { filters, totals, data } }`, where
+`filters` echoes the applied filters (`null` when absent) and `totals`
+is `{ billed, collected, outstanding, invoiceCount }`. All JSON money
+values are **INTEGER kobo**. Query filters are optional UUIDs
+(`422` on malformed values; unknown keys stripped).
+
+- `GET /api/v1/reports/finance/fee-purposes` — filters `sessionId`,
+  `termId`, `classId`. One row per fee purpose:
+  `{ purpose, lineCount, invoiceCount, billed, collected,
+  outstanding }`. The purpose is the linked fee item name, falling
+  back to the invoice line description. Payments are recorded against
+  invoices (not lines), so collected/outstanding are **allocated** to
+  purposes in proportion to each line's share of the invoice total
+  using a largest-remainder split that is exact to the kobo (all
+  allocations sum to `amount_paid`). Per-purpose `billed` is the gross
+  line charge (subtotal) and therefore excludes invoice-level
+  discount/tax; rows always balance as billed = collected +
+  outstanding. Rows are ordered by billed descending.
+- `GET /api/v1/reports/finance/by-class` — filters `sessionId`,
+  `termId`. One row per class: `{ classId, className, invoiceCount,
+  studentCount, billed, collected, outstanding }`. The class is the
+  student's **active** enrollment in the invoice's own session;
+  students without one are grouped in a trailing `Unassigned` row
+  (`classId: null`). Duplicate active enrollments for the same
+  student/session resolve deterministically to one class. Billed uses
+  invoice totals (discount/tax included).
+- `GET /api/v1/reports/finance/by-term` — filters `sessionId`,
+  `classId`. One row per term: `{ termId, termName, invoiceCount,
+  studentCount, billed, collected, outstanding }`. Invoices without a
+  term appear in a trailing `Unassigned term` row (`termId: null`);
+  assigned terms order by term start date then sequence.
+
+### Exports
+
+All three endpoints accept `?format=csv|xlsx` (requires
+`finance.export`; unknown format → `422`). Spreadsheet columns render
+money as 2-decimal naira strings under `(NGN)` headers (e.g.
+`57500.00`), while the JSON form stays kobo integers. Filenames:
+`finance-by-fee-purpose.csv/.xlsx`, `finance-by-class.*`,
+`finance-by-term.*`.
+
+### UI
+
+The staff financial section on `/reports` (page itself requires
+`reports.view`) shows shared session/term/class filters plus the three
+tables with totals and per-table CSV/XLSX buttons. The section is only
+rendered for finance staff (`invoices.create`, `fees.manage_structure`,
+`payments.record`, or `finance.export`) — teachers and parents never
+see it.
+
+## Phase 15 — Payments: Paystack + QR codes ✅
+
+Hosted-redirect Paystack checkout plus bank-transfer QR codes, and
+branded PDF receipts for every verified payment. No schema change (the
+`payments` table already carried `provider_reference`, a unique
+`idempotency_key` and `webhook_payload`) and no new permissions —
+parents/students reuse `invoices.view` / `payments.view` /
+`receipts.view`. All money is INTEGER kobo end-to-end; PDF money is
+rendered ASCII-safe (`NGN 150,000.00`) because standard PDF fonts
+cannot encode `₦`.
+
+### Online checkout (Paystack hosted redirect)
+
+The server initializes the transaction and the parent is redirected to
+Paystack's hosted checkout — no public key and no third-party JS in the
+app. **The browser callback alone never verifies a payment**: both the
+callback page and the webhook re-verify server-side against Paystack
+(`GET /transaction/verify/:reference`) and require an exact kobo amount
+match, `currency == NGN`, and `status == success` before any accounting
+runs.
+
+- `GET /api/v1/payments/paystack/config` → `{ enabled: boolean }`. Any
+  authenticated user; `enabled` is false when `PAYSTACK_SECRET_KEY` is
+  not configured, and the whole online-payment UI hides itself
+  (graceful no-key mode).
+- `POST /api/v1/payments/paystack/initialize` — `payments.view`;
+  parent/child scope enforced. Body `{ invoiceId, amount }` (integer
+  kobo, `5000` minimum, ≤ invoice balance; invoice must be `issued` or
+  `partially_paid`). Creates the pending payment
+  (`method: online_gateway`, our `PAY-YYYY-NNNN` reference,
+  `providerReference` = `VCS-{invoiceNumber}-{10 hex}`,
+  `idempotencyKey` = `paystack:{reference}`) and returns
+  `{ authorizationUrl, reference }`. Audited (`payment.initialize`).
+- `POST /api/v1/payments/paystack/verify` — `payments.view`,
+  parent-scoped (404 for other people's references). Body
+  `{ reference }`. Idempotent: an already-verified payment returns
+  `alreadyVerified: true` unchanged; amount/currency mismatch leaves
+  the payment pending and returns a conflict. On success the shared
+  verification batch runs exactly once (payment → verified with
+  `paidAt`, invoice amountPaid/balance/status, receipt row). Audited
+  (`payment.verify` / `payment.verify-attempt`).
+- `POST /api/v1/payments/paystack/webhook` — **unauthenticated**;
+  guarded by the `x-paystack-signature` HMAC-SHA512 hex of the raw body
+  (timing-safe compare, fail-closed; bad signature → 403). Only
+  `charge.success` is processed; everything else is acked. The handler
+  always returns 200 after a valid signature (unknown references and
+  replays are no-ops) so Paystack does not retry forever, and stores
+  the raw payload on the payment's `webhookPayload`.
+
+Callback URL derives from the request origin (`/payments/callback`) —
+no domain is hard-coded. Secrets: `PAYSTACK_SECRET_KEY` via
+`wrangler secret put` per environment or `app/.env` locally; never in
+`wrangler.toml` or the client bundle.
+
+### Branded PDF receipts
+
+- `GET /api/v1/payments/{id}/receipt/download` — `receipts.view`,
+  parent/child scope enforced via the existing finance reads. Lazily
+  renders the branded A4 PDF on first request (school name/motto/colour
+  and bank block — bank details appear only when configured — item
+  table, totals, verification QR carrying receipt/payment references
+  and amount), stores it in R2 at `receipts/{receiptNumber}.pdf`,
+  persists `payment_receipts.object_key`, and streams
+  `Content-Type: application/pdf` as an attachment. Later downloads
+  serve the stored object. Audited (`receipt.download`).
+
+### Bank-transfer QR codes
+
+Pure-JS QR (`qrcode/lib/browser.js`) — SVG for browsers, vector
+rectangles embedded in the receipt PDF (no PNG/canvas in Workers).
+Payloads are plain text, human-verifiable (no proprietary bank QR
+standard assumed).
+
+- `GET /api/v1/finance/office-qr.svg` — `payments.view`. Static office
+  QR encoding the school's bank details from Settings. 404 when bank
+  details are not configured. `Cache-Control: private, max-age=300`.
+- `GET /api/v1/finance/bank-details` — `payments.view`. JSON
+  `{ bankName, accountName, accountNumber }` for the billing page's
+  bank-transfer card (bank details stay off the public settings
+  surface).
+- `GET /api/v1/invoices/{id}/qr.svg` — `payments.view`, parent/child
+  scope enforced (404 for out-of-scope invoices). Dynamic per-invoice
+  QR: bank details + invoice number as the transfer reference + current
+  balance as the amount due. 404 when bank details are not configured;
+  `Cache-Control: private, no-store` (balance is dynamic).
+
+Billing UI: the bank-transfer card + office QR render on `/billing`
+whenever bank details exist; each payable invoice's detail drawer shows
+the per-invoice QR — beside the Pay Online form when Paystack is
+configured, as the primary path otherwise.
+
+

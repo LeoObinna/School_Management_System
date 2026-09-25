@@ -2,11 +2,16 @@
 import { examsApi } from '~/services/exams'
 import { financeApi } from '~/services/finance'
 import { formatApiError } from '~/utils/errors'
-import { formatMoney } from '~/shared/utils/money'
+import {
+  formatMoney,
+  koboToNaira,
+  parseNairaToKobo,
+} from '~/shared/utils/money'
 import type {
   InvoiceDetail,
   InvoiceListItem,
   MySchoolContext,
+  OfficeBankDetails,
 } from '~/shared/types'
 
 definePageMeta({ permissions: ['invoices.view'] })
@@ -64,6 +69,16 @@ watch(selectedStudentId, loadInvoices)
 onMounted(async () => {
   await loadContext()
   if (!ctxError.value) await loadInvoices()
+  try {
+    paystackEnabled.value = (await financeApi.getPaystackConfig()).enabled
+  } catch {
+    paystackEnabled.value = false
+  }
+  try {
+    bankDetails.value = await financeApi.getOfficeBankDetails()
+  } catch {
+    bankDetails.value = null
+  }
 })
 
 // Totals (kobo integers, summed exactly)
@@ -94,10 +109,63 @@ const detailOpen = ref(false)
 const detail = ref<InvoiceDetail | null>(null)
 const detailError = ref<string | null>(null)
 
+// --- Online checkout (Phase 15) ---------------------------------------------
+const paystackEnabled = ref(false)
+const payAmount = ref('')
+const payBusy = ref(false)
+const payError = ref<string | null>(null)
+
+// --- Bank transfer + QR (Phase 15) ------------------------------------------
+const bankDetails = ref<OfficeBankDetails | null>(null)
+const officeQrFailed = ref(false)
+const invoiceQrFailed = ref(false)
+const hasBankDetails = computed(() =>
+  Boolean(bankDetails.value?.bankName && bankDetails.value?.accountNumber),
+)
+
+const detailPayable = computed(() =>
+  Boolean(
+    detail.value &&
+      detail.value.balance > 0 &&
+      ['issued', 'partially_paid'].includes(detail.value.status),
+  ),
+)
+
+async function startCheckout() {
+  if (!detail.value) return
+  payError.value = null
+  let amount: number
+  try {
+    amount = parseNairaToKobo(payAmount.value)
+  } catch {
+    payError.value = 'Enter a valid amount (e.g. 50000 or 50000.00).'
+    return
+  }
+  if (amount <= 0 || amount > detail.value.balance) {
+    payError.value = `Enter an amount between ₦0.01 and the balance of ${formatMoney(detail.value.balance)}.`
+    return
+  }
+  payBusy.value = true
+  try {
+    const res = await financeApi.initializePaystack({
+      invoiceId: detail.value.id,
+      amount,
+    })
+    // Hosted-redirect flow: leave the app for Paystack's checkout.
+    window.location.href = res.authorizationUrl
+  } catch (e) {
+    payError.value = formatApiError(e)
+    payBusy.value = false
+  }
+}
+
 async function openDetail(inv: InvoiceListItem) {
   detailError.value = null
+  payError.value = null
+  invoiceQrFailed.value = false
   try {
     detail.value = await financeApi.getInvoice(inv.id)
+    payAmount.value = koboToNaira(detail.value.balance)
     detailOpen.value = true
   } catch (e) {
     detailError.value = formatApiError(e)
@@ -155,6 +223,36 @@ async function openDetail(inv: InvoiceListItem) {
             <p class="text-xs uppercase tracking-wide text-gray-500">Balance</p>
             <p class="font-semibold text-amber-700">{{ formatMoney(totalBalance) }}</p>
           </div>
+        </div>
+      </section>
+
+      <!-- Bank transfer + office QR (Phase 15) -->
+      <section
+        v-if="hasBankDetails && bankDetails"
+        class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+      >
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="min-w-0 flex-1">
+            <h2 class="text-sm font-semibold text-gray-900">
+              Pay by bank transfer
+            </h2>
+            <p class="mt-1 text-sm text-gray-700">
+              {{ bankDetails.bankName }} · {{ bankDetails.accountName }} ·
+              <span class="font-medium">{{ bankDetails.accountNumber }}</span>
+            </p>
+            <p class="mt-1 text-xs text-gray-500">
+              Use your invoice number as the transfer reference. Your payment
+              is recorded and a receipt issued here once verified.
+            </p>
+          </div>
+          <img
+            v-if="!officeQrFailed"
+            :src="financeApi.officeQrUrl()"
+            alt="School bank details QR code"
+            class="h-24 w-24 shrink-0 rounded border border-gray-200"
+            loading="lazy"
+            @error="officeQrFailed = true"
+          >
         </div>
       </section>
 
@@ -302,6 +400,82 @@ async function openDetail(inv: InvoiceListItem) {
           </div>
         </dl>
 
+        <!-- Online checkout (Phase 15) -->
+        <section v-if="detailPayable" class="mt-6 rounded-md border border-gray-200 p-4">
+          <template v-if="paystackEnabled">
+            <h3 class="text-sm font-semibold text-gray-900">Pay online</h3>
+            <p class="mt-1 text-xs text-gray-500">
+              Card, bank transfer or USSD via Paystack. Partial payments are
+              accepted — enter any amount up to the balance.
+            </p>
+            <div class="mt-3 flex flex-wrap items-end gap-3">
+              <label class="block text-sm">
+                <span class="text-gray-700">Amount (₦)</span>
+                <input
+                  v-model="payAmount"
+                  inputmode="decimal"
+                  class="mt-1 w-40 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="0.00"
+                >
+              </label>
+              <button
+                class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                :disabled="payBusy"
+                @click="startCheckout"
+              >
+                {{ payBusy ? 'Redirecting…' : 'Pay online' }}
+              </button>
+            </div>
+            <p
+              v-if="payError"
+              class="mt-2 rounded-md bg-red-50 p-2 text-sm text-red-700"
+            >
+              {{ payError }}
+            </p>
+            <div
+              v-if="hasBankDetails && !invoiceQrFailed"
+              class="mt-4 border-t border-gray-100 pt-3"
+            >
+              <p class="text-xs text-gray-500">
+                Or pay by bank transfer — scan for the account details and
+                amount due.
+              </p>
+              <img
+                :src="financeApi.invoiceQrUrl(detail.id)"
+                alt="Invoice payment QR code"
+                class="mt-2 h-28 w-28 rounded border border-gray-200"
+                loading="lazy"
+                @error="invoiceQrFailed = true"
+              >
+            </div>
+          </template>
+          <template v-else>
+            <h3 class="text-sm font-semibold text-gray-900">
+              Pay by bank transfer
+            </h3>
+            <p class="mt-1 text-xs text-gray-500">
+              Online payment is not available yet. Pay by bank transfer or at
+              the school office — your payment will be recorded and a receipt
+              issued here once verified.
+            </p>
+            <p
+              v-if="hasBankDetails && bankDetails"
+              class="mt-2 text-sm text-gray-700"
+            >
+              {{ bankDetails.bankName }} · {{ bankDetails.accountName }} ·
+              <span class="font-medium">{{ bankDetails.accountNumber }}</span>
+            </p>
+            <img
+              v-if="hasBankDetails && !invoiceQrFailed"
+              :src="financeApi.invoiceQrUrl(detail.id)"
+              alt="Invoice payment QR code"
+              class="mt-3 h-28 w-28 rounded border border-gray-200"
+              loading="lazy"
+              @error="invoiceQrFailed = true"
+            >
+          </template>
+        </section>
+
         <h3
           class="mt-6 text-sm font-semibold uppercase tracking-wide text-gray-500"
         >
@@ -339,12 +513,13 @@ async function openDetail(inv: InvoiceListItem) {
                 {{ p.method.replace('_', ' ') }}
               </p>
             </div>
-            <p
+            <a
               v-if="p.receiptNumber"
-              class="mt-1 text-xs text-indigo-700"
+              :href="`/api/v1/payments/${p.id}/receipt/download`"
+              class="mt-1 inline-block text-xs font-medium text-indigo-700 hover:underline"
             >
-              Receipt {{ p.receiptNumber }}
-            </p>
+              Receipt {{ p.receiptNumber }} · Download PDF
+            </a>
           </li>
         </ul>
       </div>

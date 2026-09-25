@@ -176,6 +176,24 @@ export const paymentRefundSchema = z.object({
 })
 export type PaymentRefund = z.infer<typeof paymentRefundSchema>
 
+// ---------------------------------------------------------------------------
+// Paystack online checkout (Phase 15)
+// ---------------------------------------------------------------------------
+// Paystack's platform minimum charge is ₦50 (5,000 kobo).
+export const paystackInitializeSchema = z.object({
+  invoiceId: uuidSchema,
+  amount: positiveKoboSchema.min(
+    5_000,
+    'The minimum online payment is ₦50.',
+  ),
+})
+export type PaystackInitialize = z.infer<typeof paystackInitializeSchema>
+
+export const paystackVerifySchema = z.object({
+  reference: z.string().trim().min(8).max(100),
+})
+export type PaystackVerify = z.infer<typeof paystackVerifySchema>
+
 export const paymentListQuerySchema = paginationQuerySchema.extend({
   invoiceId: uuidSchema.optional(),
   studentId: uuidSchema.optional(),

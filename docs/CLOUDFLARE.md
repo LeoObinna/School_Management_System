@@ -82,7 +82,15 @@ Set per environment with Wrangler; secrets never go in Git or
 ``` text
 wrangler secret put SESSION_SECRET -e staging
 wrangler secret put SESSION_SECRET -e production
+wrangler secret put PAYSTACK_SECRET_KEY -e production
 ```
+
+`PAYSTACK_SECRET_KEY` (Phase 15 online payments) is optional: without it
+the app runs in no-key mode and the online-checkout UI hides itself.
+After setting it, register the webhook in the Paystack dashboard
+(Settings → Webhooks) pointing at
+`https://<your-domain>/api/v1/payments/paystack/webhook` — the dashboard
+secret key and the Worker secret must be the same value.
 
 Local development secrets live only in the gitignored `app/.env`.
 `SESSION_SECRET` must stay stable across deploys or users are logged
