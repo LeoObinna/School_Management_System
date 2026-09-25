@@ -97,7 +97,7 @@ onMounted(async () => {
   try {
     const [sessPage, classPage] = await Promise.all([
       academicsApi.listSessions({ perPage: 100 }),
-      academicsApi.listClasses({ perPage: 200 }),
+      academicsApi.listClasses({ perPage: 100 }),
     ])
     sessions.value = sessPage.data
     classes.value = classPage.data
@@ -207,6 +207,21 @@ const selectedStructure = computed(() =>
   structures.value.find((s) => s.id === createForm.feeStructureId) ?? null,
 )
 
+// The backend treats a non-empty feeItemIds list as a complete override
+// (required items are auto-added only when the list is empty), so the
+// structure starts with every required item checked.
+function selectStructure(id: string) {
+  createForm.feeStructureId = id
+  const structure = structures.value.find((s) => s.id === id)
+  createForm.selectedFeeItemIds = structure
+    ? structure.items.filter((i) => !i.isOptional).map((i) => i.id)
+    : []
+}
+
+function onStructureChange(event: Event) {
+  selectStructure((event.target as HTMLSelectElement).value)
+}
+
 function toggleFeeItem(id: string) {
   const idx = createForm.selectedFeeItemIds.indexOf(id)
   if (idx >= 0) createForm.selectedFeeItemIds.splice(idx, 1)
@@ -227,6 +242,11 @@ async function submitInvoice() {
   try {
     let payload: InvoiceCreate
     if (createForm.feeStructureId) {
+      if (createForm.selectedFeeItemIds.length === 0) {
+        createError.value = 'Select at least one fee item.'
+        creating.value = false
+        return
+      }
       payload = {
         studentId: selectedStudent.value.id,
         sessionId: filters.sessionId,
@@ -235,17 +255,14 @@ async function submitInvoice() {
         dueDate: createForm.dueDate || null,
         notes: createForm.notes.trim() || null,
         feeStructureId: createForm.feeStructureId,
-        feeItemIds:
-          createForm.selectedFeeItemIds.length > 0
-            ? createForm.selectedFeeItemIds
-            : undefined,
+        feeItemIds: [...createForm.selectedFeeItemIds],
       }
     } else {
       const items = createForm.manualItems
         .filter((i) => i.description.trim() && i.unitAmount)
         .map((i) => ({
           description: i.description.trim(),
-          quantity: i.quantity,
+          quantity: Number.isFinite(i.quantity) ? i.quantity : 1,
           unitAmount: parseNairaToKobo(i.unitAmount),
         }))
       if (items.length === 0) {
@@ -786,6 +803,202 @@ async function refundPayment(paymentId: string) {
             </div>
           </li>
         </ul>
+      </div>
+    </div>
+
+    <!-- Create invoice modal -->
+    <div
+      v-if="createOpen"
+      class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
+      @click.self="createOpen = false"
+    >
+      <div class="my-12 w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+        <div class="flex items-start justify-between">
+          <div>
+            <h2 class="text-lg font-medium text-gray-900">New invoice</h2>
+            <p v-if="selectedStudent" class="text-sm text-gray-500">
+              {{ selectedStudent.firstName }} {{ selectedStudent.lastName }}
+              ({{ selectedStudent.admissionNumber }})
+            </p>
+          </div>
+          <button
+            class="text-gray-400 hover:text-gray-700"
+            @click="createOpen = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p
+          v-if="createError"
+          class="mt-3 rounded-md bg-red-50 p-2 text-sm text-red-700"
+        >
+          {{ createError }}
+        </p>
+
+        <div class="mt-4 space-y-4 text-sm">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label class="block">
+              <span class="text-gray-700">Term</span>
+              <select
+                v-model="createForm.termId"
+                class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+              >
+                <option value="">No term</option>
+                <option v-for="t in terms" :key="t.id" :value="t.id">
+                  {{ t.name }}
+                </option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-gray-700">Issue date</span>
+              <input
+                v-model="createForm.issueDate"
+                type="date"
+                class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+              />
+            </label>
+            <label class="block">
+              <span class="text-gray-700">Due date</span>
+              <input
+                v-model="createForm.dueDate"
+                type="date"
+                class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+              />
+            </label>
+          </div>
+
+          <label class="block">
+            <span class="text-gray-700">Notes</span>
+            <textarea
+              v-model="createForm.notes"
+              rows="2"
+              class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+            ></textarea>
+          </label>
+
+          <label class="block">
+            <span class="text-gray-700">Bill from fee structure</span>
+            <select
+              :value="createForm.feeStructureId"
+              class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+              @change="onStructureChange"
+            >
+              <option value="">— Custom line items —</option>
+              <option v-for="s in structures" :key="s.id" :value="s.id">
+                {{ s.name }} · {{ s.className ?? 'All classes' }}
+              </option>
+            </select>
+          </label>
+
+          <!-- Fee structure items -->
+          <div
+            v-if="selectedStructure"
+            class="rounded-md border border-gray-200 p-3"
+          >
+            <p class="text-xs text-gray-500">
+              Required items are included automatically; tick optional items
+              to add them.
+            </p>
+            <ul class="mt-2 space-y-1">
+              <li
+                v-for="item in selectedStructure.items"
+                :key="item.id"
+                class="flex items-center justify-between gap-2"
+              >
+                <label class="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    class="rounded border-gray-300"
+                    :checked="
+                      !item.isOptional ||
+                      createForm.selectedFeeItemIds.includes(item.id)
+                    "
+                    :disabled="!item.isOptional"
+                    @change="toggleFeeItem(item.id)"
+                  />
+                  <span class="text-gray-900">{{ item.name }}</span>
+                  <span
+                    :class="[
+                      'rounded-full px-2 py-0.5 text-xs',
+                      item.isOptional
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-gray-100 text-gray-500',
+                    ]"
+                  >
+                    {{ item.isOptional ? 'optional' : 'required' }}
+                  </span>
+                </label>
+                <span class="text-gray-700">
+                  {{ formatMoney(item.amount) }}
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Manual line items -->
+          <div v-else class="space-y-2">
+            <p class="text-xs text-gray-500">
+              Add one or more custom line items (amounts in naira).
+            </p>
+            <div
+              v-for="(row, i) in createForm.manualItems"
+              :key="i"
+              class="flex items-center gap-2"
+            >
+              <input
+                v-model="row.description"
+                placeholder="Description"
+                class="flex-1 rounded-md border border-gray-300 px-3 py-2"
+              />
+              <input
+                v-model.number="row.quantity"
+                type="number"
+                min="1"
+                step="1"
+                aria-label="Quantity"
+                class="w-16 rounded-md border border-gray-300 px-2 py-2"
+              />
+              <input
+                v-model="row.unitAmount"
+                inputmode="decimal"
+                placeholder="₦ amount"
+                aria-label="Unit amount in naira"
+                class="w-32 rounded-md border border-gray-300 px-2 py-2"
+              />
+              <button
+                type="button"
+                class="rounded-md border border-gray-300 px-2 py-2 text-gray-500 hover:bg-gray-50"
+                @click="removeManualRow(i)"
+              >
+                ✕
+              </button>
+            </div>
+            <button
+              type="button"
+              class="text-sm font-medium text-indigo-600 hover:underline"
+              @click="addManualRow"
+            >
+              + Add line item
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-6 flex justify-end gap-2">
+          <button
+            class="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            @click="createOpen = false"
+          >
+            Cancel
+          </button>
+          <button
+            :disabled="creating"
+            class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            @click="submitInvoice"
+          >
+            {{ creating ? 'Creating…' : 'Create invoice' }}
+          </button>
+        </div>
       </div>
     </div>
 
