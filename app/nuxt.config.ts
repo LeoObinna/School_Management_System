@@ -66,11 +66,34 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Victorious Children SMS',
+      title: 'Victorious Children School',
       htmlAttrs: { lang: 'en' },
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        {
+          name: 'description',
+          content:
+            'Victorious Children School, Ojodu, Lagos — Not to Equal, But to Excel.',
+        },
+      ],
+      // Preload the two fonts above the fold (08 §7/§61). Other cuts
+      // load on demand via CSS font matching.
+      link: [
+        {
+          rel: 'preload',
+          as: 'font',
+          type: 'font/woff2',
+          href: '/fonts/InterVariable.woff2',
+          crossorigin: '',
+        },
+        {
+          rel: 'preload',
+          as: 'font',
+          type: 'font/woff2',
+          href: '/fonts/cormorant-garamond-latin-600-normal.woff2',
+          crossorigin: '',
+        },
       ],
     },
   },

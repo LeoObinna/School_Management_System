@@ -1,6 +1,6 @@
 # VICTORIOUS CHILDREN SCHOOL — IMPLEMENTATION & MIGRATION PLAN
 
-**Version:** 2.0
+**Version:** 1.0
 
 ## 1. Strategy
 Transform the existing repository into:

@@ -1,6 +1,6 @@
 # VICTORIOUS CHILDREN SCHOOL — BACKEND SCHEMA
 
-**Version:** 2.0  
+**Version:** 1.0  
 **Database:** Cloudflare D1 / SQLite
 
 ## 1. Principles

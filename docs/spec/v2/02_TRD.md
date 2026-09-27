@@ -1,6 +1,6 @@
 # VICTORIOUS CHILDREN SCHOOL — TECHNICAL REQUIREMENT DOCUMENT (TRD)
 
-**Version:** 2.0  
+**Version:** 1.0  
 **Architecture:** Cloudflare-first
 
 ## 1. Authoritative Architecture

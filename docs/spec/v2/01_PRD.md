@@ -1,6 +1,6 @@
 # VICTORIOUS CHILDREN SCHOOL — PRODUCT REQUIREMENT DOCUMENT (PRD)
 
-**Version:** 2.0  
+**Version:** 1.0  
 **Architecture direction:** Cloudflare-first / D1-first  
 **Product:** Victorious Children School Website + School Management System  
 **Location:** Ojodu, Lagos, Nigeria  

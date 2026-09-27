@@ -1,6 +1,6 @@
 # VICTORIOUS CHILDREN SCHOOL — UI/UX DESIGN BRIEF
 
-**Version:** 2.0
+**Version:** 1.0
 
 ## 1. Design Objective
 Create a premium, trustworthy and welcoming Nigerian school experience communicating excellence, trust, academic seriousness, warmth, discipline, community, faith and modern administration.
