@@ -35,3 +35,19 @@ export const submissionsToGradeQuerySchema = paginationQuerySchema.extend({
 export type SubmissionsToGradeQuery = z.infer<
   typeof submissionsToGradeQuerySchema
 >
+
+/**
+ * Filters for GET /api/v1/teachers/me/performance (Phase 16C). classId
+ * must be one of the caller's assigned classes (enforced in the
+ * service); only scores covered by a published result_publications row
+ * are aggregated.
+ */
+export const teacherPerformanceQuerySchema = z.object({
+  classId: uuidSchema,
+  sessionId: uuidSchema.optional(),
+  subjectId: uuidSchema.optional(),
+})
+
+export type TeacherPerformanceQuery = z.infer<
+  typeof teacherPerformanceQuerySchema
+>

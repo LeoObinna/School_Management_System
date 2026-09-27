@@ -38,7 +38,7 @@
   or temporary presigned URLs
 - Server-side validation of uploads: type, MIME, size, category, authorization
 - Safe object key generation (never trust client filenames)
-- PostgreSQL stores metadata; R2 stores objects
+- D1 stores metadata; R2 stores objects
 
 ## Secrets management
 
@@ -70,6 +70,39 @@ placed in `wrangler.toml`.
   ships in the client bundle or appears in logs.
 - School bank details (used by the bank-transfer QR and receipts) are
   served only to authenticated users holding `payments.view`.
+
+## Role portals (Phase 16)
+
+- **The login redirect by primary role (student/parent/teacher →
+  `/portal/*` homes) is UX only.** Authorization stays fully
+  server-side: every portal endpoint re-checks the session and
+  permission (`requirePermission` + `resolveActorProfile`), so a
+  hand-crafted request without the right permission fails with 401/403
+  regardless of which page issued it. Business ids (studentId,
+  parentId, teacherId, ward list) are always resolved from the actor —
+  never accepted from the client.
+- **Per-row CSV authorization in bulk score entry
+  (`/exam-results/bulk-preview` / `/bulk`):** each CSV row is checked
+  individually against the acting teacher's class-level and
+  per-subject/section assignments; an unassigned subject is rejected
+  for that row only (`403`-equivalent per-row error, HTTP 200 with
+  `ok: false`) so one unauthorized row cannot fail or bypass the whole
+  file. Duplicate detection keys only rows that would actually be
+  committed.
+- **Lesson notes are ownership-scoped:** teachers read/manage only
+  their own notes; admins read/manage all but cannot author; other
+  staff get an empty list; out-of-scope reads (including probing by id)
+  return the same 404 as a missing note — existence is never revealed.
+  Parents have no `lesson_notes.*` permission and get 403 at the gate.
+- **Lesson-note attachments are private:** uploads are magic-byte
+  validated (25 MB cap) and stored under the R2 `lesson-notes/` prefix
+  with generated object keys (client filename never trusted). Downloads
+  stream through the authorized route
+  (`GET /lesson-notes/{id}/files/{fileId}`, `lesson_notes.view` +
+  note-scope check) with `no-store` semantics — never a public r2.dev
+  URL; parent download attempts are rejected at the permission gate.
+  Metadata deletes only proceed when R2 is reachable, so metadata and
+  bytes do not diverge.
 
 ## Audit logging
 

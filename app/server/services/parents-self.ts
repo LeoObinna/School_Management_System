@@ -22,15 +22,22 @@
  * the actor's children (issued/partially_paid statuses) to avoid
  * coupling the dashboard hub to the finance actor resolver.
  */
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import {
+  academicSessions,
   announcements,
   classes,
   parents,
+  reportCards,
   sections,
   studentInvoices,
   studentParents,
+  studentEnrollments,
   students,
+  subjects,
+  teacherClassAssignments,
+  teachers,
+  terms,
   users,
 } from '../../database/schema'
 import { getStudentResults } from './exams'
@@ -43,9 +50,14 @@ import type {
   AnnouncementListItem,
   InvoiceStatus,
   ParentChildSummary,
+  ParentChildOverview,
   ParentFeesSummary,
+  ParentOverview,
   ParentSelf,
   ParentSelfProfile,
+  ParentTeacherContact,
+  StudentAttendanceSummary,
+  StudentResultSummary,
 } from '../../shared/types'
 import type { MyChildResultsQuery, StudentAttendanceQuery } from '../../shared/schemas'
 
@@ -313,4 +325,250 @@ export async function getChildAttendance(
 ) {
   assertChildOf(actor, studentId)
   return studentAttendance(studentId, query, actor)
+}
+
+// ---------------------------------------------------------------------------
+// /parents/me/teachers — deduped teacher contacts (Phase 16B)
+// ---------------------------------------------------------------------------
+
+/**
+ * The teachers of the calling parent's children, deduped across class
+ * and subject assignments for the children's active-enrollment
+ * sessions. Powers the message composer: `userId` is the teacher's
+ * linked login account (the message recipient); teachers without a
+ * user account are listed but can't receive messages. A parent of no
+ * children gets an empty list. The child scope comes from the actor —
+ * never the client — so a parent can only ever see teachers of their
+ * own children's classes.
+ */
+export async function listMyTeachers(
+  actor: ActorProfile,
+): Promise<{ data: ParentTeacherContact[] }> {
+  if (actor.children.length === 0) {
+    return { data: [] }
+  }
+  const client = await db()
+
+  // Children's active enrollments define the class+session scope.
+  const enrollRows = await client
+    .select({
+      sessionId: studentEnrollments.sessionId,
+      classId: studentEnrollments.classId,
+    })
+    .from(studentEnrollments)
+    .where(
+      and(
+        inArray(studentEnrollments.studentId, actor.children),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+  const sessionIds = [...new Set(enrollRows.map((r) => r.sessionId))]
+  const classIds = [...new Set(enrollRows.map((r) => r.classId))]
+  if (sessionIds.length === 0 || classIds.length === 0) {
+    return { data: [] }
+  }
+
+  const rows = await client
+    .select({
+      teacherId: teachers.id,
+      userId: teachers.userId,
+      firstName: teachers.firstName,
+      lastName: teachers.lastName,
+      isPrimaryTeacher: teacherClassAssignments.isPrimaryTeacher,
+      className: classes.name,
+      subjectName: subjects.name,
+    })
+    .from(teacherClassAssignments)
+    .innerJoin(
+      teachers,
+      and(
+        eq(teacherClassAssignments.teacherId, teachers.id),
+        eq(teachers.isActive, true),
+        isNull(teachers.deletedAt),
+      ),
+    )
+    .innerJoin(classes, eq(teacherClassAssignments.classId, classes.id))
+    .innerJoin(subjects, eq(teacherClassAssignments.subjectId, subjects.id))
+    .where(
+      and(
+        inArray(teacherClassAssignments.classId, classIds),
+        inArray(teacherClassAssignments.sessionId, sessionIds),
+      ),
+    )
+    .orderBy(
+      desc(teacherClassAssignments.isPrimaryTeacher),
+      asc(classes.name),
+      asc(subjects.name),
+      asc(teachers.lastName),
+    )
+
+  // Dedupe (teacherId, classId, subjectId) — the same teacher can hold
+  // overlapping rows across a child's enrollments.
+  const seen = new Set<string>()
+  const data: ParentTeacherContact[] = []
+  for (const r of rows) {
+    const key = `${r.teacherId}:${r.className}:${r.subjectName}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    data.push({
+      teacherId: r.teacherId,
+      userId: r.userId,
+      name: `${r.firstName} ${r.lastName}`.trim(),
+      className: r.className,
+      subjectName: r.subjectName,
+      isPrimaryTeacher: r.isPrimaryTeacher,
+    })
+  }
+  return { data }
+}
+
+// ---------------------------------------------------------------------------
+// /parents/me/overview — per-child portal snapshot (Phase 16B)
+// ---------------------------------------------------------------------------
+
+function emptyAttendanceSummary(): StudentAttendanceSummary {
+  return {
+    total: 0,
+    present: 0,
+    absent: 0,
+    late: 0,
+    excused: 0,
+    attendanceRate: null,
+  }
+}
+
+function computeChildFees(
+  rows: Array<{ balance: number; dueDate: string | null; status: InvoiceStatus }>,
+): ParentFeesSummary {
+  let outstandingBalance = 0
+  let overdueInvoiceCount = 0
+  for (const r of rows) {
+    outstandingBalance += r.balance
+    if (isOverdue(r.dueDate, r.balance, r.status)) {
+      overdueInvoiceCount += 1
+    }
+  }
+  return {
+    outstandingInvoiceCount: rows.length,
+    outstandingBalance,
+    overdueInvoiceCount,
+  }
+}
+
+/**
+ * Per-child dashboard snapshot: current-term progress (via
+ * {@link getStudentResults} — the publication lock applies, so
+ * unpublished terms show null), cumulative average across published
+ * report cards, current-term attendance summary and per-child
+ * outstanding fees. Children are resolved from the actor; a probing
+ * parent can never widen the list. A child failing one sub-query
+ * (e.g. not actively enrolled this session) yields null/empty for that
+ * slice instead of failing the whole overview.
+ */
+export async function getParentOverview(
+  actor: ActorProfile,
+): Promise<ParentOverview> {
+  if (actor.children.length === 0) {
+    return { session: null, term: null, children: [] }
+  }
+  const client = await db()
+
+  const [session] = await client
+    .select({ id: academicSessions.id, name: academicSessions.name })
+    .from(academicSessions)
+    .where(eq(academicSessions.isCurrent, true))
+    .limit(1)
+  const [term] = await client
+    .select({ id: terms.id, name: terms.name })
+    .from(terms)
+    .where(eq(terms.isCurrent, true))
+    .limit(1)
+
+  const children: ParentChildOverview[] = []
+  for (const childId of actor.children) {
+    const [child] = await client
+      .select({
+        id: students.id,
+        admissionNumber: students.admissionNumber,
+        firstName: students.firstName,
+        lastName: students.lastName,
+        className: classes.name,
+      })
+      .from(students)
+      .leftJoin(classes, eq(students.currentClassId, classes.id))
+      .where(and(eq(students.id, childId), activeStudent))
+      .limit(1)
+    if (!child) continue
+
+    // --- Current-term progress (published results only).
+    let progress: StudentResultSummary | null = null
+    if (session && term) {
+      try {
+        progress = await getStudentResults(childId, session.id, term.id, actor)
+      } catch {
+        // Not actively enrolled this session — no progress slice.
+        progress = null
+      }
+    }
+
+    // --- Cumulative average across published report cards (×100 ints).
+    const rcRows = await client
+      .select({ averageScore: reportCards.averageScore })
+      .from(reportCards)
+      .where(
+        and(
+          eq(reportCards.studentId, childId),
+          eq(reportCards.status, 'published'),
+        ),
+      )
+    const rcSum = rcRows.reduce((acc, r) => acc + (r.averageScore ?? 0), 0)
+    const cumulativeAverage =
+      rcRows.length > 0 ? (rcSum / rcRows.length / 100).toFixed(2) : null
+
+    // --- Attendance for the current session/term.
+    let attendance = emptyAttendanceSummary()
+    if (session) {
+      try {
+        const query = {
+          sessionId: session.id,
+          ...(term ? { termId: term.id } : {}),
+        }
+        attendance = (await studentAttendance(childId, query, actor)).summary
+      } catch {
+        attendance = emptyAttendanceSummary()
+      }
+    }
+
+    // --- Per-child outstanding fees.
+    const invoiceRows = await client
+      .select({
+        balance: studentInvoices.balance,
+        dueDate: studentInvoices.dueDate,
+        status: studentInvoices.status,
+      })
+      .from(studentInvoices)
+      .where(
+        and(
+          eq(studentInvoices.studentId, childId),
+          inArray(studentInvoices.status, OUTSTANDING_INVOICE_STATUSES),
+        ),
+      )
+
+    children.push({
+      studentId: child.id,
+      name: `${child.firstName} ${child.lastName}`.trim(),
+      admissionNumber: child.admissionNumber,
+      className: child.className,
+      progress,
+      cumulativeAverage,
+      attendance,
+      fees: computeChildFees(invoiceRows),
+    })
+  }
+
+  return {
+    session: session ?? null,
+    term: term ?? null,
+    children,
+  }
 }

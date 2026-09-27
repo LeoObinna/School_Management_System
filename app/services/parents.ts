@@ -15,7 +15,11 @@ import type {
 } from '~/shared/schemas'
 import type {
   ParentChildSummary,
+  ParentOverview,
   ParentSelf,
+  ParentTeacherContact,
+  StudentAttendanceDay,
+  StudentAttendanceSummary,
   StudentResultSummary,
 } from '~/shared/types'
 
@@ -28,6 +32,13 @@ export const parentsApi = {
   listMyChildren: () =>
     api.get<{ data: ParentChildSummary[] }>('/parents/me/children'),
 
+  /** Phase 16B per-child portal snapshot (progress, attendance, fees). */
+  getOverview: () => api.get<ParentOverview>('/parents/me/overview'),
+
+  /** Phase 16B deduped teacher contacts for the message composer. */
+  listMyTeachers: () =>
+    api.get<{ data: ParentTeacherContact[] }>('/parents/me/teachers'),
+
   getChildResults: (studentId: string, params: MyChildResultsQuery) =>
     api.get<StudentResultSummary>(
       `/parents/me/children/${studentId}/results`,
@@ -38,10 +49,12 @@ export const parentsApi = {
     studentId: string,
     params: StudentAttendanceQuery,
   ) =>
-    api.get(
-      `/parents/me/children/${studentId}/attendance`,
-      { params: params as Params },
-    ),
+    api.get<{
+      summary: StudentAttendanceSummary
+      data: StudentAttendanceDay[]
+    }>(`/parents/me/children/${studentId}/attendance`, {
+      params: params as Params,
+    }),
 }
 
 export type { ParentSelf, ParentChildSummary }

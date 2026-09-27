@@ -16,6 +16,7 @@ export * from './people'
 export * from './enrollment'
 export * from './attendance'
 export * from './assignments'
+export * from './lesson-notes'
 export * from './exams'
 export * from './finance'
 export * from './admissions'
@@ -30,6 +31,7 @@ import * as people from './people'
 import * as enrollment from './enrollment'
 import * as attendance from './attendance'
 import * as assignments from './assignments'
+import * as lessonNotes from './lesson-notes'
 import * as exams from './exams'
 import * as finance from './finance'
 import * as admissions from './admissions'
@@ -45,6 +47,7 @@ export const schema = {
   ...enrollment,
   ...attendance,
   ...assignments,
+  ...lessonNotes,
   ...exams,
   ...finance,
   ...admissions,

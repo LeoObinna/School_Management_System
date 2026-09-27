@@ -585,6 +585,42 @@ export interface AssignmentAttachment {
   createdAt: string
 }
 
+// Lesson notes (Phase 16D): teacher-authored notes with optional R2
+// attachments served through the authorized download route only.
+export interface LessonNoteFile {
+  id: string
+  noteId: string
+  objectKey: string
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  uploadedById: string | null
+  createdAt: string
+}
+
+export interface LessonNote {
+  id: string
+  teacherId: string
+  classId: string
+  subjectId: string
+  sessionId: string
+  termId: string | null
+  week: number | null
+  title: string
+  content: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LessonNoteDetail extends LessonNote {
+  teacherName: string
+  className: string
+  subjectName: string
+  sessionName: string
+  termName: string | null
+  files: LessonNoteFile[]
+}
+
 export interface AssignmentSubmission {
   id: string
   assignmentId: string
@@ -1546,6 +1582,37 @@ export interface ExamScoreExportRow {
   grade: string | null
 }
 
+// Multi-subject CSV bulk entry (Phase 16D): one result row per CSV line,
+// with the resolved student/exam-subject context on success or the first
+// validation error on failure.
+export interface ExamScoreBulkRowResult {
+  rowNumber: number
+  admissionNumber: string
+  subjectCode: string
+  score: string
+  ok: boolean
+  error: string | null
+  studentId: string | null
+  studentName: string | null
+  examSubjectId: string | null
+  subjectName: string | null
+  maxScore: string | null
+  grade: string | null
+}
+
+export interface ExamScoreBulkResult {
+  exam: {
+    id: string
+    name: string
+    className: string
+    status: string
+  }
+  rows: ExamScoreBulkRowResult[]
+  summary: { total: number; valid: number; invalid: number }
+  /** Set only by the commit endpoint (POST /exam-results/bulk). */
+  committed?: number
+}
+
 // Aggregate backing the PDF audit certificate: totals + per-action
 // breakdown for the certificate's filter window.
 export interface AuditCertificateActionCount {
@@ -1653,6 +1720,27 @@ export interface TeacherAssignmentToGradeRow {
   pendingCount: number
 }
 
+/**
+ * One (exam, subject) aggregate row for GET /api/v1/teachers/me/
+ * performance (Phase 16C). Scores are ×100 fixed-point integers
+ * formatted as decimal strings; only rows covered by a published
+ * result_publications entry for the exam's session/term/class are
+ * included. class-level view: publications are matched without a
+ * section filter, so a single published section unlocks the aggregate.
+ */
+export interface TeacherPerformanceRow {
+  examId: string
+  examName: string
+  subjectId: string
+  subjectName: string
+  maxScore: string
+  studentCount: number
+  averageScore: string
+  highestScore: string
+  lowestScore: string
+  gradeDistribution: { grade: string; count: number }[]
+}
+
 // ---------------------------------------------------------------------------
 // Student self-service (Phase 8)
 // ---------------------------------------------------------------------------
@@ -1713,6 +1801,36 @@ export interface StudentActiveEnrollment {
   enrollmentDate: string
 }
 
+/**
+ * One published exam score surfaced on the student dashboard. Score and
+ * max score are the ×100 fixed-point integers formatted as decimal
+ * strings (e.g. "85.50"), matching /students/me/results.
+ */
+export interface StudentRecentScore {
+  examId: string
+  examName: string
+  subjectId: string
+  subjectName: string
+  score: string
+  maxScore: string
+  grade: string | null
+  enteredAt: string
+}
+
+/**
+ * GET /api/v1/students/me/dashboard (Phase 16A) — the student-portal
+ * landing payload: everything /students/me returns plus the full-week
+ * timetable, recent published scores and the current-term attendance
+ * summary. Scoping is identical to /students/me (server-resolved
+ * student; never a client-supplied studentId).
+ */
+export interface StudentDashboard extends StudentSelf {
+  weekTimetable: TimetableEntryDetail[]
+  recentScores: StudentRecentScore[]
+  attendanceSummary: StudentAttendanceSummary
+  recentAttendanceDays: StudentAttendanceDay[]
+}
+
 // ---------------------------------------------------------------------------
 // Parent self-service (Phase 9)
 // ---------------------------------------------------------------------------
@@ -1770,5 +1888,46 @@ export interface ParentFeesSummary {
   outstandingInvoiceCount: number
   outstandingBalance: number
   overdueInvoiceCount: number
+}
+
+/**
+ * One of the parent's children's teachers, deduped across class and
+ * subject assignments (Phase 16B). `userId` is the linked login account
+ * — the messaging composer needs it as the message recipient; it can be
+ * null for a teacher without a user account (shown but not selectable).
+ */
+export interface ParentTeacherContact {
+  teacherId: string
+  userId: string | null
+  name: string
+  className: string
+  subjectName: string | null
+  isPrimaryTeacher: boolean
+}
+
+/**
+ * GET /api/v1/parents/me/overview (Phase 16B) — per-child snapshot for
+ * the parent-portal dashboard. `progress` is the child's current-term
+ * result summary via getStudentResults (publication lock enforced:
+ * nothing until published); `cumulativeAverage` is the mean of the
+ * child's published report-card averages; `attendance` covers the
+ * current session/term; `fees` is per-child (unlike the across-children
+ * ParentFeesSummary on /parents/me).
+ */
+export interface ParentChildOverview {
+  studentId: string
+  name: string
+  admissionNumber: string
+  className: string | null
+  progress: StudentResultSummary | null
+  cumulativeAverage: string | null
+  attendance: StudentAttendanceSummary
+  fees: ParentFeesSummary
+}
+
+export interface ParentOverview {
+  session: { id: string; name: string } | null
+  term: { id: string; name: string } | null
+  children: ParentChildOverview[]
 }
 

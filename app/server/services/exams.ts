@@ -117,10 +117,14 @@ async function db(): Promise<SmsDb> {
 // 10000. The shared DTO/zod boundary stays decimal strings with up to
 // 2dp, so EVERY write multiplies and EVERY read divides. Grade points
 // (`points`) are a plain whole-number integer per the D1 schema.
-function toScore100(value: string): number {
+// Exported for the Phase 16D CSV bulk-entry service, which reuses the
+// same ×100 fixed-point helpers and grading logic.
+export function toScore100(value: string): number {
   return Math.round(Number(value) * 100)
 }
-function fromScore100(value: number | null | undefined): string | null {
+export function fromScore100(
+  value: number | null | undefined,
+): string | null {
   if (value === null || value === undefined) return null
   return (value / 100).toFixed(2)
 }
@@ -384,7 +388,8 @@ async function parentOwnsStudent(
 
 // Returns the active grading scale items for a session. Falls back to the
 // global scale (sessionId is null) when no session-specific scale exists.
-async function getActiveGradingScaleItems(
+// Exported for the Phase 16D CSV bulk-entry service (grade preview).
+export async function getActiveGradingScaleItems(
   client: SmsDb,
   sessionId: string,
 ): Promise<GradingScaleDetail['items']> {
@@ -414,9 +419,10 @@ async function getActiveGradingScaleItems(
 }
 
 // Returns the grade whose [minScore, maxScore] contains the percentage.
-function computeGrade(
+// Exported for the Phase 16D CSV bulk-entry service (preview grades).
+export function computeGrade(
   percentage: number,
-  items: GradingScaleDetail['items'],
+  items: readonly { minScore: string; maxScore: string; grade: string }[],
 ): string | null {
   for (const item of items) {
     const min = Number(item.minScore)
@@ -973,7 +979,8 @@ export async function removeExamSubject(
 // Lock helpers — once a publication leaves draft, scores cannot move.
 // ---------------------------------------------------------------------------
 
-async function assertScoresUnlocked(
+// Exported for the Phase 16D CSV bulk-entry service (commit path).
+export async function assertScoresUnlocked(
   client: SmsDb,
   sessionId: string,
   termId: string | null,

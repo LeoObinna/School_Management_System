@@ -5,8 +5,12 @@
  * Pages opt out of auth via definePageMeta({ public: true }) or live
  * under /auth, and can declare required permission slugs via
  * definePageMeta({ permissions: ['students.view'] }).
+ *
+ * Phase 16A: student/parent/teacher accounts are routed to their
+ * /portal/* home instead of the staff dashboard (landingPathForRoles).
  */
 import { useAuthStore } from '~/stores/auth'
+import { landingPathForRoles } from '~/utils/portal'
 
 export default defineNuxtRouteMiddleware(async (to) => {
   // SSR cannot read the HttpOnly cookie reliably here; let the client
@@ -29,7 +33,14 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   if (isAuthRoute && auth.isAuthenticated) {
-    return navigateTo('/')
+    return navigateTo(landingPathForRoles(auth.roles))
+  }
+
+  if (auth.isAuthenticated && to.path === '/') {
+    const landing = landingPathForRoles(auth.roles)
+    if (landing !== '/') {
+      return navigateTo(landing)
+    }
   }
 
   const required = Array.isArray(to.meta.permissions)

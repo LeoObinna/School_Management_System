@@ -59,6 +59,8 @@ needed; keep them outside the repository.)
 assignments/attachments/
 assignments/submissions/
 resources/
+lesson-notes/                (Phase 16: lesson-note attachments,
+                             25 MB cap, magic-byte-validated uploads)
 students/photos/            (planned)
 admissions/documents/       (planned)
 report-cards/ receipts/     (planned)

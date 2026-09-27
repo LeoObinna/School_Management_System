@@ -1876,24 +1876,48 @@ Delivered in three increments (15A checkout, 15B receipts, 15C QR).
   billing drawer; they remain configurable data, never hard-coded.
   See `docs/API.md` Phase 15.
 
-### Phase 16 --- Dedicated role portals  (roadmap 2026-09-20; NOT STARTED)
+### Phase 16 --- Dedicated role portals  (✅ COMPLETE 2026-09-27)
 
-Reuses the existing APIs; primarily new frontend plus the few missing
-modules.
+Delivered in four increments (16A student, 16B parent, 16C teacher,
+16D teacher tools) per the owner-approved plan
+(`.trae/documents/phase16_role_portals_plan.md`; enrollment VIEW-ONLY,
+multi-subject CSV, lesson notes = text + R2 attachments).
 
-- Role-split portal shells: `/portal/student`, `/portal/parent`,
-  `/portal/teacher`.
-- Student: dashboard (current class, timetable, upcoming assignment
-  deadlines, recent grades, attendance), learning resources, and
-  online registration/enrollment.
-- Parent: child switcher, termly + cumulative progress, attendance
-  dashboard, fees (outstanding balance, history, Paystack checkout,
-  QR, bank details), report-card PDF download, and a "message my
-  child's teacher" flow over the existing messaging API.
-- Teacher: class dashboard, checkbox attendance recorder, bulk **CSV**
-  score upload (parse → validate → preview → commit), lesson-note
-  management (new table + CRUD), performance tracking, and grade
-  submission → report-card generation.
+- Login redirects by primary portal role (teacher > parent >
+  student → `/portal/*` home; staff/admin keep the dashboard);
+  server authorization remains authoritative (middleware is UX-only).
+- Branded `portal` layout (role-scoped nav, school settings brand,
+  sign-out); Student portal: dashboard (timetable week, recent
+  published scores, attendance summary), resources, view-only
+  enrollment history — new `GET /students/me/dashboard` +
+  `GET /students/me/enrollments`.
+- Parent portal: per-child overview (progress under the publication
+  lock, cumulative average, attendance, outstanding fees via the
+  shared `BillingPanel`), report-card PDF links, attendance calendar,
+  teacher contacts + messaging — new `GET /parents/me/overview` +
+  `GET /parents/me/teachers`.
+- Teacher portal: dashboard, attendance register recorder (create/
+  mark/submit under existing permissions), performance tables under
+  the publication lock — new `GET /teachers/me/performance`
+  (assignment-guarded; admins bypass).
+- Multi-subject CSV bulk scores: dependency-free shared parser
+  (`shared/utils/csv`, RFC4180, unit-tested) parses client-side;
+  `POST /exam-results/bulk-preview` returns per-row OK/error
+  (enrollment, exam-subject code, max score, per-row teacher
+  assignment, duplicates); `POST /exam-results/bulk` re-validates and
+  commits valid rows as upserts on (examSubjectId, studentId) inside
+  one atomic D1 batch, audited. Portal page offers template download,
+  green/red preview and commit.
+- Lesson notes (migration `0003_lesson_notes.sql`): teacher-authored
+  text notes with optional R2 attachments (`lesson-notes/` prefix,
+  `lesson_note_attachment` category, 25 MB); full CRUD + attachment
+  upload/download/delete scoped to the owning teacher (admins manage
+  all; out-of-scope reads 404 so existence cannot be probed); new
+  `lesson_notes.view`/`lesson_notes.manage` permissions; downloads
+  stream `private, no-store` through the authorized route only.
+- Grade submission flow continues to run over the existing
+  exam-score + report-card endpoints (no duplicate models).
+  See `docs/API.md` Phase 16.
 
 ### Phase 17 --- Communication channels  (roadmap 2026-09-20; NOT STARTED)
 
@@ -2073,17 +2097,23 @@ Production     Worker sms-production + sms-production R2 + sms-production D1
                (provisioned + deployed 2026-09-24; demo seed loaded for
                smoke verification)
 Website        deferred
-Current phase  Phase 15 ✅ COMPLETE (2026-09-25): Paystack hosted-
-               redirect checkout + signed idempotent webhook, branded PDF
-               receipts (R2, lazy), office/invoice QR codes; Phase 14 ✅
-               COMPLETE (2026-09-25): 14A school settings + R2 logo, 14B
-               staff documents, 14C inventory ledger, 14D expanded
-               financial reports. Phases 0–12 complete; Phase 13 infra +
-               production deploy DONE but PARKED (domain blocked;
-               TLS/WAF/DNS, backups, monitoring, KV re-verification and
-               rollback drill → Phase 19). Next: Phase 16 role portals
-               (16/17 deferred per owner 2026-09-25; Phase 18 public
-               website plan approved-in-principle, on hold).
+Current phase  Phase 16 ✅ COMPLETE (2026-09-27): dedicated role
+               portals — student/parent/teacher portal homes with a
+               login-redirect by primary role, view-only enrollment,
+               multi-subject CSV bulk score entry (preview → commit),
+               and lesson notes with R2 attachments (migration 0003);
+               Phase 15 ✅ COMPLETE (2026-09-25): Paystack hosted-
+               redirect checkout + signed idempotent webhook, branded
+               PDF receipts (R2, lazy), office/invoice QR codes; Phase
+               14 ✅ COMPLETE (2026-09-25): 14A school settings + R2
+               logo, 14B staff documents, 14C inventory ledger, 14D
+               expanded financial reports. Phases 0–12 complete; Phase
+               13 infra + production deploy DONE but PARKED (domain
+               blocked; TLS/WAF/DNS, backups, monitoring, KV
+               re-verification and rollback drill → Phase 19). Next:
+               Phase 17 email/SMS or Phase 18 public website per owner
+               direction (18 foundation — design tokens, public shell,
+               Vcs* components — already staged 2026-09-27).
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -2137,17 +2167,24 @@ with **Cloudflare D1** as the sole database engine
     Phase 15 ✅ COMPLETE 2026-09-25 — Paystack hosted-redirect checkout
     with signed idempotent webhook (server-side re-verification only),
     branded PDF receipts lazily stored in R2 with embedded verification
-    QR, and office/per-invoice bank-transfer QR codes.**
+    QR, and office/per-invoice bank-transfer QR codes; Phase 16 ✅
+    COMPLETE 2026-09-27 — dedicated student/parent/teacher portals
+    (role-based login redirect, portal layout + homes, view-only
+    enrollment, parent overview/teachers, teacher performance,
+    multi-subject CSV bulk score entry with preview → commit, and
+    lesson notes with R2 attachments, migration 0003).**
     The approved forward roadmap (2026-09-20) is: Phase 14 admin
     foundation — 14A settings/logo (done), 14B documents (done), 14C
     inventory (done), 14D expanded financial reports (done); Phase 15
     Paystack + QR payments (done); Phase 16 dedicated
-    student/parent/teacher portals; Phase 17 email/SMS communication
-    channels; Phase 18 public website; Phase 19 launch (including the
-    deferred Phase 13 domain work). Per owner direction 2026-09-25,
-    Phases 16 and 17 are deferred for later and the Phase 18 public
-    website plan (`.trae/documents/phase18_public_website_plan.md`) is
-    on hold pending owner comments.
+    student/parent/teacher portals (done); Phase 17 email/SMS
+    communication channels; Phase 18 public website; Phase 19 launch
+    (including the deferred Phase 13 domain work). Phase 18 foundation
+    (design-token system, public site shell, Vcs* component library)
+    was staged 2026-09-27 ahead of the owner's choice of the next
+    phase; the Phase 18 public website plan
+    (`.trae/documents/phase18_public_website_plan.md`) remains on hold
+    pending owner comments.
 
 ## 48. Architecture decision (summary)
 
@@ -3673,6 +3710,68 @@ for the full history.
                     (out of scope); a real-transaction smoke needs the
                     owner's Paystack test keys. No production/remote
                     deploy; no commit.
+2026-09-27  Phase 16 dedicated role portals — COMPLETE in four
+                    increments per the owner-approved plan
+                    (.trae/documents/phase16_role_portals_plan.md).
+                    16A student portal: GET /api/v1/students/me/
+                    {dashboard,enrollments} (student-only, own-scope);
+                    login redirect by primary role (student/parent/
+                    teacher → /portal/* homes; staff/admin keep the
+                    dashboard); layouts/portal.vue with role-filtered
+                    nav; pages/portal/student/{index,resources,
+                    enrollment}.vue (enrollment VIEW-ONLY per owner).
+                    16B parent portal: GET /api/v1/parents/me/overview
+                    (children with balances/fee-status) + /parents/me/
+                    teachers (per-child class teachers); pages/portal/
+                    parent/{index,children,teachers}.vue; ward switching
+                    via ?studentId= validated against guardianship.
+                    16C teacher portal: pages/portal/teacher/{index,
+                    attendance,performance}.vue reusing existing
+                    attendance + exam-result endpoints with
+                    resolveActorProfile teacher scoping.
+                    16D teacher tools: multi-subject CSV bulk score
+                    entry — dependency-free RFC4180 parser in shared/
+                    utils/csv.ts (client-side parse, server-side
+                    per-row validation), POST /api/v1/exam-results/
+                    {bulk-preview,bulk} (exam_results.enter; reuse of
+                    canonical enter-path authorization — admins bypass,
+                    teachers need class-level + per-subject/section
+                    assignment; publication lock; grading scale; upsert
+                    on (exam_subject_id, student_id) via one chunked D1
+                    batch; per-row errors instead of whole-file 400;
+                    duplicate key registered only for committable
+                    rows); /portal/teacher/scores.vue with template
+                    download, preview table, commit. Lesson notes:
+                    migration 0003_lesson_notes.sql (lesson_notes +
+                    lesson_note_files, teacher-owned), schema +
+                    service + 9 routes (CRUD, attachment upload/
+                    download/delete with R2 lesson-notes/ prefix,
+                    25 MB cap, authorized streaming downloads — never
+                    r2.dev), lesson_notes.{view,manage} permissions
+                    added to the seed catalog; teachers own-scope,
+                    admins read/manage-all (cannot author), other
+                    staff/parents 403 or 404-out-of-scope;
+                    /portal/teacher/lesson-notes.vue editor with
+                    filters + attachments. Tests 614 → 671 across 53
+                    files (CSV parser 12, exam-results-bulk 8,
+                    lesson-notes scoping 8, portal endpoints); 
+                    type-check EXIT 0; cloudflare-module build EXIT 0.
+                    wrangler dev D1 smoke: student/parent/teacher login
+                    redirects, portal pages render, enrollment view-
+                    only, bulk CSV preview errors (over-max, unknown
+                    admission, unassigned subject 403) + admin
+                    multi-subject commit (committed:2, idempotent
+                    re-commit, upsert proven in D1 ENG 8800/A BSC
+                    7100/A), duplicate row flagged; lesson notes full
+                    CRUD + attachment upload/download (parent download
+                    403) + delete + list + 404 after delete. Smoke exam
+                    closed. docs/API.md Phase 16 section; docs/
+                    SECURITY.md portal scoping + attachment authz;
+                    docs/CLOUDFLARE.md lesson-notes/ prefix; README
+                    §41/§46/§47 + this entry updated. Known limits:
+                    grade submission reuses existing exam-result
+                    endpoints (no new grading flow); no email/SMS
+                    notifications; no commit; no production deploy.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

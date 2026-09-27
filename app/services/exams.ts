@@ -12,6 +12,7 @@ import type {
   ExamCreate,
   ExamListQuery,
   ExamScoreBulk,
+  ExamScoreCsvBulk,
   ExamSubjectUpsert,
   ExamUpdate,
   GradingScaleCreate,
@@ -25,6 +26,7 @@ import type {
   AssessmentType,
   ExamDetail,
   ExamListItem,
+  ExamScoreBulkResult,
   GradingScaleDetail,
   MySchoolContext,
   ReportCardDetail,
@@ -79,6 +81,12 @@ export const examsApi = {
   // --- Exam scores (bulk per exam_subject) -----------------------------
   bulkUpsertExamScores: (examId: string, body: ExamScoreBulk) =>
     api.put<{ count: number }>(`/exams/${examId}/scores`, body),
+
+  // --- Exam scores (multi-subject CSV, Phase 16D) -----------------------
+  bulkPreviewExamScores: (body: ExamScoreCsvBulk) =>
+    api.post<ExamScoreBulkResult>('/exam-results/bulk-preview', body),
+  bulkCommitExamScores: (body: ExamScoreCsvBulk) =>
+    api.post<ExamScoreBulkResult>('/exam-results/bulk', body),
 
   // --- Assessment scores (continuous assessment) -----------------------
   listAssessmentScores: (params?: Partial<AssessmentScoreListQuery>) =>

@@ -1511,4 +1511,142 @@ whenever bank details exist; each payable invoice's detail drawer shows
 the per-invoice QR — beside the Pay Online form when Paystack is
 configured, as the primary path otherwise.
 
+## Phase 16 — Dedicated role portals ✅
+
+Student, parent and teacher self-service portals at `/portal/*`, plus
+two teacher tools: multi-subject CSV bulk score entry and lesson notes
+with attachments. Owner decisions baked in: login redirects by primary
+role (student/parent/teacher → their portal home; staff/admin keep the
+dashboard) are **UX only** — every endpoint still enforces
+server-side authorization; enrollment is **view-only** in portals; CSV
+score entry is **multi-subject**; lesson notes are text + R2
+attachments.
+
+### Student portal
+
+- `GET /api/v1/students/me/dashboard` — `dashboard.view`; the studentId
+  is resolved from the actor (never the client; 404 when no student
+  profile is linked). Aggregated landing payload: profile, active
+  enrollment (current session), full-week timetable, pending
+  assignments, 5 recent announcements, up to 10 recent exam scores —
+  each row surfaced only when the exam's session/term/class has a
+  `published` result_publications entry (NULL-safe term/section match)
+  — and the current-term attendance summary + 5 most recent days.
+- `GET /api/v1/students/me/enrollments` — `dashboard.view`; the
+  student's full enrollment history, newest first (view-only per owner
+  decision; registration stays with staff).
+
+### Parent portal
+
+- `GET /api/v1/parents/me/overview` — `dashboard.view`; per-child
+  snapshot for the parent home: current session/term, and per child
+  `{ progress (current-term published results or null), cumulativeAverage
+  (mean of published report-card averages, ×100 ints rendered as
+  decimal), attendance summary, per-child outstanding fees
+  (issued/partially_paid invoices, overdue count) }`. Children are
+  resolved from the actor; a child failing one sub-query yields
+  null/empty for that slice instead of failing the whole overview.
+- `GET /api/v1/parents/me/teachers` — `dashboard.view`; the teachers of
+  the parent's children, deduped across class/subject assignments for
+  the children's active-enrollment sessions. `userId` is the teacher's
+  linked login account (the message recipient); null when the teacher
+  has no user account (listed but not selectable). Parent of no
+  children → empty list.
+
+### Teacher portal
+
+- `GET /api/v1/teachers/me/performance` — `exam_results.view`; query
+  `{ classId (required), sessionId?, subjectId? }`. Published-score
+  aggregates per exam/subject: student count, average/highest/lowest
+  (×100 ints as decimal strings) and grade distribution. Non-admin
+  staff must hold a class assignment for the requested class; admins
+  may inspect any class.
+
+### Multi-subject CSV bulk score entry (teacher tool)
+
+The CSV is parsed **client-side** (dependency-free RFC4180 parser in
+`app/shared/utils/csv.ts`: quoted fields, embedded commas/newlines/
+escaped quotes, CRLF/LF/CR) into `{ admission_number, subject_code,
+score }` rows; the server then validates **per row** so one bad line
+never 400s the whole file. Transport schema is deliberately lenient
+(strings, ≤1000 rows); all business validation is per-row:
+
+order — missing cells → score format (`-?\d{1,5}(\.\d{1,2})?`, ≤2
+decimals) → enrollment lookup by admission number → exam-subject lookup
+by exact subject code (trim; NULL codes never match) → per-subject
+assignment (non-admin: teacher must be assigned to the subject for the
+class; `section_id IS NULL` matches any section; `sections` containing
+NULL covers all) → negative score → over max → **duplicates last**
+(`Duplicate of row N.`; the key is registered only for rows that would
+actually be committed, so an invalid row never masks a later valid
+row) → grade via the active grading scale.
+
+Both endpoints reuse the canonical enter-path semantics: admins bypass
+assignment checks; teachers need class-level + per-subject/section
+assignment; the exam must be `open` and the term's results must not be
+published (`assertScoresUnlocked` → 409). Upserts target
+`(exam_subject_id, student_id)` via one chunked D1 batch (implicit
+transaction, ≤100 statements); `entered_by_id` = the acting teacher
+(null for admin).
+
+- `POST /api/v1/exam-results/bulk-preview` — `exam_results.enter`;
+  body `{ examId, rows: [{ admissionNumber, subjectCode, score }] }`.
+  Returns `{ exam, rows: [{ rowNumber, admissionNumber, subjectCode,
+  score, ok, error, studentId, studentName, examSubjectId, subjectName,
+  maxScore, grade }], summary: { total, valid, invalid } }` — no writes.
+- `POST /api/v1/exam-results/bulk` — same body + response plus
+  `committed: N`; commits only `ok` rows atomically. Audited
+  (`exam_score.bulk_csv_enter`).
+
+Portal UI `/portal/teacher/scores`: open-exams picker, template CSV
+download (example rows per subject), client-side parse + preview table
+(green OK with grade/max, red per-row errors), then commit.
+
+### Lesson notes (teacher tool, migration 0003)
+
+`lesson_notes` (teacher-owned; class/subject/session required, term +
+week optional, title ≤200, content ≤20000) + `lesson_note_files`
+(R2 metadata; objects under the `lesson-notes/` prefix, 25 MB cap,
+magic-byte-validated upload). New permissions `lesson_notes.view` +
+`lesson_notes.manage` (teacher + admin roles via the seed catalog).
+Scoping: teachers see/manage **only their own** notes; admins read and
+manage all (but **cannot author** — `teacher_id` is NOT NULL);
+other staff see an empty list / 404 out-of-scope (no existence
+probing); parents have no access at all. Out-of-scope and missing notes
+both return 404 `Lesson note not found.`
+
+- `GET /api/v1/lesson-notes` — `lesson_notes.view`; filters
+  `{ classId?, subjectId?, sessionId?, termId? }`, newest first.
+  Staff callers with `lesson_notes.manage` (e.g. admin) see all notes;
+  plain-view staff see only their own (teachers) or nothing.
+- `POST /api/v1/lesson-notes` — `lesson_notes.manage`; teachers only
+  (403 otherwise). Body `{ classId, subjectId, sessionId, termId?,
+  week?, title, content }`. Audited (`lesson_note.create`).
+- `GET /api/v1/lesson-notes/{id}` — `lesson_notes.view`; 404 when
+  missing or out-of-scope.
+- `PATCH /api/v1/lesson-notes/{id}` — `lesson_notes.manage`; owner or
+  admin only (403 for other teachers). Partial update, at least one
+  field. Audited (`lesson_note.update`).
+- `DELETE /api/v1/lesson-notes/{id}` — `lesson_notes.manage`; owner or
+  admin only. Deletes the note (files CASCADE) and every R2 object.
+  Audited (`lesson_note.delete`).
+- `POST /api/v1/lesson-notes/{id}/files` — `lesson_notes.manage`;
+  multipart field `file` (25 MB cap, category
+  `lesson_note_attachment`). Stored in R2 at
+  `lesson-notes/{noteId}/{uuid}/{fileName}`; metadata row insert failure
+  cleans up the uploaded object. Audited (`lesson_note_file.upload`).
+- `GET /api/v1/lesson-notes/{id}/files/{fileId}` — `lesson_notes.view`
+  (parent attempts → 403 at the permission gate); authorized streaming
+  download with the original file name/mime type — **never** a public
+  r2.dev URL.
+- `DELETE /api/v1/lesson-notes/{id}/files/{fileId}` —
+  `lesson_notes.manage`; owner or admin only; R2 checked available
+  before the DB delete so metadata and bytes do not diverge. Audited
+  (`lesson_note_file.delete`).
+
+Portal UI `/portal/teacher/lesson-notes`: session/class filters, editor
+overlay with term/week, attachment upload/download/remove, Edit/Delete
+gated on `lesson_notes.manage`.
+
+
 

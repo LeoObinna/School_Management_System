@@ -15,12 +15,17 @@ import {
   assignmentSubmissions,
   assignments,
   classes,
+  examScores,
+  examSubjects,
+  exams,
   parents,
+  resultPublications,
   sections,
   studentEnrollments,
   studentParents,
   students,
   subjects,
+  teacherClassAssignments,
   teachers,
   users,
 } from '../../database/schema'
@@ -30,19 +35,21 @@ import {
 import { listTimetableEntries } from './schedule'
 import type { ActorProfile } from '../utils/auth/actor'
 import { teacherTaughtClassIds } from '../utils/auth/actor'
-import { smsNotFound } from '../utils/http-errors'
+import { smsForbidden, smsNotFound } from '../utils/http-errors'
 import type { SmsDb } from '../utils/pagination'
 import { toJsonModel } from '../utils/serialize'
 import type {
   AnnouncementListItem,
   TeacherAssignmentToGradeRow,
   TeacherClassAssignmentDetail,
+  TeacherPerformanceRow,
   TeacherSelf,
   TeacherStudentRow,
 } from '../../shared/types'
 import type {
   MyStudentListQuery,
   SubmissionsToGradeQuery,
+  TeacherPerformanceQuery,
 } from '../../shared/schemas'
 import { WEEKDAYS } from '../../shared/schemas/schedule'
 
@@ -400,4 +407,157 @@ export async function listSubmissionsToGrade(
       pendingCount: Number(r.pendingCount),
     })),
   }
+}
+
+// ---------------------------------------------------------------------------
+// /teachers/me/performance — published-score aggregates (Phase 16C)
+// ---------------------------------------------------------------------------
+
+function formatScoreFixed(value: number): string {
+  return (value / 100).toFixed(2)
+}
+
+/** One raw published exam-score row as fetched by {@link getTeacherPerformance}. */
+export interface TeacherPerformanceScoreRow {
+  examId: string
+  examName: string
+  subjectId: string
+  subjectName: string
+  maxScore: number
+  score: number
+  grade: string | null
+}
+
+/**
+ * Aggregates raw (exam, subject) score rows into per-group averages,
+ * extremes and grade distributions. Pure — exported for unit tests.
+ */
+export function aggregateTeacherPerformance(
+  rows: TeacherPerformanceScoreRow[],
+): TeacherPerformanceRow[] {
+  interface Accum {
+    sum: number
+    count: number
+    highest: number
+    lowest: number
+    grades: Map<string, number>
+  }
+  const groups = new Map<string, Accum & { row: TeacherPerformanceRow }>()
+  for (const r of rows) {
+    const key = `${r.examId}:${r.subjectId}`
+    let acc = groups.get(key)
+    if (!acc) {
+      acc = {
+        row: {
+          examId: r.examId,
+          examName: r.examName,
+          subjectId: r.subjectId,
+          subjectName: r.subjectName,
+          maxScore: formatScoreFixed(r.maxScore),
+          studentCount: 0,
+          averageScore: '0.00',
+          highestScore: '0.00',
+          lowestScore: '0.00',
+          gradeDistribution: [],
+        },
+        sum: 0,
+        count: 0,
+        highest: r.score,
+        lowest: r.score,
+        grades: new Map(),
+      }
+      groups.set(key, acc)
+    }
+    acc.sum += r.score
+    acc.count += 1
+    if (r.score > acc.highest) acc.highest = r.score
+    if (r.score < acc.lowest) acc.lowest = r.score
+    if (r.grade) {
+      acc.grades.set(r.grade, (acc.grades.get(r.grade) ?? 0) + 1)
+    }
+  }
+  return [...groups.values()].map((acc) => ({
+    ...acc.row,
+    studentCount: acc.count,
+    averageScore: formatScoreFixed(
+      Math.round(acc.sum / Math.max(acc.count, 1)),
+    ),
+    highestScore: formatScoreFixed(acc.highest),
+    lowestScore: formatScoreFixed(acc.lowest),
+    gradeDistribution: [...acc.grades.entries()]
+      .map(([grade, count]) => ({ grade, count }))
+      .sort((a, b) => a.grade.localeCompare(b.grade)),
+  }))
+}
+
+/**
+ * Per (exam, subject) averages, extremes and grade distribution for one
+ * of the calling teacher's classes, aggregated from exam_scores that
+ * are covered by a published result_publications row (session/class/term
+ * match — the same publication lock the student/parent result views
+ * use). Non-staff callers must hold a class assignment for the
+ * requested classId; admins/staff may inspect any class. Section-level
+ * publications unlock the class-level aggregate (documented on the
+ * shared type).
+ */
+export async function getTeacherPerformance(
+  query: TeacherPerformanceQuery,
+  actor: ActorProfile,
+): Promise<TeacherPerformanceRow[]> {
+  if (!actor.teacherId) {
+    throw smsNotFound('No teacher profile linked to this account.')
+  }
+  const client = await db()
+
+  // Teachers (and any non-admin staff) must hold a class assignment for
+  // the requested class; admins may inspect any class.
+  if (!actor.isAdmin) {
+    const [assignment] = await client
+      .select({ id: teacherClassAssignments.id })
+      .from(teacherClassAssignments)
+      .where(
+        and(
+          eq(teacherClassAssignments.teacherId, actor.teacherId),
+          eq(teacherClassAssignments.classId, query.classId),
+        ),
+      )
+      .limit(1)
+    if (!assignment) {
+      throw smsForbidden('You are not assigned to this class.')
+    }
+  }
+
+  const rows = await client
+    .select({
+      examId: exams.id,
+      examName: exams.name,
+      subjectId: subjects.id,
+      subjectName: subjects.name,
+      maxScore: examSubjects.maxScore,
+      score: examScores.score,
+      grade: examScores.grade,
+    })
+    .from(examScores)
+    .innerJoin(examSubjects, eq(examScores.examSubjectId, examSubjects.id))
+    .innerJoin(exams, eq(examSubjects.examId, exams.id))
+    .innerJoin(subjects, eq(examSubjects.subjectId, subjects.id))
+    .innerJoin(
+      resultPublications,
+      and(
+        eq(resultPublications.sessionId, exams.sessionId),
+        eq(resultPublications.classId, exams.classId),
+        eq(resultPublications.status, 'published'),
+        sql`(${resultPublications.termId} IS NOT DISTINCT FROM ${exams.termId})`,
+      ),
+    )
+    .where(
+      and(
+        eq(exams.classId, query.classId),
+        query.sessionId ? eq(exams.sessionId, query.sessionId) : undefined,
+        query.subjectId ? eq(examSubjects.subjectId, query.subjectId) : undefined,
+      ),
+    )
+    .orderBy(asc(exams.startDate), asc(subjects.name))
+
+  return aggregateTeacherPerformance(rows)
 }

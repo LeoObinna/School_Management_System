@@ -18,22 +18,28 @@
  *    (students see nothing until the result_publications row is
  *    'published') and the self/parent/staff access rule.
  */
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import {
   academicSessions,
   announcements,
   classes,
+  examScores,
+  examSubjects,
+  exams,
   parents,
+  resultPublications,
   sections,
   studentEnrollments,
   studentParents,
   students,
+  subjects,
   terms,
   users,
 } from '../../database/schema'
 import { listMyAssignments } from './assignments'
 import { getStudentResults } from './exams'
-import { listTimetableEntries } from './schedule'
+import { listEnrollments } from './people'
+import { listTimetableEntries, studentAttendance } from './schedule'
 import type { ActorProfile } from '../utils/auth/actor'
 import { smsNotFound } from '../utils/http-errors'
 import type { SmsDb } from '../utils/pagination'
@@ -41,6 +47,11 @@ import { toJsonModel } from '../utils/serialize'
 import type {
   AnnouncementListItem,
   StudentActiveEnrollment,
+  StudentAttendanceDay,
+  StudentAttendanceSummary,
+  StudentDashboard,
+  StudentEnrollmentDetail,
+  StudentRecentScore,
   StudentSelf,
   StudentSelfProfile,
 } from '../../shared/types'
@@ -285,4 +296,158 @@ export async function getMyResults(
     query.termId,
     actor,
   )
+}
+
+// ---------------------------------------------------------------------------
+// /students/me/dashboard — Phase 16A student-portal landing payload
+// ---------------------------------------------------------------------------
+
+/** Formats an INTEGER ×100 score as a decimal string (e.g. 8550 → "85.50"). */
+function formatScoreFixed(value: number): string {
+  return (value / 100).toFixed(2)
+}
+
+/**
+ * The student's most recent exam scores that are safe to show: each row
+ * only surfaces once the result_publications row for the exam's
+ * session/term/class is 'published' — the same lock
+ * {@link getStudentResults} enforces for the full result sheet. The
+ * student_enrollments join pins the publication section to the
+ * student's own section and guarantees the exam belongs to a class the
+ * student was actively enrolled in. NULL-safe term/section matching
+ * uses SQLite IS NOT DISTINCT FROM so publications without a section
+ * still match.
+ */
+async function listRecentScores(
+  client: SmsDb,
+  studentId: string,
+): Promise<StudentRecentScore[]> {
+  const rows = await client
+    .select({
+      examId: exams.id,
+      examName: exams.name,
+      subjectId: subjects.id,
+      subjectName: subjects.name,
+      score: examScores.score,
+      maxScore: examSubjects.maxScore,
+      grade: examScores.grade,
+      enteredAt: examScores.updatedAt,
+    })
+    .from(examScores)
+    .innerJoin(examSubjects, eq(examScores.examSubjectId, examSubjects.id))
+    .innerJoin(exams, eq(examSubjects.examId, exams.id))
+    .innerJoin(subjects, eq(examSubjects.subjectId, subjects.id))
+    .innerJoin(
+      studentEnrollments,
+      and(
+        eq(studentEnrollments.studentId, examScores.studentId),
+        eq(studentEnrollments.sessionId, exams.sessionId),
+        eq(studentEnrollments.classId, exams.classId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+    .innerJoin(
+      resultPublications,
+      and(
+        eq(resultPublications.sessionId, exams.sessionId),
+        eq(resultPublications.classId, exams.classId),
+        eq(resultPublications.status, 'published'),
+        sql`(${resultPublications.termId} IS NOT DISTINCT FROM ${exams.termId})`,
+        sql`(${resultPublications.sectionId} IS NOT DISTINCT FROM ${studentEnrollments.sectionId})`,
+      ),
+    )
+    .where(eq(examScores.studentId, studentId))
+    .orderBy(desc(examScores.updatedAt))
+    .limit(10)
+  return rows.map((row) => ({
+    ...row,
+    score: formatScoreFixed(row.score),
+    maxScore: formatScoreFixed(row.maxScore),
+  }))
+}
+
+/**
+ * Aggregated student-portal dashboard (Phase 16A): everything
+ * {@link getStudentSelf} returns plus the full-week timetable, recent
+ * published scores and the current-term attendance summary. Scoping is
+ * identical to /students/me — the studentId comes from the actor, never
+ * the client, and every delegated helper re-checks row-level access.
+ */
+export async function getStudentDashboard(
+  actor: ActorProfile,
+): Promise<StudentDashboard> {
+  const base = await getStudentSelf(actor)
+
+  // --- Full-week timetable (same scoped resolver as today's view).
+  const weekTimetableResponse = await listTimetableEntries(
+    { page: 1, perPage: 100, order: 'asc' },
+    actor,
+  )
+
+  // --- Recent published exam scores.
+  const client = await db()
+  const recentScores = actor.studentId
+    ? await listRecentScores(client, actor.studentId)
+    : []
+
+  // --- Attendance for the enrollment's session (term where known).
+  // studentAttendance re-checks row-level access for the caller.
+  let attendanceSummary: StudentAttendanceSummary = {
+    total: 0,
+    present: 0,
+    absent: 0,
+    late: 0,
+    excused: 0,
+    attendanceRate: null,
+  }
+  let recentAttendanceDays: StudentAttendanceDay[] = []
+  if (base.activeEnrollment) {
+    const query = {
+      sessionId: base.activeEnrollment.sessionId,
+      ...(base.activeEnrollment.termId
+        ? { termId: base.activeEnrollment.termId }
+        : {}),
+    }
+    const attendance = await studentAttendance(
+      base.profile.id,
+      query,
+      actor,
+    )
+    attendanceSummary = attendance.summary
+    recentAttendanceDays = attendance.data.slice(0, 5)
+  }
+
+  return {
+    ...base,
+    weekTimetable: weekTimetableResponse.data,
+    recentScores,
+    attendanceSummary,
+    recentAttendanceDays,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /students/me/enrollments — view-only enrollment history (Phase 16A)
+// ---------------------------------------------------------------------------
+
+/**
+ * The calling student's enrollment history (all sessions, newest
+ * first). View-only: registration stays with staff (Phase 16 owner
+ * decision #2). Reuses {@link listEnrollments} filtered by the
+ * server-resolved studentId — never a client-supplied one.
+ */
+export async function listMyEnrollments(
+  actor: ActorProfile,
+): Promise<{ data: StudentEnrollmentDetail[]; total: number }> {
+  if (!actor.studentId) {
+    throw smsNotFound('No student profile linked to this account.')
+  }
+  // page/perPage/order are required by the shared query type but the
+  // underlying listEnrollments returns the full history unpaginated.
+  return listEnrollments({
+    studentId: actor.studentId,
+    page: 1,
+    perPage: 200,
+    order: 'asc',
+  })
 }

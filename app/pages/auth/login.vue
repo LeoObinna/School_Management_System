@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useAuthStore } from '~/stores/auth'
+import { landingPathForRoles } from '~/utils/portal'
 
 definePageMeta({ public: true })
 
@@ -19,9 +20,13 @@ async function onSubmit() {
   pending.value = true
   try {
     await auth.login(email.value, password.value, remember.value)
-    const redirect = typeof route.query.redirect === 'string'
-      ? route.query.redirect
-      : '/'
+    // Explicit ?redirect= wins; otherwise student/parent/teacher roles
+    // land on their portal home and staff/admin on the dashboard
+    // (Phase 16 owner decision #1). Server-side RBAC stays authoritative.
+    const redirect =
+      typeof route.query.redirect === 'string' && route.query.redirect
+        ? route.query.redirect
+        : landingPathForRoles(auth.roles)
     await router.replace(redirect)
   } catch (err) {
     const data = (err as { data?: { message?: string } })?.data

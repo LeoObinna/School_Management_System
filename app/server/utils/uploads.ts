@@ -14,6 +14,8 @@ export const UPLOAD_LIMITS: Record<UploadCategory, number> = {
   resource: 50 * 1024 * 1024,
   admission_document: 10 * 1024 * 1024,
   gallery_image: 25 * 1024 * 1024,
+  // Lesson-note attachments share the assignment attachment envelope.
+  lesson_note_attachment: 25 * 1024 * 1024,
   // Logos are small branding assets; 5 MB is generous for a raster source.
   school_logo: 5 * 1024 * 1024,
   // Staff documents (policies, contracts, certificates, letters): the
@@ -27,6 +29,7 @@ export type UploadCategory =
   | 'resource'
   | 'admission_document'
   | 'gallery_image'
+  | 'lesson_note_attachment'
   | 'school_logo'
   | 'school_document'
 

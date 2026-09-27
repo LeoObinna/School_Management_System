@@ -10,6 +10,8 @@
 import { api } from './api'
 import type { MyResultsQuery, MyTimetableQuery } from '~/shared/schemas'
 import type {
+  StudentDashboard,
+  StudentEnrollmentDetail,
   StudentSelf,
   StudentActiveEnrollment,
   TimetableEntryDetail,
@@ -21,6 +23,15 @@ type Params = Record<string, string | number | boolean | undefined>
 export const studentsApi = {
   // --- Self-service dashboard ---------------------------------------------
   getMe: () => api.get<StudentSelf>('/students/me'),
+
+  /** Phase 16A student-portal landing payload (week timetable, scores, attendance). */
+  getDashboard: () => api.get<StudentDashboard>('/students/me/dashboard'),
+
+  /** Phase 16A view-only enrollment history for the calling student. */
+  listMyEnrollments: () =>
+    api.get<{ data: StudentEnrollmentDetail[]; total: number }>(
+      '/students/me/enrollments',
+    ),
 
   listMyTimetable: (params?: Params | MyTimetableQuery) =>
     api.get<{ data: TimetableEntryDetail[]; total: number }>(

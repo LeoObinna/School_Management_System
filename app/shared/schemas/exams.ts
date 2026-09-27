@@ -218,6 +218,29 @@ export const examScoreBulkSchema = z.object({
 export type ExamScoreBulk = z.infer<typeof examScoreBulkSchema>
 
 // ---------------------------------------------------------------------------
+// Multi-subject CSV bulk entry (Phase 16D). Cells arrive as raw strings —
+// per-row validation happens in the service so one bad row surfaces as a
+// per-row error instead of failing the whole request; the schema only
+// bounds transport size.
+// ---------------------------------------------------------------------------
+const csvCellSchema = z.string().max(128)
+
+export const examScoreCsvBulkSchema = z.object({
+  examId: uuidSchema,
+  rows: z
+    .array(
+      z.object({
+        admissionNumber: csvCellSchema,
+        subjectCode: csvCellSchema,
+        score: csvCellSchema,
+      }),
+    )
+    .min(1)
+    .max(1000),
+})
+export type ExamScoreCsvBulk = z.infer<typeof examScoreCsvBulkSchema>
+
+// ---------------------------------------------------------------------------
 // Result publications (workflow)
 // ---------------------------------------------------------------------------
 export const resultPublicationCreateSchema = z.object({

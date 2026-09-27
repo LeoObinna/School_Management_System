@@ -6,11 +6,13 @@ import { api } from './api'
 import type {
   MyStudentListQuery,
   SubmissionsToGradeQuery,
+  TeacherPerformanceQuery,
 } from '~/shared/schemas'
 import type {
   Paginated,
   TeacherAssignmentToGradeRow,
   TeacherClassAssignmentDetail,
+  TeacherPerformanceRow,
   TeacherSelf,
   TeacherStudentRow,
 } from '~/shared/types'
@@ -37,4 +39,10 @@ export const teachersApi = {
       '/teachers/me/to-grade',
       { params: params as Params },
     ),
+
+  /** Phase 16C published-score aggregates for one of my classes. */
+  getPerformance: (params: TeacherPerformanceQuery) =>
+    api.get<TeacherPerformanceRow[]>('/teachers/me/performance', {
+      params: params as Params,
+    }),
 }
