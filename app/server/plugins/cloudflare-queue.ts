@@ -25,6 +25,11 @@
  */
 import { z } from 'zod'
 import { dispatchMessage } from '../services/notification-dispatch'
+import type { ProviderConfig } from '../services/notification-dispatch'
+import {
+  extractProviderConfig,
+  type ProviderEnv,
+} from '../utils/notification-providers'
 import {
   createWorkerD1Database,
   type AppDatabase,
@@ -46,7 +51,7 @@ interface QueueHookPayload {
   env: unknown
 }
 
-interface QueueEnv {
+interface QueueEnv extends ProviderEnv {
   DB?: D1Database
 }
 
@@ -63,15 +68,20 @@ export default defineNitroPlugin((nitroApp) => {
         )
       }
       const { db } = createWorkerD1Database(queueEnv.DB)
-      await processBatch(db, batch)
+      const providerConfig = extractProviderConfig(queueEnv)
+      await processBatch(db, batch, providerConfig)
     },
   )
 })
 
-async function processBatch(db: AppDatabase, batch: { messages: QueueMessageLike[] }) {
+async function processBatch(
+  db: AppDatabase,
+  batch: { messages: QueueMessageLike[] },
+  config: ProviderConfig,
+) {
   for (const message of batch.messages) {
     try {
-      await dispatchMessage(db, message.body)
+      await dispatchMessage(db, message.body, config)
       message.ack()
     } catch (error) {
       if (error instanceof z.ZodError) {

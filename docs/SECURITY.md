@@ -111,13 +111,15 @@ attendance edits, score changes, result approval/publication,
 invoice/payment/refund changes, admission decisions, file access,
 settings changes.
 
-Never log: passwords, tokens, API/R2 secrets, private keys, card data.
+Never log: passwords, tokens, API/R2 secrets, private keys, card data,
+Resend/Termii API keys, email message bodies, SMS text beyond 160 chars.
 
 ## Rate limiting
 
 - Login: throttled per IP + per user
 - API: rate-limited per authenticated user
 - File uploads: rate-limited per user + per category
+- Newsletter subscribe: 5 requests / 5 min per IP (sliding window)
 - Cloudflare WAF rules at the edge for additional protection
 
 ## Data privacy
@@ -127,3 +129,33 @@ Never log: passwords, tokens, API/R2 secrets, private keys, card data.
 - No private data in URLs
 - Access restricted by role/permission
 - Sensitive operations audited
+
+## Email / SMS providers (Phase 17)
+
+- **Resend** (email): API key travels only in the `Authorization: Bearer`
+  header. Never logged, never included in error messages. 4xx errors are
+  permanent (bad key, invalid address) — not retried. 5xx errors retried
+  once. The queue consumer applies its own retry policy on top.
+- **Termii** (SMS): API key travels in the JSON request body (per
+  Termii's API spec). Never logged. Same retry semantics as Resend.
+- **Delivery tracking**: every external send is recorded in
+  `notification_deliveries` with `status` (pending/sent/bounced/failed),
+  `provider_message_id`, and `error_message`. Idempotency: if a `sent`
+  row already exists for the same notification + channel + recipient,
+  the message is not re-sent.
+- **Per-user preferences**: users can opt out of each channel/event via
+  `PATCH /api/v1/me/notification-preferences`. Defaults are all-true.
+- **Newsletter**: public subscribe/unsubscribe endpoints are
+  unauthenticated but rate-limited. Unsubscribe is by email only (no
+  token — the email is not sensitive; a confirmation is returned).
+- **No secrets in wrangler.toml**: `RESEND_API_KEY`,
+  `SEND_FROM_EMAIL`, `TERMII_API_KEY`, `TERMII_SENDER_ID` are read from
+  `.dev.vars` (local) or `wrangler secret put -e production` (prod).
+  They are never committed.
+- **Queue safety**: malformed messages are acked as poison (no retry
+  loop). Transient DB failures trigger `message.retry()` (at-least-once
+  delivery; idempotent fan-out via partial unique index on
+  `(user_id, announcement_id)` and link-marker dedupe for non-announcement
+  types).
+- **No tracking pixels**: no email open-rate tracking. No SMS
+  delivery-report callbacks.

@@ -39,6 +39,10 @@ import { verifyPaystackSignature } from '../utils/paystack/signature'
 import { generatePaystackReference } from '../utils/paystack/reference'
 import { decideVerification } from '../utils/paystack/decision'
 import {
+  getNotificationQueue,
+  sendNotification,
+} from '../utils/notifications-queue'
+import {
   createGatewayPendingPayment,
   getPayment,
   verifyGatewayPayment,
@@ -240,6 +244,26 @@ async function verifyAgainstGateway(
     notes: opts.auditNote,
     webhookPayload: opts.webhookPayload ?? null,
   })
+
+  // Phase 17C: receipt-confirmation fan-out (in-app + email to parents)
+  // via the notification queue. Best-effort: the verified payment is
+  // authoritative, so a fan-out failure must never fail verification.
+  const queue = getNotificationQueue(event)
+  if (queue) {
+    try {
+      await sendNotification(queue, {
+        kind: 'payment.verified',
+        paymentId: payment.id,
+      })
+    } catch (error) {
+      console.error('[paystack] failed to enqueue payment.verified:', error)
+    }
+  } else {
+    console.info(
+      '[paystack] no notification queue binding; skipping payment.verified fan-out.',
+    )
+  }
+
   return { payment: verified, transitioned: true, gatewayStatus: tx.status }
 }
 

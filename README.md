@@ -1919,15 +1919,40 @@ multi-subject CSV, lesson notes = text + R2 attachments).
   exam-score + report-card endpoints (no duplicate models).
   See `docs/API.md` Phase 16.
 
-### Phase 17 --- Communication channels  (roadmap 2026-09-20; NOT STARTED)
+### Phase 17 --- Communication channels  (✅ COMPLETE 2026-09-28)
 
-- Wire the existing `email.send` queue message kind to a real email
-  provider (e.g. Resend): announcement, fee-reminder and
-  result-published templates.
-- Nigerian SMS gateway (e.g. Termii) for urgent notices.
-- Newsletter subscription storage and per-user notification
-  preferences.
-- Scheduled digest via Cron Triggers.
+- **17A** Resend email integration: `sendEmail` client (retry once on
+  5xx, never logs API key), four HTML/text templates (announcement,
+  fee reminder, result published, payment receipt), `email.send` queue
+  message kind, `notification_deliveries` table (migration 0004),
+  announcement publish enqueues fan-out via `NOTIFICATION_QUEUE`.
+- **17B** Notification preferences + newsletter: per-user
+  `user_notification_preferences` (5 booleans, all default true),
+  `newsletter_subscriptions` table; `GET/PATCH
+  /api/v1/me/notification-preferences`, `POST
+  /api/v1/newsletter/{subscribe,unsubscribe}` (public, rate-limited),
+  `GET /api/v1/admin/newsletter-subscriptions` (`newsletter.view`);
+  `newsletter.view` + `newsletter.manage` permissions added.
+- **17C** Event-driven notifications: `result.published` and
+  `payment.verified` queue message kinds; `dispatchResultPublished`
+  (parents of students in the published class/session/term),
+  `dispatchPaymentVerified` (parents of the student), `dispatchFeeReminders`
+  (daily cron task `send-fee-reminders` with EDGE_KV once-per-day gate,
+  consolidated per-parent overdue-invoice email + in-app row).
+- **17D** Termii SMS integration: `sendSms` client (api_key in body,
+  retry once on 5xx), three ≤160-char templates (urgent notice, fee
+  reminder, result published), `sms.send` queue message kind; SMS
+  fan-out wired into announcement publish (audiences all/parents/
+  teachers), fee reminders, and result published — gated on
+  `urgent_sms` preference + `users.phone`.
+- **17E** cf:dev smoke verified all four triggers live: announcement
+  fan-out (5 in-app rows, 5 failed email + 1 failed SMS delivery rows
+  with fake keys), result-published fan-out (1 parent), fee-reminder
+  cron (1 parent, KV gate blocked second run), queue envelope bug
+  fixed (`queue.send(message)` not `queue.send({ body: message })`),
+  raw INSERT `notifications.id` + `created_at` bug fixed (SQL-generated
+  UUID v4 + bound timestamp). No digest per owner decision. No commits,
+  no production deploy.
 
 ### Phase 18 --- Public website  (renumbered from the old Phase 14 stub; roadmap 2026-09-20; NOT STARTED)
 
@@ -2097,23 +2122,23 @@ Production     Worker sms-production + sms-production R2 + sms-production D1
                (provisioned + deployed 2026-09-24; demo seed loaded for
                smoke verification)
 Website        deferred
-Current phase  Phase 16 ✅ COMPLETE (2026-09-27): dedicated role
-               portals — student/parent/teacher portal homes with a
-               login-redirect by primary role, view-only enrollment,
-               multi-subject CSV bulk score entry (preview → commit),
-               and lesson notes with R2 attachments (migration 0003);
-               Phase 15 ✅ COMPLETE (2026-09-25): Paystack hosted-
-               redirect checkout + signed idempotent webhook, branded
-               PDF receipts (R2, lazy), office/invoice QR codes; Phase
-               14 ✅ COMPLETE (2026-09-25): 14A school settings + R2
-               logo, 14B staff documents, 14C inventory ledger, 14D
-               expanded financial reports. Phases 0–12 complete; Phase
-               13 infra + production deploy DONE but PARKED (domain
-               blocked; TLS/WAF/DNS, backups, monitoring, KV
-               re-verification and rollback drill → Phase 19). Next:
-               Phase 17 email/SMS or Phase 18 public website per owner
-               direction (18 foundation — design tokens, public shell,
-               Vcs* components — already staged 2026-09-27).
+Current phase  Phase 17 ✅ COMPLETE (2026-09-28): email (Resend) +
+               SMS (Termii) notification channels — migration 0004
+               (notification_deliveries, user_notification_preferences,
+               newsletter_subscriptions), four email templates, three
+               SMS templates, event-driven triggers (announcement
+               published, result published, payment verified, daily
+               fee-reminder cron with KV gate), per-user preferences
+               (5 booleans), public newsletter subscribe/unsubscribe,
+               admin newsletter list; queue envelope + raw-INSERT bugs
+               found by live smoke and fixed. Phase 16 ✅ COMPLETE
+               (2026-09-27): dedicated role portals; Phase 15 ✅
+               COMPLETE (2026-09-25): Paystack + QR; Phase 14 ✅
+               COMPLETE (2026-09-25): admin foundation. Phases 0–12
+               complete; Phase 13 infra + production deploy DONE but
+               PARKED (domain blocked; → Phase 19). Next: Phase 18
+               public website (foundation — design tokens, public
+               shell, Vcs* components — already staged 2026-09-27).
 ```
 
 **This document is the authoritative implementation guide for TRAE.**
@@ -2172,13 +2197,17 @@ with **Cloudflare D1** as the sole database engine
     (role-based login redirect, portal layout + homes, view-only
     enrollment, parent overview/teachers, teacher performance,
     multi-subject CSV bulk score entry with preview → commit, and
-    lesson notes with R2 attachments, migration 0003).**
+    lesson notes with R2 attachments, migration 0003); Phase 17 ✅
+    COMPLETE 2026-09-28 — Resend email + Termii SMS channels,
+    event-driven triggers (announcement/result/payment/fee-reminder),
+    per-user notification preferences, public newsletter, migration
+    0004.**
     The approved forward roadmap (2026-09-20) is: Phase 14 admin
     foundation — 14A settings/logo (done), 14B documents (done), 14C
     inventory (done), 14D expanded financial reports (done); Phase 15
     Paystack + QR payments (done); Phase 16 dedicated
     student/parent/teacher portals (done); Phase 17 email/SMS
-    communication channels; Phase 18 public website; Phase 19 launch
+    communication channels (done); Phase 18 public website; Phase 19 launch
     (including the deferred Phase 13 domain work). Phase 18 foundation
     (design-token system, public site shell, Vcs* component library)
     was staged 2026-09-27 ahead of the owner's choice of the next
@@ -3770,8 +3799,54 @@ for the full history.
                     docs/CLOUDFLARE.md lesson-notes/ prefix; README
                     §41/§46/§47 + this entry updated. Known limits:
                     grade submission reuses existing exam-result
-                    endpoints (no new grading flow); no email/SMS
-                    notifications; no commit; no production deploy.
+                    endpoints (no new grading flow); no commit; no
+                    production deploy.
+2026-09-28  Phase 17 Communication channels — COMPLETE in five
+                    increments (17A–17E). 17A: Resend email client
+                    (retry once on 5xx, never logs API key), four
+                    HTML/text templates (announcement, fee reminder,
+                    result published, payment receipt),
+                    `email.send` queue kind, `notification_deliveries`
+                    table (migration 0004), announcement publish
+                    enqueues fan-out. 17B: per-user
+                    `user_notification_preferences` (5 booleans all
+                    default true), `newsletter_subscriptions` table;
+                    `GET/PATCH /me/notification-preferences`, public
+                    `POST /newsletter/{subscribe,unsubscribe}`
+                    (rate-limited 5/5min), admin
+                    `GET /admin/newsletter-subscriptions`
+                    (`newsletter.view`); `newsletter.view` +
+                    `newsletter.manage` permissions seeded. 17C:
+                    `result.published` + `payment.verified` queue
+                    kinds; `dispatchResultPublished` (parents of
+                    students in the class), `dispatchPaymentVerified`
+                    (parents of the student), `dispatchFeeReminders`
+                    (daily cron `send-fee-reminders` with EDGE_KV
+                    once-per-day gate, consolidated per-parent
+                    overdue-invoice email + in-app row). 17D: Termii
+                    SMS client (api_key in body, retry on 5xx), three
+                    ≤160-char templates, `sms.send` queue kind; SMS
+                    fan-out wired into announcement/fee/result
+                    triggers — gated on `urgent_sms` pref +
+                    `users.phone`. 17E: cf:dev smoke verified all
+                    four triggers live (5 announcement in-app rows, 5
+                    failed email + 1 failed SMS deliveries with fake
+                    keys, 1 result-published parent, 1 fee-reminder
+                    parent, KV gate blocked second run). Two bugs
+                    found by live smoke and fixed: (1) queue producer
+                    double-wrapped messages
+                    (`queue.send({ body: message })` →
+                    `queue.send(message)`) — present since Phase 12,
+                    never exercised before because plain `nuxt dev`
+                    uses the inline fallback; (2) raw
+                    `INSERT INTO notifications … SELECT` omitted `id`
+                    and `created_at` (NOT NULL, Drizzle `$defaultFn`
+                    does not run on raw SQL) → added SQL-generated
+                    UUID v4 + bound timestamp. No digest per owner
+                    decision. 730 tests, type-check, build all pass.
+                    README §41/§46/§47 + this entry; docs/API +
+                    SECURITY + CLOUDFLARE + .env.example updated. No
+                    commit; no production deploy.
 ```
 
 ## 52. v2.0 D1 spec package (2026-09-21)

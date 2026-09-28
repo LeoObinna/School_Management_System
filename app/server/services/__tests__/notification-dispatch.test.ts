@@ -106,7 +106,7 @@ describe('parseQueueMessage', () => {
 
   it('rejects an unknown message kind', () => {
     expect(() =>
-      parseQueueMessage({ kind: 'email.send', id: 'x' }),
+      parseQueueMessage({ kind: 'unknown.kind', id: 'x' }),
     ).toThrow(z.ZodError)
   })
 
@@ -187,6 +187,9 @@ describe('dispatchAnnouncement', () => {
     const sqlText = renderedStatement(run).text
     expect(sqlText).toContain('INSERT INTO notifications')
     expect(sqlText).toContain('announcement_id')
+    // Raw SQL bypasses Drizzle's $defaultFn, so the id must be generated
+    // in the statement itself (regression: NOT NULL notifications.id).
+    expect(sqlText).toContain('randomblob')
     expect(sqlText).toContain('ON CONFLICT')
     expect(sqlText).toContain('DO NOTHING')
   })

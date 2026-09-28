@@ -32,6 +32,7 @@ export interface RateLimitRule {
 export const RATE_LIMIT_RULES = {
   login: { maxAttempts: 10, windowSeconds: 300 }, // 10 / 5 min
   'forgot-password': { maxAttempts: 5, windowSeconds: 900 }, // 5 / 15 min
+  'newsletter-subscribe': { maxAttempts: 5, windowSeconds: 300 }, // 5 / 5 min
 } as const satisfies Record<string, RateLimitRule>
 
 export type RateLimitScope = keyof typeof RATE_LIMIT_RULES
@@ -107,6 +108,10 @@ const memoryLimiters: Record<RateLimitScope, SlidingWindowLimiter> = {
   'forgot-password': new SlidingWindowLimiter(
     RATE_LIMIT_RULES['forgot-password'].maxAttempts,
     RATE_LIMIT_RULES['forgot-password'].windowSeconds,
+  ),
+  'newsletter-subscribe': new SlidingWindowLimiter(
+    RATE_LIMIT_RULES['newsletter-subscribe'].maxAttempts,
+    RATE_LIMIT_RULES['newsletter-subscribe'].windowSeconds,
   ),
 }
 

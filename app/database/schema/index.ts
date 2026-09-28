@@ -21,6 +21,7 @@ export * from './exams'
 export * from './finance'
 export * from './admissions'
 export * from './communication'
+export * from './notifications'
 export * from './events'
 export * from './documents'
 export * from './inventory'
@@ -36,6 +37,7 @@ import * as exams from './exams'
 import * as finance from './finance'
 import * as admissions from './admissions'
 import * as communication from './communication'
+import * as notifications from './notifications'
 import * as events from './events'
 import * as documents from './documents'
 import * as inventory from './inventory'
@@ -52,6 +54,7 @@ export const schema = {
   ...finance,
   ...admissions,
   ...communication,
+  ...notifications,
   ...events,
   ...documents,
   ...inventory,

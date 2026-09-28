@@ -160,6 +160,23 @@ export const audienceEnum = sqliteEnum([
 // Message / notification state
 export const notificationStatusEnum = sqliteEnum(['unread', 'read'] as const)
 
+// External delivery (Phase 17)
+export const deliveryChannelEnum = sqliteEnum(['email', 'sms'] as const)
+
+export const deliveryStatusEnum = sqliteEnum([
+  'pending',
+  'sent',
+  'bounced',
+  'failed',
+] as const)
+
+export const deliveryProviderEnum = sqliteEnum(['resend', 'termii'] as const)
+
+export const subscriptionStatusEnum = sqliteEnum([
+  'subscribed',
+  'unsubscribed',
+] as const)
+
 export const messageDirectionEnum = sqliteEnum([
   'inbound',
   'outbound',

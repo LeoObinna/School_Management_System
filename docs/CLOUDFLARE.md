@@ -82,9 +82,12 @@ Set per environment with Wrangler; secrets never go in Git or
 `wrangler.toml`:
 
 ``` text
-wrangler secret put SESSION_SECRET -e staging
 wrangler secret put SESSION_SECRET -e production
 wrangler secret put PAYSTACK_SECRET_KEY -e production
+wrangler secret put RESEND_API_KEY -e production
+wrangler secret put SEND_FROM_EMAIL -e production
+wrangler secret put TERMII_API_KEY -e production
+wrangler secret put TERMII_SENDER_ID -e production
 ```
 
 `PAYSTACK_SECRET_KEY` (Phase 15 online payments) is optional: without it
@@ -94,9 +97,41 @@ After setting it, register the webhook in the Paystack dashboard
 `https://<your-domain>/api/v1/payments/paystack/webhook` — the dashboard
 secret key and the Worker secret must be the same value.
 
-Local development secrets live only in the gitignored `app/.env`.
-`SESSION_SECRET` must stay stable across deploys or users are logged
-out. `EXPOSE_RESET_TOKENS=true` is allowed in local dev only.
+Phase 17 email/SMS secrets (Resend + Termii) are optional: without
+`RESEND_API_KEY` the email channel is silently skipped (delivery rows
+recorded as failed); without `TERMII_API_KEY` the SMS channel is
+silently skipped. In-app notifications still work. `SEND_FROM_EMAIL`
+must be a verified sender in the Resend dashboard.
+
+Local development secrets live only in the gitignored `app/.dev.vars`
+(Nitro runtime) and `app/.env` (build-time). `SESSION_SECRET` must
+stay stable across deploys or users are logged out.
+`EXPOSE_RESET_TOKENS=true` is allowed in local dev only.
+
+## Cron triggers (Phase 13 + 17)
+
+`nuxt.config.ts` `scheduledTasks`:
+``` text
+*/5 * * * *  publish-scheduled-announcements, send-fee-reminders
+```
+
+- `publish-scheduled-announcements`: publishes announcements with
+  `status='scheduled'` whose `scheduled_for` is due (Phase 13).
+- `send-fee-reminders`: queries overdue invoices and sends one
+  consolidated reminder per parent (in-app + email + SMS). Self-gates
+  to once per UTC day via EDGE_KV key `cron:fee-reminders:YYYY-MM-DD`.
+
+Local testing: `npx wrangler dev --test-scheduled` then
+`POST /__scheduled?cron=*/5+*+*+*+*` to fire the scheduled handler.
+
+## Queues (Phase 12 + 17)
+
+`NOTIFICATION_QUEUE` binding (producer + consumer). The consumer
+plugin (`server/plugins/cloudflare-queue.ts`) dispatches via a zod
+discriminated union on `message.body`. Phase 17 added `result.published`,
+`payment.verified`, `email.send`, and `sms.send` message kinds to the
+existing `announcement.published`. Malformed messages are acked as
+poison; transient DB failures trigger `message.retry()`.
 
 ## DNS / TLS / WAF
 

@@ -621,6 +621,38 @@ export interface LessonNoteDetail extends LessonNote {
   files: LessonNoteFile[]
 }
 
+// ---------------------------------------------------------------------------
+// Phase 17: notification preferences + newsletter
+// ---------------------------------------------------------------------------
+
+/** GET/PATCH /api/v1/me/notification-preferences */
+export interface NotificationPreferences {
+  announcementEmail: boolean
+  feeReminderEmail: boolean
+  resultPublishedEmail: boolean
+  paymentReceiptEmail: boolean
+  urgentSms: boolean
+  updatedAt: string | null
+}
+
+/** POST /api/v1/newsletter/subscribe response */
+export interface NewsletterSubscriptionResult {
+  email: string
+  status: 'subscribed' | 'unsubscribed'
+  subscribedAt: string | null
+}
+
+/** GET /api/v1/admin/newsletter-subscriptions row */
+export interface NewsletterSubscriptionRow {
+  id: string
+  email: string
+  name: string | null
+  status: 'subscribed' | 'unsubscribed'
+  subscribedAt: string | null
+  unsubscribedAt: string | null
+  createdAt: string
+}
+
 export interface AssignmentSubmission {
   id: string
   assignmentId: string

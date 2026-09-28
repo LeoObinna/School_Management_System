@@ -62,6 +62,8 @@ export const PERMISSION_SLUGS = [
   'assignments.delete',
   'lesson_notes.view',
   'lesson_notes.manage',
+  'newsletter.view',
+  'newsletter.manage',
   'submissions.view',
   'submissions.create',
   'submissions.grade',

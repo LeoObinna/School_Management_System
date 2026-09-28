@@ -3,9 +3,8 @@
  *
  * Structural surface of the Cloudflare Queue producer
  * (`NOTIFICATION_QUEUE` in wrangler.toml) so the app does not depend on
- * @cloudflare/workers-types at build time. Messages are sent as
- * `{ body }` (default v8 serialisation); the consumer receives
- * `message.body` as the original object.
+ * @cloudflare/workers-types at build time. `queue.send(message)` takes
+ * the payload directly; the consumer receives it as `message.body`.
  *
  * The binding exists under the Workers runtime (`wrangler dev`,
  * production). In plain Node dev (`nuxt dev`) it is absent and
@@ -16,7 +15,7 @@ import type { H3Event } from 'h3'
 import type { NotificationQueueMessage } from '../services/notification-dispatch'
 
 export interface NotificationQueueLike {
-  send(message: { body: NotificationQueueMessage }): Promise<void>
+  send(message: NotificationQueueMessage): Promise<void>
 }
 
 interface CloudflareEventContext {
@@ -45,5 +44,5 @@ export async function sendNotification(
   queue: NotificationQueueLike,
   message: NotificationQueueMessage,
 ): Promise<void> {
-  await queue.send({ body: message })
+  await queue.send(message)
 }

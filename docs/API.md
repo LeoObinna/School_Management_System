@@ -1649,4 +1649,133 @@ overlay with term/week, attachment upload/download/remove, Edit/Delete
 gated on `lesson_notes.manage`.
 
 
+## Phase 17 — Communication channels (email / SMS / notifications) ✅
+
+Resend for email, Termii for Nigerian SMS. Four event triggers:
+announcement published, result published, payment verified, daily fee
+reminder. Per-user preferences (5 booleans) gate each channel. Public
+newsletter subscribe/unsubscribe. No digest (owner decision). All
+external delivery attempts are tracked in `notification_deliveries`
+(idempotent: skip if a `sent` row already exists for the same
+notification + channel + recipient).
+
+### Migration 0004
+
+Three tables: `notification_deliveries` (one row per external channel
+attempt — `notification_id` nullable for standalone sends, `channel`
+email|sms, `provider` resend|termii, `status` pending|sent|bounced|
+failed), `user_notification_preferences` (per-user PK, 5 booleans all
+default 1/true), `newsletter_subscriptions` (public, unique email,
+status subscribed|unsubscribed).
+
+### Notification preferences
+
+- `GET /api/v1/me/notification-preferences` — any authenticated user;
+  returns the 5 booleans (defaults to all-true when no row exists).
+- `PATCH /api/v1/me/notification-preferences` — any authenticated
+  user; partial update, at least one field required. Audited
+  (`notification_preference.update`).
+
+Fields: `announcementEmail`, `feeReminderEmail`,
+`resultPublishedEmail`, `paymentReceiptEmail`, `urgentSms`.
+
+### Newsletter (public)
+
+- `POST /api/v1/newsletter/subscribe` — **unauthenticated**; body
+  `{ email, name? }`. Idempotent: already-subscribed → 200 unchanged;
+  unsubscribed → re-subscribes. Rate-limited 5/5min per IP.
+- `POST /api/v1/newsletter/unsubscribe` — **unauthenticated**; body
+  `{ email }`. 404 if email not in the list.
+- `GET /api/v1/admin/newsletter-subscriptions` — `newsletter.view`;
+  paginated `{ status?, page, perPage }`.
+
+### Event-driven notification triggers
+
+All triggers fan out via `NOTIFICATION_QUEUE` (at-least-once delivery,
+idempotent on redelivery). When the queue binding is absent (plain
+`nuxt dev`), announcement fan-out falls back to synchronous inline
+dispatch.
+
+- **Announcement published** (`kind: 'announcement.published'`): creates
+  in-app `notification` rows for all active users matching the audience
+  filter; then sends email (Resend, gated on
+  `announcement_email` pref) and SMS (Termii, audiences all/parents/
+  teachers only, gated on `urgent_sms` pref + `users.phone`) to each
+  recipient. SMS/email deliveries are standalone (no `notificationId`)
+  so redelivery could duplicate them — accepted in 17A design.
+- **Result published** (`kind: 'result.published'`,
+  `{ publicationId }`): parents of every student in the published
+  class/session/term; in-app `result_published` row per
+  (parent, student), link
+  `/portal/parent/report-cards?publication=<id>&student=<id>`; email
+  via `resultPublishedEmail` template; SMS via
+  `resultPublishedSms` template. Triggered by
+  `POST /api/v1/exam-results/:id/publish`.
+- **Payment verified** (`kind: 'payment.verified'`,
+  `{ paymentId }`): parents of the student; in-app `payment_receipt`
+  row, link `/portal/parent/fees?payment=<id>`; email via
+  `paymentReceiptEmail` template. No SMS for payments. Triggered by
+  Paystack verify (both callback and webhook paths).
+- **Fee reminders** (daily cron `send-fee-reminders`): queries overdue
+  invoices (`status IN ('issued','partially_paid','overdue') AND
+  balance > 0 AND due_date < today`); consolidated per parent (one
+  in-app `fee_reminder` row + one email listing all overdue invoices);
+  SMS via `feeReminderSms` template. EDGE_KV gate
+  (`cron:fee-reminders:YYYY-MM-DD`) ensures once-per-day; per-parent
+  link marker (`?reminder=<date>`) makes mid-run crash re-runs safe.
+
+### Queue message contract
+
+Zod discriminated union in `notification-dispatch.ts`:
+
+| Kind | Payload | Handler |
+|---|---|---|
+| `announcement.published` | `{ announcementId }` | `dispatchAnnouncement` |
+| `result.published` | `{ publicationId }` | `dispatchResultPublished` |
+| `payment.verified` | `{ paymentId }` | `dispatchPaymentVerified` |
+| `email.send` | `{ to, subject, html, text, notificationId? }` | `dispatchEmailSend` |
+| `sms.send` | `{ to, text, notificationId? }` | `dispatchSmsSend` |
+
+Malformed/unknown messages are acked as poison (no retry). Transient
+(DB) failures trigger `message.retry()`.
+
+### Cron triggers
+
+`nuxt.config.ts` `scheduledTasks`:
+```text
+*/5 * * * *  publish-scheduled-announcements, send-fee-reminders
+```
+
+`send-fee-reminders` self-gates to once per UTC day via EDGE_KV.
+`publish-scheduled-announcements` publishes due scheduled
+announcements (unchanged from Phase 13).
+
+### Environment
+
+| Variable | Purpose | Where |
+|---|---|---|
+| `RESEND_API_KEY` | Resend API key | `.dev.vars` / `wrangler secret put` |
+| `SEND_FROM_EMAIL` | From address | `.dev.vars` / `wrangler secret put` |
+| `TERMII_API_KEY` | Termii API key | `.dev.vars` / `wrangler secret put` |
+| `TERMII_SENDER_ID` | SMS sender name (≤11 chars) | `.dev.vars` / `wrangler secret put` |
+| `SCHOOL_NAME` | Branding (email/SMS) | optional, from school settings |
+| `SCHOOL_MOTTO` | Branding (email footer) | optional |
+| `SCHOOL_PRIMARY_COLOR` | Branding (email accent) | optional, default `#1a237e` |
+| `SCHOOL_LOGO_URL` | Branding (email header) | optional |
+
+When `RESEND_API_KEY` or `TERMII_API_KEY` is absent, the corresponding
+channel is skipped silently (delivery rows recorded as failed with
+"not configured" error); in-app notifications still work.
+
+### Known limitations
+
+- No email tracking (open rates, click tracking).
+- No SMS two-way (reply handling).
+- No push notifications (Phase 19+).
+- Public newsletter form deferred to Phase 18; the API endpoints are
+  built and can be called from the public site.
+- Announcement email/SMS deliveries are standalone (no
+  `notificationId`) so redelivery could theoretically duplicate them.
+- Phone numbers sent to Termii as stored (no normalization).
+
 

@@ -32,13 +32,14 @@ export default defineNuxtConfig({
       tasks: true,
     },
     // Cron Triggers (Phase 13): the every-5-minute schedule in
-    // wrangler.toml dispatches the task defined in
-    // server/tasks/publish-scheduled-announcements.ts. Nitro registers
-    // tasks by their file-derived name (filename without extension),
-    // so the entry MUST match exactly. The task publishes announcements
-    // whose status='scheduled' and scheduled_for is due.
+    // wrangler.toml dispatches the tasks defined in server/tasks/. Nitro
+    // registers tasks by their file-derived name (filename without
+    // extension), so the entries MUST match exactly.
+    // publish-scheduled-announcements publishes announcements whose
+    // status='scheduled' and scheduled_for is due; send-fee-reminders
+    // (Phase 17C) self-gates to once per UTC day via an EDGE_KV marker.
     scheduledTasks: {
-      '*/5 * * * *': ['publish-scheduled-announcements'],
+      '*/5 * * * *': ['publish-scheduled-announcements', 'send-fee-reminders'],
     },
     // Inline the @jsquash WASM codecs (gallery thumbnails) as compiled
     // WebAssembly.Module exports; see build/jsquash-wasm-loader.ts.
