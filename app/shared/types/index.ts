@@ -1726,6 +1726,75 @@ export interface PublicStats {
   subjects: number
 }
 
+// --- 18B content sections ---------------------------------------------------
+
+/** GET /api/v1/public/news row — published, audience-all announcement. */
+export interface PublicNewsItem {
+  id: string
+  title: string
+  body: string | null
+  publishedAt: string | null
+}
+
+/** GET /api/v1/public/events row — published, audience-all event. */
+export interface PublicEvent {
+  id: string
+  title: string
+  description: string | null
+  startsAt: string
+  endsAt: string | null
+  location: string | null
+}
+
+/** GET /api/v1/public/gallery/albums row — published album, safe fields. */
+export interface PublicAlbum {
+  id: string
+  title: string
+  description: string | null
+  imageCount: number
+  /** Public streaming URL for the cover image; never an R2 object key. */
+  coverUrl: string | null
+  /** Set only when the linked event is itself published. */
+  eventTitle: string | null
+}
+
+/** One image inside a published album (public streaming URLs only). */
+export interface PublicImage {
+  id: string
+  url: string
+  thumbUrl: string
+  caption: string | null
+  fileName: string
+}
+
+/** GET /api/v1/public/gallery/albums/:id */
+export interface PublicAlbumDetail extends PublicAlbum {
+  images: PublicImage[]
+}
+
+/** GET /api/v1/public/academics — session/terms + class structure. */
+export interface PublicAcademics {
+  session: {
+    name: string
+    startDate: string | null
+    endDate: string | null
+  } | null
+  terms: {
+    name: string
+    startDate: string | null
+    endDate: string | null
+    isCurrent: boolean
+  }[]
+  levels: {
+    /** Null for classes without a level; the page labels that group. */
+    name: string | null
+    classes: {
+      name: string
+      subjects: string[]
+    }[]
+  }[]
+}
+
 // ---------------------------------------------------------------------------
 // Teacher self-service (Phase 7)
 // ---------------------------------------------------------------------------

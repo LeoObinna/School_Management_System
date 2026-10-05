@@ -13,10 +13,25 @@
  * tree-shaken from the client bundle.
  */
 import {
+  fetchPublicAcademics,
+  fetchPublicAlbum,
+  fetchPublicAlbums,
+  fetchPublicEvents,
+  fetchPublicNews,
+  fetchPublicNewsItem,
   fetchPublicSiteSettings,
   fetchPublicStats,
 } from '~/services/public'
-import type { PublicSiteSettings, PublicStats } from '~/shared/types'
+import type {
+  Paginated,
+  PublicAcademics,
+  PublicAlbum,
+  PublicAlbumDetail,
+  PublicEvent,
+  PublicNewsItem,
+  PublicSiteSettings,
+  PublicStats,
+} from '~/shared/types'
 
 /** School identity/branding payload (also used by the public shell). */
 export function usePublicSiteSettings() {
@@ -51,6 +66,115 @@ export function usePublicStats() {
         }
       }
       return await fetchPublicStats()
+    },
+    { default: () => null },
+  )
+}
+
+// --- 18B content sections ---------------------------------------------------
+
+/** Published, audience-all news, one page. */
+export function usePublicNews(page = 1, perPage = 12) {
+  return useAsyncData<Paginated<PublicNewsItem> | null>(
+    `public:news:p${page}:pp${perPage}`,
+    async () => {
+      if (import.meta.server) {
+        const { getPublicNews } = await import('~/server/services/public')
+        return await getPublicNews({ page, perPage })
+      }
+      return await fetchPublicNews(page, perPage)
+    },
+    { default: () => null },
+  )
+}
+
+/** One published, audience-all news item (null when not found). */
+export function usePublicNewsItem(id: string) {
+  return useAsyncData<PublicNewsItem | null>(
+    `public:news:${id}`,
+    async () => {
+      try {
+        if (import.meta.server) {
+          const { getPublicNewsItem } = await import('~/server/services/public')
+          return await getPublicNewsItem(id)
+        }
+        return await fetchPublicNewsItem(id)
+      } catch {
+        // Generic 404 for drafts/targeted audiences/unknown ids — the
+        // page renders its own not-found state.
+        return null
+      }
+    },
+    { default: () => null },
+  )
+}
+
+/** Published, audience-all events (`upcoming` default, or `past`). */
+export function usePublicEvents(
+  when: 'upcoming' | 'past' = 'upcoming',
+  page = 1,
+  perPage = 12,
+) {
+  return useAsyncData<Paginated<PublicEvent> | null>(
+    `public:events:${when}:p${page}:pp${perPage}`,
+    async () => {
+      if (import.meta.server) {
+        const { getPublicEvents } = await import('~/server/services/public')
+        return await getPublicEvents({ when, page, perPage })
+      }
+      return await fetchPublicEvents(when, page, perPage)
+    },
+    { default: () => null },
+  )
+}
+
+/** Published gallery albums, one page. */
+export function usePublicAlbums(page = 1, perPage = 12) {
+  return useAsyncData<Paginated<PublicAlbum> | null>(
+    `public:albums:p${page}:pp${perPage}`,
+    async () => {
+      if (import.meta.server) {
+        const { getPublicAlbums } = await import('~/server/services/public')
+        return await getPublicAlbums({ page, perPage })
+      }
+      return await fetchPublicAlbums(page, perPage)
+    },
+    { default: () => null },
+  )
+}
+
+/** One published album with its images (null when not found). */
+export function usePublicAlbum(id: string) {
+  return useAsyncData<PublicAlbumDetail | null>(
+    `public:album:${id}`,
+    async () => {
+      try {
+        if (import.meta.server) {
+          const { getPublicAlbum } = await import('~/server/services/public')
+          return await getPublicAlbum(id)
+        }
+        return await fetchPublicAlbum(id)
+      } catch {
+        return null
+      }
+    },
+    { default: () => null },
+  )
+}
+
+/** Current session/terms + active class structure with subject names. */
+export function usePublicAcademics() {
+  return useAsyncData<PublicAcademics | null>(
+    'public:academics',
+    async () => {
+      if (import.meta.server) {
+        const event = useRequestEvent()
+        if (event) {
+          const { getPublicAcademics } = await import('~/server/services/public')
+          return await getPublicAcademics(event)
+        }
+      }
+      return await fetchPublicAcademics()
     },
     { default: () => null },
   )
