@@ -8,6 +8,8 @@
  *
  * Phase 16A: student/parent/teacher accounts are routed to their
  * /portal/* home instead of the staff dashboard (landingPathForRoles).
+ * Phase 18A: `/` is the public homepage; the staff dashboard moved to
+ * /dashboard.
  */
 import { useAuthStore } from '~/stores/auth'
 import { landingPathForRoles } from '~/utils/portal'
@@ -36,9 +38,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return navigateTo(landingPathForRoles(auth.roles))
   }
 
-  if (auth.isAuthenticated && to.path === '/') {
+  // Phase 18A: `/` is the public homepage; the staff dashboard lives at
+  // /dashboard. Portal-role users who navigate to the staff dashboard are
+  // sent to their portal home instead (staff/admin stay).
+  if (auth.isAuthenticated && to.path === '/dashboard') {
     const landing = landingPathForRoles(auth.roles)
-    if (landing !== '/') {
+    if (landing !== '/dashboard') {
       return navigateTo(landing)
     }
   }

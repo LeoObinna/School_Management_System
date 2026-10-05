@@ -8,7 +8,7 @@
  */
 import { useAuthStore } from '~/stores/auth'
 import { schoolSettingsApi } from '~/services/school-settings'
-import { primaryPortalRole, type PortalRole } from '~/utils/portal'
+import { primaryPortalRole, landingPathForRoles, type PortalRole } from '~/utils/portal'
 import type { SchoolPublicSettings } from '~/shared/types'
 
 const auth = useAuthStore()
@@ -45,6 +45,7 @@ const PORTAL_NAV: Record<PortalRole, Array<{ to: string; label: string }>> = {
 }
 
 const role = computed(() => primaryPortalRole(auth.roles))
+const homePath = computed(() => landingPathForRoles(auth.roles))
 const nav = computed(() => (role.value ? PORTAL_NAV[role.value] : []))
 const roleLabel = computed(() =>
   role.value ? ROLE_LABELS[role.value] : 'Portal',
@@ -81,7 +82,7 @@ onMounted(async () => {
       <div
         class="mx-auto flex w-full max-w-content flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3"
       >
-        <NuxtLink to="/" class="flex items-center gap-3">
+        <NuxtLink :to="homePath" class="flex items-center gap-3">
           <img
             v-if="logoSrc"
             :src="logoSrc"

@@ -239,7 +239,9 @@ export async function dispatchAnnouncement(
     return 0
   }
 
-  const link = '/announcements'
+  // Phase 18A routing move: staff announcements live under /manage/*;
+  // `/announcements` is reserved for the public website.
+  const link = '/manage/announcements'
   const audience = row.audience as Audience
   const now = new Date().toISOString()
   // The id and created_at must be supplied in SQL: this raw INSERT

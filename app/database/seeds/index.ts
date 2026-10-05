@@ -1714,11 +1714,11 @@ export async function seedDatabase(db: DB): Promise<void> {
 
       // Notifications (idempotent — check by title+userId).
       const seedNotifications = [
-        { userId: adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume on Monday.', link: '/announcements', status: 'read' as const, readAt: '2026-09-02T08:00:00Z' },
-        { userId: teacherUser?.id ?? adminUser.id, type: 'announcement', title: 'Staff meeting — Friday 3 PM', body: 'All teaching staff required.', link: '/announcements', status: 'unread' as const },
-        { userId: studentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: '2026-09-03T10:00:00Z' },
-        { userId: parentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'unread' as const },
-        { userId: superadminUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/announcements', status: 'read' as const, readAt: '2026-09-01T12:00:00Z' },
+        { userId: adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume on Monday.', link: '/manage/announcements', status: 'read' as const, readAt: '2026-09-02T08:00:00Z' },
+        { userId: teacherUser?.id ?? adminUser.id, type: 'announcement', title: 'Staff meeting — Friday 3 PM', body: 'All teaching staff required.', link: '/manage/announcements', status: 'unread' as const },
+        { userId: studentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/manage/announcements', status: 'read' as const, readAt: '2026-09-03T10:00:00Z' },
+        { userId: parentUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/manage/announcements', status: 'unread' as const },
+        { userId: superadminUser?.id ?? adminUser.id, type: 'announcement', title: 'Welcome to the 2026-2027 academic year', body: 'Classes resume Monday.', link: '/manage/announcements', status: 'read' as const, readAt: '2026-09-01T12:00:00Z' },
       ]
       for (const n of seedNotifications) {
         const [existing] = await db

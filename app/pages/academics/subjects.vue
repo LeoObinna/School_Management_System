@@ -92,7 +92,7 @@ onMounted(refresh)
   <div class="mx-auto max-w-5xl px-4 py-8">
     <div class="mb-6 flex items-center justify-between">
       <div>
-        <NuxtLink to="/" class="text-sm text-indigo-600 hover:underline">
+        <NuxtLink to="/dashboard" class="text-sm text-indigo-600 hover:underline">
           ← Dashboard
         </NuxtLink>
         <h1 class="mt-1 text-2xl font-semibold text-gray-900">Subjects</h1>

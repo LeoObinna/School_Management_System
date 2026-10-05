@@ -94,7 +94,7 @@ async function onSubmit() {
 
       <p v-else class="text-sm text-gray-600">
         You are already signed in.
-        <NuxtLink to="/" class="text-blue-600 hover:underline">Go to dashboard</NuxtLink>
+        <NuxtLink to="/dashboard" class="text-blue-600 hover:underline">Go to dashboard</NuxtLink>
       </p>
     </div>
   </div>

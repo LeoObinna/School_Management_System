@@ -2,6 +2,8 @@
  * Phase 16A login-redirect routing: student/parent/teacher roles land
  * on their portal home; staff/admin keep the staff dashboard. Pure
  * functions — mirrors the owner decision recorded in the Phase 16 plan.
+ * Phase 18A: the staff dashboard moved from `/` to `/dashboard` (the
+ * public website owns `/`).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -55,9 +57,9 @@ describe('landingPathForRoles', () => {
     expect(landingPathForRoles(roles('teacher'))).toBe('/portal/teacher')
   })
 
-  it('keeps staff and unknown users on the staff dashboard', () => {
-    expect(landingPathForRoles(roles('super_admin'))).toBe('/')
-    expect(landingPathForRoles(roles('admin'))).toBe('/')
-    expect(landingPathForRoles([])).toBe('/')
+  it('sends staff and unknown users to the staff dashboard', () => {
+    expect(landingPathForRoles(roles('super_admin'))).toBe('/dashboard')
+    expect(landingPathForRoles(roles('admin'))).toBe('/dashboard')
+    expect(landingPathForRoles([])).toBe('/dashboard')
   })
 })

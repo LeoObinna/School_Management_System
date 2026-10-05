@@ -4,7 +4,8 @@
  * Shared by the login redirect (pages/auth/login.vue) and the global
  * route guard (middleware/auth.global.ts). Per the Phase 16 owner
  * decision: student/parent/teacher accounts land on their /portal/*
- * home; staff/admin keep the staff dashboard. Among portal roles the
+ * home; staff/admin land on the staff dashboard at /dashboard (Phase
+ * 18A routing move — the public site owns `/`). Among portal roles the
  * mapping prefers teacher > parent > student so a user with several
  * linked profiles lands on the most operational portal. This is
  * UX-only routing — the server's RBAC/row-level checks remain
@@ -38,8 +39,8 @@ export function primaryPortalRole(roles: RoleSlug[]): PortalRole | null {
   return null
 }
 
-/** Post-login landing path for the given roles ('/' for staff/unknown). */
+/** Post-login landing path ('/dashboard' for staff/unknown). */
 export function landingPathForRoles(roles: RoleSlug[]): string {
   const role = primaryPortalRole(roles)
-  return role ? PORTAL_HOMES[role] : '/'
+  return role ? PORTAL_HOMES[role] : '/dashboard'
 }
