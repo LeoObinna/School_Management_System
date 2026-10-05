@@ -1692,6 +1692,41 @@ export interface SchoolSettings extends SchoolPublicSettings {
 }
 
 // ---------------------------------------------------------------------------
+// Public website (Phase 18)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/v1/public/school-settings — unauthenticated identity + branding
+ * payload. Unlike {@link SchoolPublicSettings} it includes the bank
+ * transfer details (fees page shows them only when populated) and replaces
+ * the raw logo object key with the constant public streaming route URL.
+ */
+export interface PublicSiteSettings {
+  name: string
+  motto: string | null
+  address: string | null
+  email: string | null
+  phone: string | null
+  logoUrl: string | null
+  primaryColor: string | null
+  secondaryColor: string | null
+  bankName: string | null
+  accountName: string | null
+  accountNumber: string | null
+}
+
+/**
+ * GET /api/v1/public/stats — aggregate counts for the homepage statistics
+ * strip. Counts of active/non-deleted rows only; no personal data.
+ */
+export interface PublicStats {
+  students: number
+  teachers: number
+  classes: number
+  subjects: number
+}
+
+// ---------------------------------------------------------------------------
 // Teacher self-service (Phase 7)
 // ---------------------------------------------------------------------------
 

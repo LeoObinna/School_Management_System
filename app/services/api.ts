@@ -6,6 +6,11 @@
  * read from the (JS-readable) `sms_csrf` cookie and echoed in a header.
  */
 import type { FetchOptions } from 'ofetch'
+// Plain ofetch $fetch, NOT the Nuxt route-typed global: resolving the
+// template-literal URL against the full Nitro route registry exceeds
+// TS's instantiation depth (TS2589) as the route table grows. This
+// client types responses via its own generics instead.
+import { $fetch as ofetch } from 'ofetch'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -38,11 +43,11 @@ export function apiFetch<T = unknown>(
 
   const config = useRuntimeConfig()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return $fetch<T>(`${config.public.apiBaseUrl}${path}`, {
+  return ofetch<T>(`${config.public.apiBaseUrl}${path}`, {
     credentials: 'include',
     ...options,
     headers,
-    // Method is narrowed at runtime; Nitro's fetch generic expects
+    // Method is narrowed at runtime; the fetch generic expects
     // literal HTTP verbs which a dynamic options bag cannot encode.
   } as any) as Promise<T>
 }

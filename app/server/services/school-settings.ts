@@ -20,10 +20,11 @@
 import type { H3Event } from 'h3'
 import { inArray } from 'drizzle-orm'
 import { schoolSettings } from '../../database/schema'
-import type { SchoolSettings } from '../../shared/types'
+import type { SchoolSettings, PublicSiteSettings } from '../../shared/types'
 import {
   schoolSettingsSchema,
   schoolPublicSettingsSchema,
+  publicSiteSettingsSchema,
   type SchoolSettingsUpdate,
   type SchoolPublicSettings,
 } from '../../shared/schemas'
@@ -145,6 +146,32 @@ export async function getPublicSchoolSettings(
     subset[field] = all[field]
   }
   return schoolPublicSettingsSchema.parse(subset) as SchoolPublicSettings
+}
+
+/** Constant public streaming route for the school logo (Phase 18). */
+export const PUBLIC_LOGO_URL = '/api/v1/public/logo'
+
+/**
+ * Public website settings payload (Phase 18A). Unlike
+ * {@link getPublicSchoolSettings} this includes the bank transfer details
+ * (the fees page shows them when populated) and replaces the raw logo
+ * object key with the constant public streaming route URL. Reads through
+ * the same cached full settings object, so it costs no extra D1 read.
+ */
+export async function getPublicSiteSettings(
+  event: H3Event,
+): Promise<PublicSiteSettings> {
+  const all = await getSchoolSettings(event)
+  const subset: Record<string, unknown> = {}
+  for (const field of PUBLIC_FIELDS) {
+    if (field === 'logoKey') continue
+    subset[field] = all[field]
+  }
+  subset.logoUrl = all.logoKey ? PUBLIC_LOGO_URL : null
+  subset.bankName = all.bankName
+  subset.accountName = all.accountName
+  subset.accountNumber = all.accountNumber
+  return publicSiteSettingsSchema.parse(subset) as PublicSiteSettings
 }
 
 /**

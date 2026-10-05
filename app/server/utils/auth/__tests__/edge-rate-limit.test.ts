@@ -135,4 +135,58 @@ describe('checkRateLimit with EDGE_KV', () => {
     expect(r1.allowed).toBe(true)
     expect(r2.allowed).toBe(true)
   })
+
+  it('applies the Phase 18 public form scopes per plan (KV, window >= 60s)', async () => {
+    const kv = new FakeKv()
+
+    // Every public scope is KV-backed with a KV-legal TTL window.
+    for (const scope of [
+      'public-admission',
+      'public-admission-status',
+      'public-contact',
+      'public-result-check',
+    ] as const) {
+      const rule = RATE_LIMIT_RULES[scope]
+      expect(rule.windowSeconds).toBeGreaterThanOrEqual(60)
+
+      for (let i = 0; i < rule.maxAttempts; i += 1) {
+        const r = await checkRateLimit(
+          eventWith(kv),
+          scope,
+          `ip:${scope}`,
+          t0 + i * 1000,
+        )
+        expect(r.allowed).toBe(true)
+      }
+      const blocked = await checkRateLimit(
+        eventWith(kv),
+        scope,
+        `ip:${scope}`,
+        t0 + rule.maxAttempts * 1000,
+      )
+      expect(blocked.allowed).toBe(false)
+      expect(blocked.retryAfterSeconds).toBeGreaterThan(0)
+
+      const item = kv.store.get(`rl:${scope}:ip:${scope}`)
+      expect(item?.ttl).toBe(rule.windowSeconds)
+    }
+
+    // Plan-mandated limits (owner decisions 2026-09-25).
+    expect(RATE_LIMIT_RULES['public-admission']).toEqual({
+      maxAttempts: 5,
+      windowSeconds: 3600,
+    })
+    expect(RATE_LIMIT_RULES['public-admission-status']).toEqual({
+      maxAttempts: 20,
+      windowSeconds: 600,
+    })
+    expect(RATE_LIMIT_RULES['public-contact']).toEqual({
+      maxAttempts: 3,
+      windowSeconds: 600,
+    })
+    expect(RATE_LIMIT_RULES['public-result-check']).toEqual({
+      maxAttempts: 10,
+      windowSeconds: 600,
+    })
+  })
 })

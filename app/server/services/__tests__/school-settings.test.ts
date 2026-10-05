@@ -83,6 +83,8 @@ import {
   getSchoolSettings,
   updateSchoolSettings,
   getPublicSchoolSettings,
+  getPublicSiteSettings,
+  PUBLIC_LOGO_URL,
   setSchoolLogoKey,
   clearSchoolLogoKey,
 } from '../school-settings'
@@ -230,6 +232,60 @@ describe('school settings KV cache (Phase 12)', () => {
     const pub = await getPublicSchoolSettings(eventWith(kv))
     expect(pub.name).toBe('Cached Public')
     expect(pub).not.toHaveProperty('bankName')
+  })
+})
+
+describe('public site settings (Phase 18A)', () => {
+  beforeEach(() => {
+    storedRows = []
+    inserted.length = 0
+    updated.length = 0
+  })
+
+  it('includes bank transfer details and a route logoUrl, never the object key', async () => {
+    storedRows = [
+      { key: 'school.name', value: 'VCS' },
+      { key: 'school.motto', value: 'Not to Equal, But to Excel' },
+      { key: 'school.bank_name', value: 'GTBank' },
+      { key: 'school.account_name', value: 'Victorious Children School' },
+      { key: 'school.account_number', value: '0123456789' },
+      { key: 'school.logo_key', value: 'school/logo/vcs-logo.jpeg' },
+    ]
+    const pub = await getPublicSiteSettings(eventWith(null))
+    expect(pub.name).toBe('VCS')
+    expect(pub.motto).toBe('Not to Equal, But to Excel')
+    expect(pub.bankName).toBe('GTBank')
+    expect(pub.accountName).toBe('Victorious Children School')
+    expect(pub.accountNumber).toBe('0123456789')
+    // The R2 object key is replaced by the constant public route URL.
+    expect(pub.logoUrl).toBe(PUBLIC_LOGO_URL)
+    expect(pub).not.toHaveProperty('logoKey')
+    // Internal finance/academic config stays out of the public payload.
+    expect(pub).not.toHaveProperty('currency')
+    expect(pub).not.toHaveProperty('academicYearStartMonth')
+  })
+
+  it('returns null logoUrl and empty bank fields when unset', async () => {
+    storedRows = [{ key: 'school.name', value: 'VCS' }]
+    const pub = await getPublicSiteSettings(eventWith(null))
+    expect(pub.logoUrl).toBeNull()
+    expect(pub.bankName).toBe('')
+    expect(pub.accountName).toBe('')
+    expect(pub.accountNumber).toBe('')
+  })
+
+  it('reads through the same KV cache entry as the full object', async () => {
+    const kv = new FakeKv()
+    storedRows = [
+      { key: 'school.name', value: 'Cached Site' },
+      { key: 'school.bank_name', value: 'Zenith' },
+    ]
+    await getSchoolSettings(eventWith(kv))
+
+    storedRows = [{ key: 'school.name', value: 'Stale' }]
+    const pub = await getPublicSiteSettings(eventWith(kv))
+    expect(pub.name).toBe('Cached Site')
+    expect(pub.bankName).toBe('Zenith')
   })
 })
 

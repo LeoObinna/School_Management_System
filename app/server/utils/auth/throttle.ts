@@ -33,6 +33,12 @@ export const RATE_LIMIT_RULES = {
   login: { maxAttempts: 10, windowSeconds: 300 }, // 10 / 5 min
   'forgot-password': { maxAttempts: 5, windowSeconds: 900 }, // 5 / 15 min
   'newsletter-subscribe': { maxAttempts: 5, windowSeconds: 300 }, // 5 / 5 min
+  // Phase 18 public website forms (keyed by IP; added in 18A, consumed
+  // by the 18C/18D public POST endpoints).
+  'public-admission': { maxAttempts: 5, windowSeconds: 3600 }, // 5 / hour
+  'public-admission-status': { maxAttempts: 20, windowSeconds: 600 }, // 20 / 10 min
+  'public-contact': { maxAttempts: 3, windowSeconds: 600 }, // 3 / 10 min
+  'public-result-check': { maxAttempts: 10, windowSeconds: 600 }, // 10 / 10 min
 } as const satisfies Record<string, RateLimitRule>
 
 export type RateLimitScope = keyof typeof RATE_LIMIT_RULES
@@ -112,6 +118,22 @@ const memoryLimiters: Record<RateLimitScope, SlidingWindowLimiter> = {
   'newsletter-subscribe': new SlidingWindowLimiter(
     RATE_LIMIT_RULES['newsletter-subscribe'].maxAttempts,
     RATE_LIMIT_RULES['newsletter-subscribe'].windowSeconds,
+  ),
+  'public-admission': new SlidingWindowLimiter(
+    RATE_LIMIT_RULES['public-admission'].maxAttempts,
+    RATE_LIMIT_RULES['public-admission'].windowSeconds,
+  ),
+  'public-admission-status': new SlidingWindowLimiter(
+    RATE_LIMIT_RULES['public-admission-status'].maxAttempts,
+    RATE_LIMIT_RULES['public-admission-status'].windowSeconds,
+  ),
+  'public-contact': new SlidingWindowLimiter(
+    RATE_LIMIT_RULES['public-contact'].maxAttempts,
+    RATE_LIMIT_RULES['public-contact'].windowSeconds,
+  ),
+  'public-result-check': new SlidingWindowLimiter(
+    RATE_LIMIT_RULES['public-result-check'].maxAttempts,
+    RATE_LIMIT_RULES['public-result-check'].windowSeconds,
   ),
 }
 

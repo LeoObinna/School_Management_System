@@ -15,6 +15,7 @@
  * `wrangler dev` the binding exists and is emulated on local disk.
  */
 import type { H3Event } from 'h3'
+import { setResponseHeader } from 'h3'
 import { getEdgeKv } from './auth/edge-kv'
 
 /** Namespace prefix for application cache keys. */
@@ -96,5 +97,21 @@ export async function invalidateMany(
         console.error(`[cache] KV delete failed for ${key}:`, error)
       }),
     ),
+  )
+}
+
+/**
+ * Marks an unauthenticated public response as edge/browser-cacheable
+ * (Phase 18). Applies the shared `public` Cache-Control policy; private
+ * or authenticated responses must keep using the per-route headers.
+ */
+export function setPublicCacheHeaders(
+  event: H3Event,
+  maxAgeSeconds: number,
+): void {
+  setResponseHeader(
+    event,
+    'Cache-Control',
+    `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${Math.max(maxAgeSeconds * 2, 60)}`,
   )
 }

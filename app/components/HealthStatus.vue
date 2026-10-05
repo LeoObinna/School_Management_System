@@ -42,10 +42,26 @@
 
 <script setup lang="ts">
 import type { HealthResponse } from '~/shared/types'
+// Plain ofetch (not the Nuxt route-typed global $fetch) to avoid
+// TS2589 when the Nitro route registry is large.
+import { $fetch as ofetch } from 'ofetch'
 
-const { data: health, refresh, status } = await useFetch<HealthResponse>(
-  '/api/v1/health',
-)
+type Status = 'pending' | 'success' | 'error'
+
+const url: string = '/api/v1/health'
+const health = ref<HealthResponse | null>(null)
+const status = ref<Status>('pending')
+async function load() {
+  status.value = 'pending'
+  try {
+    health.value = await ofetch<HealthResponse>(url, { credentials: 'omit' })
+    status.value = 'success'
+  } catch {
+    status.value = 'error'
+  }
+}
+await load()
+async function refresh() { await load() }
 
 const statusColor = computed(() => {
   if (status.value === 'pending') return 'bg-gray-300'
