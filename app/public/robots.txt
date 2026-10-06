@@ -1,2 +1,7 @@
 User-Agent: *
-Disallow:
+Disallow: /api/
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /manage
+
+Sitemap: /sitemap.xml

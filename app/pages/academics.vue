@@ -53,7 +53,7 @@ const levels = computed(() =>
           description="Our academic structure for the current session will be published here."
         />
         <div v-else class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <LevelCard
+          <PublicLevelCard
             v-for="level in levels"
             :key="level.label"
             :name="level.label"

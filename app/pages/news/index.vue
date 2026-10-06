@@ -44,7 +44,7 @@ const meta = computed(() => news.value?.meta ?? null)
         />
         <template v-else>
           <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <NewsCard v-for="item in items" :key="item.id" :item="item" />
+            <PublicNewsCard v-for="item in items" :key="item.id" :item="item" />
           </div>
           <nav
             v-if="meta && meta.lastPage > 1"

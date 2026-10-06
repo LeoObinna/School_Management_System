@@ -81,6 +81,15 @@ export default defineNuxtConfig({
       // Preload the two fonts above the fold (08 §7/§61). Other cuts
       // load on demand via CSS font matching.
       link: [
+        // Favicon: branded SVG mark (torch + open book) with the
+        // legacy .ico fallback for older browsers (18D).
+        { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+        {
+          rel: 'shortcut icon',
+          href: '/favicon.ico',
+          sizes: '32x32',
+          type: 'image/x-icon',
+        },
         {
           rel: 'preload',
           as: 'font',

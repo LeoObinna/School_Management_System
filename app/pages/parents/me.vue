@@ -143,7 +143,7 @@ onMounted(load)
             </div>
             <div class="flex gap-3 text-sm">
               <NuxtLink
-                to="/results"
+                to="/my-results"
                 class="text-amber-600 hover:underline"
               >
                 Results

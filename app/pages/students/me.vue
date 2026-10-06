@@ -110,7 +110,7 @@ onMounted(load)
           <p class="text-sm text-gray-700 mt-1">Pending Assignments</p>
         </NuxtLink>
         <NuxtLink
-          to="/results"
+          to="/my-results"
           class="bg-white rounded-lg shadow p-6 hover:shadow-md transition"
         >
           <p class="text-3xl font-bold text-indigo-600">Results</p>

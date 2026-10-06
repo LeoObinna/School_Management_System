@@ -11,6 +11,12 @@
  * the Nitro route registry exceeds TS's instantiation depth (TS2589).
  * The dynamic server import lives behind `import.meta.server` so it is
  * tree-shaken from the client bundle.
+ *
+ * SSR handlers capture the request event in their own scope and thread
+ * it into the services: the ambient request-event context (AsyncLocal
+ * Storage) is not guaranteed to survive the dynamic import + async
+ * boundary in the Workers runtime, so services resolve the D1 client
+ * from the explicit event.
  */
 import {
   fetchPublicAcademics,
@@ -79,8 +85,9 @@ export function usePublicNews(page = 1, perPage = 12) {
     `public:news:p${page}:pp${perPage}`,
     async () => {
       if (import.meta.server) {
+        const event = useRequestEvent()
         const { getPublicNews } = await import('~/server/services/public')
-        return await getPublicNews({ page, perPage })
+        return await getPublicNews({ page, perPage }, event)
       }
       return await fetchPublicNews(page, perPage)
     },
@@ -95,8 +102,9 @@ export function usePublicNewsItem(id: string) {
     async () => {
       try {
         if (import.meta.server) {
+          const event = useRequestEvent()
           const { getPublicNewsItem } = await import('~/server/services/public')
-          return await getPublicNewsItem(id)
+          return await getPublicNewsItem(id, event)
         }
         return await fetchPublicNewsItem(id)
       } catch {
@@ -119,8 +127,9 @@ export function usePublicEvents(
     `public:events:${when}:p${page}:pp${perPage}`,
     async () => {
       if (import.meta.server) {
+        const event = useRequestEvent()
         const { getPublicEvents } = await import('~/server/services/public')
-        return await getPublicEvents({ when, page, perPage })
+        return await getPublicEvents({ when, page, perPage }, event)
       }
       return await fetchPublicEvents(when, page, perPage)
     },
@@ -134,8 +143,9 @@ export function usePublicAlbums(page = 1, perPage = 12) {
     `public:albums:p${page}:pp${perPage}`,
     async () => {
       if (import.meta.server) {
+        const event = useRequestEvent()
         const { getPublicAlbums } = await import('~/server/services/public')
-        return await getPublicAlbums({ page, perPage })
+        return await getPublicAlbums({ page, perPage }, event)
       }
       return await fetchPublicAlbums(page, perPage)
     },
@@ -150,8 +160,9 @@ export function usePublicAlbum(id: string) {
     async () => {
       try {
         if (import.meta.server) {
+          const event = useRequestEvent()
           const { getPublicAlbum } = await import('~/server/services/public')
-          return await getPublicAlbum(id)
+          return await getPublicAlbum(id, event)
         }
         return await fetchPublicAlbum(id)
       } catch {

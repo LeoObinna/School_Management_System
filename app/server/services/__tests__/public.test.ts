@@ -13,8 +13,8 @@ import type { EdgeKv } from '../../utils/auth/edge-kv'
 // FIFO queue of count results, one per query the service issues.
 let countQueue: number[] = []
 
-vi.mock('../../utils/db', () => ({
-  db: {
+vi.mock('../../utils/db', () => {
+  const client = {
     select: vi.fn().mockImplementation(() => ({
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
@@ -23,8 +23,9 @@ vi.mock('../../utils/db', () => ({
         }),
       })),
     })),
-  },
-}))
+  }
+  return { db: client, databaseFor: () => client }
+})
 
 class FakeKv implements EdgeKv {
   readonly store = new Map<string, { value: string; ttl: number }>()

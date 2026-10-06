@@ -14,8 +14,8 @@ let storedRows: { key: string; value: string | null }[] = []
 const inserted: { key: string; value: string }[] = []
 const updated: { key: string; value: string }[] = []
 
-vi.mock('../../utils/db', () => ({
-  db: {
+vi.mock('../../utils/db', () => {
+  const client = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockImplementation(() => Promise.resolve(storedRows)),
@@ -26,8 +26,9 @@ vi.mock('../../utils/db', () => ({
       // We capture insert values separately because mockReturnThis chains.
       return Promise.resolve([{ id: 'x' }])
     }),
-  },
-}))
+  }
+  return { db: client, databaseFor: () => client }
+})
 
 // The db.insert(...).values(...) chain needs to capture the values. Patch
 // the chain methods to record arguments.

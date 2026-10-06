@@ -234,7 +234,7 @@ onMounted(() => {
             </p>
           </NuxtLink>
           <NuxtLink
-            to="/results"
+            to="/my-results"
             class="rounded-lg border border-gray-200 p-4 hover:border-emerald-400 hover:bg-emerald-50"
           >
             <p class="text-xs uppercase tracking-wide text-gray-500">
@@ -286,7 +286,7 @@ onMounted(() => {
             </p>
           </NuxtLink>
           <NuxtLink
-            to="/results"
+            to="/my-results"
             class="rounded-lg border border-gray-200 p-4 hover:border-amber-400 hover:bg-amber-50"
           >
             <p class="text-xs uppercase tracking-wide text-gray-500">

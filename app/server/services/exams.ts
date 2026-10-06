@@ -1662,7 +1662,9 @@ export async function publishPublication(
 // Builds per-subject result rows for a student. Combines assessment_scores
 // and exam_scores, computes totals, percentages and grades from the
 // active grading scale.
-async function aggregateStudentResults(
+// Phase 18D: exported so the public result checker reuses the same
+// published score aggregation as the authenticated result views.
+export async function aggregateStudentResults(
   client: SmsDb,
   studentId: string,
   sessionId: string,

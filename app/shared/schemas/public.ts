@@ -158,6 +158,8 @@ export const publicAlbumDetailSchema = publicAlbumSchema.extend({
 export const publicAcademicsSchema = z.object({
   session: z
     .object({
+      // Session id exposed for the public result checker selects (18D).
+      id: z.string().uuid(),
       name: z.string(),
       startDate: z.string().nullable(),
       endDate: z.string().nullable(),
@@ -165,6 +167,7 @@ export const publicAcademicsSchema = z.object({
     .nullable(),
   terms: z.array(
     z.object({
+      id: z.string().uuid(),
       name: z.string(),
       startDate: z.string().nullable(),
       endDate: z.string().nullable(),
@@ -312,3 +315,44 @@ export const contactMessageResponseSchema = z.object({
 export type ContactMessageResponse = z.infer<
   typeof contactMessageResponseSchema
 >
+
+// ---------------------------------------------------------------------------
+// 18D — public result checker
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/v1/public/results — identity factors: the student's admission
+ * number plus surname (exact, case-insensitive) and the session/term the
+ * result belongs to. Only published results are answered. All failure
+ * modes return the same generic 404 so admission numbers cannot be
+ * enumerated.
+ */
+export const publicResultQuerySchema = z.object({
+  admissionNumber: z.string().trim().min(1).max(50),
+  surname: z.string().trim().min(1).max(150),
+  sessionId: uuidSchema,
+  termId: uuidSchema,
+})
+export type PublicResultQuery = z.infer<typeof publicResultQuerySchema>
+
+/** One subject row in the public checker — aggregated score only. */
+export const publicResultSubjectSchema = z.object({
+  subjectName: z.string(),
+  totalScore: z.string(),
+  maxScore: z.string(),
+  percentage: z.string(),
+  grade: z.string().nullable(),
+})
+
+export const publicResultSchema = z.object({
+  studentName: z.string(),
+  admissionNumber: z.string(),
+  sessionName: z.string(),
+  termName: z.string(),
+  className: z.string(),
+  subjects: z.array(publicResultSubjectSchema),
+  totalScore: z.string(),
+  averageScore: z.string(),
+  overallGrade: z.string().nullable(),
+})
+export type PublicResult = z.infer<typeof publicResultSchema>

@@ -65,7 +65,7 @@ const hasContactDetails = computed(
       >
         <!-- Form -->
         <div class="lg:col-span-3">
-          <ContactForm />
+          <PublicContactForm />
         </div>
 
         <!-- Details + map -->
@@ -127,7 +127,7 @@ const hasContactDetails = computed(
           title="Common questions"
         />
         <div class="mx-auto mt-10 max-w-3xl">
-          <FaqAccordion :items="faqItems" />
+          <PublicFaqAccordion :items="faqItems" />
         </div>
       </div>
     </section>

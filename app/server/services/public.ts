@@ -63,6 +63,12 @@ async function db(): Promise<SmsDb> {
   return (await import('../utils/db')).db
 }
 
+/** Drizzle client for an explicit SSR event (falls back to ambient). */
+async function clientFor(event?: H3Event | null): Promise<SmsDb> {
+  const { databaseFor } = await import('../utils/db')
+  return databaseFor(event) as unknown as SmsDb
+}
+
 const STATS_CACHE_KEY = cacheKey('public', 'stats')
 const STATS_CACHE_TTL = 300
 
@@ -72,14 +78,16 @@ const STATS_CACHE_TTL = 300
  */
 export async function getPublicStats(event: H3Event): Promise<PublicStats> {
   const stats = await getOrSet(event, STATS_CACHE_KEY, STATS_CACHE_TTL, () =>
-    loadPublicStatsFromDb(),
+    loadPublicStatsFromDb(event),
   )
   return publicStatsSchema.parse(stats) as PublicStats
 }
 
 /** Loads the counts from D1 (cache miss path). Exposed for tests. */
-async function loadPublicStatsFromDb(): Promise<PublicStats> {
-  const client = await db()
+async function loadPublicStatsFromDb(
+  event?: H3Event | null,
+): Promise<PublicStats> {
+  const client = await clientFor(event)
 
   const [studentCount] = await client
     .select({ n: sql<number>`cast(count(*) as integer)` })
@@ -152,8 +160,9 @@ function paginationMeta(total: number, page: number, perPage: number) {
 /** Published, audience-all announcements, newest first. */
 export async function getPublicNews(
   query: PublicNewsListQuery,
+  event?: H3Event | null,
 ): Promise<Paginated<PublicNewsItem>> {
-  const client = await db()
+  const client = await clientFor(event)
   const gate = and(
     eq(announcements.status, 'published'),
     eq(announcements.audience, 'all'),
@@ -180,8 +189,11 @@ export async function getPublicNews(
 }
 
 /** One news item; generic 404 unless published and audience-all. */
-export async function getPublicNewsItem(id: string): Promise<PublicNewsItem> {
-  const client = await db()
+export async function getPublicNewsItem(
+  id: string,
+  event?: H3Event | null,
+): Promise<PublicNewsItem> {
+  const client = await clientFor(event)
   const [row] = await client
     .select(publicNewsColumns)
     .from(announcements)
@@ -238,8 +250,9 @@ function toPublicEvent(row: PublicEventRow): PublicEvent {
  */
 export async function getPublicEvents(
   query: PublicEventsListQuery,
+  event?: H3Event | null,
 ): Promise<Paginated<PublicEvent>> {
-  const client = await db()
+  const client = await clientFor(event)
   const now = new Date().toISOString()
   const gate = and(
     eq(events.status, 'published'),
@@ -334,8 +347,9 @@ function toPublicAlbum(
 /** Published albums, newest first, with image counts and cover URLs. */
 export async function getPublicAlbums(
   query: PublicAlbumsListQuery,
+  event?: H3Event | null,
 ): Promise<Paginated<PublicAlbum>> {
-  const client = await db()
+  const client = await clientFor(event)
   const gate = eq(galleryAlbums.isPublished, true)
 
   const [countRow] = await client
@@ -395,8 +409,11 @@ export async function getPublicAlbums(
 }
 
 /** One published album with its images; generic 404 otherwise. */
-export async function getPublicAlbum(id: string): Promise<PublicAlbumDetail> {
-  const client = await db()
+export async function getPublicAlbum(
+  id: string,
+  event?: H3Event | null,
+): Promise<PublicAlbumDetail> {
+  const client = await clientFor(event)
   const [row] = await client
     .select({
       id: galleryAlbums.id,
@@ -483,14 +500,16 @@ export async function getPublicAcademics(
     event,
     ACADEMICS_CACHE_KEY,
     ACADEMICS_CACHE_TTL,
-    () => loadPublicAcademicsFromDb(),
+    () => loadPublicAcademicsFromDb(event),
   )
   return publicAcademicsSchema.parse(payload) as PublicAcademics
 }
 
 /** Loads and shapes the academics payload from D1 (cache miss path). */
-async function loadPublicAcademicsFromDb(): Promise<PublicAcademics> {
-  const client = await db()
+async function loadPublicAcademicsFromDb(
+  event?: H3Event | null,
+): Promise<PublicAcademics> {
+  const client = await clientFor(event)
 
   const [sessionRow] = await client
     .select({
@@ -506,6 +525,7 @@ async function loadPublicAcademicsFromDb(): Promise<PublicAcademics> {
   const termRows = sessionRow
     ? await client
         .select({
+          id: terms.id,
           name: terms.name,
           startDate: terms.startDate,
           endDate: terms.endDate,
@@ -569,6 +589,7 @@ async function loadPublicAcademicsFromDb(): Promise<PublicAcademics> {
   return {
     session: sessionRow
       ? {
+          id: sessionRow.id,
           name: sessionRow.name,
           startDate: sessionRow.startDate,
           endDate: sessionRow.endDate,

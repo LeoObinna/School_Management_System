@@ -28,6 +28,10 @@ async function selectAlbum(album: PublicAlbum) {
   albumError.value = false
   try {
     openAlbum.value = await fetchPublicAlbum(album.id)
+    // Deep-linkable album URL (used by the sitemap + shared links).
+    if (import.meta.client && window.location.hash !== `#${album.id}`) {
+      window.history.pushState(null, '', `#${album.id}`)
+    }
   } catch {
     albumError.value = true
   } finally {
@@ -38,7 +42,42 @@ async function selectAlbum(album: PublicAlbum) {
 function backToAlbums() {
   openAlbum.value = null
   lightboxIndex.value = null
+  if (import.meta.client && window.location.hash) {
+    window.history.pushState(null, '', window.location.pathname)
+  }
 }
+
+/**
+ * Opens the album named by the current location hash when it refers to
+ * a published album; returns false for unknown/unpublished ids so a
+ * stale shared link just shows the grid.
+ */
+async function openHashAlbum(): Promise<boolean> {
+  if (!import.meta.client) return false
+  const id = window.location.hash.replace(/^#/, '')
+  if (!id) return false
+  const match = albums.value?.data.find((a) => a.id === id)
+  if (!match || openAlbum.value?.id === id) return Boolean(match)
+  await selectAlbum(match)
+  return true
+}
+
+function onHashChange() {
+  void openHashAlbum().then((found) => {
+    if (!found && import.meta.client && !window.location.hash) {
+      backToAlbums()
+    }
+  })
+}
+
+onMounted(() => {
+  window.addEventListener('hashchange', onHashChange)
+  void openHashAlbum()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('hashchange', onHashChange)
+})
 </script>
 
 <template>
@@ -63,7 +102,7 @@ function backToAlbums() {
             description="Photos from school life will appear here once albums are published."
           />
           <div v-else class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <AlbumCard
+            <PublicAlbumCard
               v-for="album in albums!.data"
               :key="album.id"
               :album="album"
@@ -125,9 +164,9 @@ function backToAlbums() {
       </div>
     </section>
 
-    <GalleryLightbox
+    <PublicGalleryLightbox
       v-if="openAlbum"
-      v-model:index="lightboxIndex"
+      v-model="lightboxIndex"
       :images="openAlbum.images"
     />
   </div>

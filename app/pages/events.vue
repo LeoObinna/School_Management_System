@@ -67,7 +67,7 @@ const tabs = [
           description="Published school events will appear here. Check back soon."
         />
         <div v-else class="grid gap-4 md:grid-cols-2">
-          <EventCard v-for="event in shown" :key="event.id" :event="event" />
+          <PublicEventCard v-for="event in shown" :key="event.id" :event="event" />
         </div>
       </div>
     </section>

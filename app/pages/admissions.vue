@@ -29,8 +29,10 @@ const classChoices = computed(() =>
 )
 
 function scrollToStatus() {
+  const reduced =
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
   document.getElementById('status-checker')?.scrollIntoView({
-    behavior: 'smooth',
+    behavior: reduced ? 'auto' : 'smooth',
   })
 }
 </script>
@@ -96,7 +98,7 @@ function scrollToStatus() {
           description="Fields marked * are required. You can review everything before submitting."
         />
         <div class="mx-auto mt-10 max-w-3xl">
-          <AdmissionWizard :classes="classChoices" />
+          <PublicAdmissionWizard :classes="classChoices" />
         </div>
       </div>
     </section>
@@ -109,7 +111,7 @@ function scrollToStatus() {
           title="Check your application status"
         />
         <div class="mx-auto mt-10 max-w-3xl">
-          <StatusChecker />
+          <PublicStatusChecker />
         </div>
       </div>
     </section>

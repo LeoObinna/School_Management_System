@@ -242,13 +242,13 @@ const whyItems = [
             v-if="newsItems.length > 0"
             class="mt-12 grid gap-6 md:grid-cols-3"
           >
-            <NewsCard v-for="item in newsItems" :key="item.id" :item="item" />
+            <PublicNewsCard v-for="item in newsItems" :key="item.id" :item="item" />
           </div>
           <div
             v-if="eventItems.length > 0"
             class="mt-10 grid gap-4 md:grid-cols-3"
           >
-            <EventCard
+            <PublicEventCard
               v-for="event in eventItems"
               :key="event.id"
               :event="event"

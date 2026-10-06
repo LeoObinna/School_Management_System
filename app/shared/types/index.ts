@@ -1791,11 +1791,13 @@ export interface PublicAlbumDetail extends PublicAlbum {
 /** GET /api/v1/public/academics — session/terms + class structure. */
 export interface PublicAcademics {
   session: {
+    id: string
     name: string
     startDate: string | null
     endDate: string | null
   } | null
   terms: {
+    id: string
     name: string
     startDate: string | null
     endDate: string | null
@@ -1811,6 +1813,28 @@ export interface PublicAcademics {
       subjects: string[]
     }[]
   }[]
+}
+
+/** One subject row in the public result checker (18D). */
+export interface PublicResultSubject {
+  subjectName: string
+  totalScore: string
+  maxScore: string
+  percentage: string
+  grade: string | null
+}
+
+/** GET /api/v1/public/results — published result, safe fields only. */
+export interface PublicResult {
+  studentName: string
+  admissionNumber: string
+  sessionName: string
+  termName: string
+  className: string
+  subjects: PublicResultSubject[]
+  totalScore: string
+  averageScore: string
+  overallGrade: string | null
 }
 
 // ---------------------------------------------------------------------------

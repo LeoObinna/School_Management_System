@@ -225,6 +225,23 @@ function resolveDatabase(): SmsD1Database {
 }
 
 /**
+ * Resolves the schema-bound Drizzle client for an EXPLICIT event when
+ * one is available (SSR loaders capture the request event in their own
+ * scope and thread it through — the ambient {@link useEvent} context
+ * must not be relied upon across async/dynamic-import boundaries), and
+ * otherwise falls back to the normal ambient resolution.
+ */
+export function databaseFor(event?: H3Event | null): SmsD1Database {
+  if (event) {
+    const holder = getRequestD1Client(event)
+    if (holder) {
+      return holder.db
+    }
+  }
+  return resolveDatabase()
+}
+
+/**
  * Lazy Drizzle handle. Every property access forwards to the resolved
  * D1 client — per-request under Workers, process-wide under Node dev.
  */

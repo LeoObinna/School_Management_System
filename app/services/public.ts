@@ -17,6 +17,7 @@ import type {
   PublicAlbumDetail,
   PublicEvent,
   PublicNewsItem,
+  PublicResult,
   PublicSiteSettings,
   PublicStats,
 } from '~/shared/types'
@@ -27,6 +28,7 @@ import type {
   ContactMessageResponse,
   PublicApplication,
   PublicApplicationResponse,
+  PublicResultQuery,
 } from '~/shared/schemas/public'
 
 export function fetchPublicSiteSettings(): Promise<PublicSiteSettings> {
@@ -117,4 +119,15 @@ export function sendPublicContactMessage(
     method: 'POST',
     body,
   })
+}
+
+// --- 18D result checker ------------------------------------------------------
+
+export function fetchPublicResult(
+  query: PublicResultQuery,
+): Promise<PublicResult> {
+  const qs = new URLSearchParams(
+    Object.entries(query).map(([k, v]) => [k, String(v)]),
+  ).toString()
+  return ofetch<PublicResult>(`/api/v1/public/results?${qs}`)
 }

@@ -41,6 +41,9 @@ vi.mock('../../utils/db', () => {
     db: {
       select: vi.fn().mockImplementation(() => chainable()),
     },
+    databaseFor: () => ({
+      select: vi.fn().mockImplementation(() => chainable()),
+    }),
   }
 })
 
@@ -388,8 +391,8 @@ describe('public academics (Phase 18B)', () => {
       ],
       // terms
       [
-        { name: 'First Term', startDate: null, endDate: null, isCurrent: false },
-        { name: 'Second Term', startDate: null, endDate: null, isCurrent: true },
+        { id: UUID_A, name: 'First Term', startDate: null, endDate: null, isCurrent: false },
+        { id: UUID_B, name: 'Second Term', startDate: null, endDate: null, isCurrent: true },
       ],
       // classes (sequence order as returned by SQL)
       [
@@ -405,10 +408,15 @@ describe('public academics (Phase 18B)', () => {
       ],
     ]
     const payload = await getPublicAcademics(eventWith(kv))
-    expect(payload.session?.name).toBe('2025/2026')
-    expect(payload.terms.map((t) => t.name)).toEqual([
-      'First Term',
-      'Second Term',
+    expect(payload.session).toEqual({
+      id: UUID_A,
+      name: '2025/2026',
+      startDate: '2025-09-08',
+      endDate: '2026-07-24',
+    })
+    expect(payload.terms).toEqual([
+      { id: UUID_A, name: 'First Term', startDate: null, endDate: null, isCurrent: false },
+      { id: UUID_B, name: 'Second Term', startDate: null, endDate: null, isCurrent: true },
     ])
     expect(payload.levels).toEqual([
       {

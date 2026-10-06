@@ -35,6 +35,12 @@ async function db(): Promise<SmsDb> {
   return (await import('../utils/db')).db
 }
 
+/** Drizzle client for an explicit SSR event (falls back to ambient). */
+async function clientFor(event?: H3Event | null): Promise<SmsDb> {
+  const { databaseFor } = await import('../utils/db')
+  return databaseFor(event) as unknown as SmsDb
+}
+
 /** Single cache entry; the public subset derives from the cached full. */
 const SETTINGS_CACHE_KEY = cacheKey('school', 'settings')
 const SETTINGS_CACHE_TTL = 60
@@ -114,13 +120,15 @@ function coerce(field: keyof SchoolSettings, value: string | null): unknown {
  */
 export async function getSchoolSettings(event: H3Event): Promise<SchoolSettings> {
   return getOrSet(event, SETTINGS_CACHE_KEY, SETTINGS_CACHE_TTL, () =>
-    loadSchoolSettingsFromDb(),
+    loadSchoolSettingsFromDb(event),
   )
 }
 
 /** Loads settings from D1 (cache miss path). Exposed for tests. */
-async function loadSchoolSettingsFromDb(): Promise<SchoolSettings> {
-  const client = await db()
+async function loadSchoolSettingsFromDb(
+  event?: H3Event | null,
+): Promise<SchoolSettings> {
+  const client = await clientFor(event)
   const rows = await client
     .select({ key: schoolSettings.key, value: schoolSettings.value })
     .from(schoolSettings)
