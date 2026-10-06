@@ -104,6 +104,22 @@ export const messageListQuerySchema = paginationQuerySchema.extend({
 })
 
 // ---------------------------------------------------------------------------
+// Contact inbox (Phase 18C staff side — public create schema lives in
+// ./public.ts)
+// ---------------------------------------------------------------------------
+export const CONTACT_MESSAGE_STATUSES = ['new', 'read', 'archived'] as const
+
+export const contactMessageListQuerySchema = paginationQuerySchema.extend({
+  status: z.enum(CONTACT_MESSAGE_STATUSES).optional(),
+})
+
+// Staff may mark a message read or archive it; 'new' is the initial
+// state only and cannot be set back.
+export const contactMessageStatusUpdateSchema = z.object({
+  status: z.enum(['read', 'archived']),
+})
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 export type AnnouncementCreate = z.infer<typeof announcementCreateSchema>
@@ -116,3 +132,9 @@ export type NotificationListQuery = z.infer<
 >
 export type MessageCreate = z.infer<typeof messageCreateSchema>
 export type MessageListQuery = z.infer<typeof messageListQuerySchema>
+export type ContactMessageListQuery = z.infer<
+  typeof contactMessageListQuerySchema
+>
+export type ContactMessageStatusUpdate = z.infer<
+  typeof contactMessageStatusUpdateSchema
+>

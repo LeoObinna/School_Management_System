@@ -110,6 +110,7 @@ export const PERMISSION_SLUGS = [
   'notifications.view',
   'messages.view',
   'messages.send',
+  'contact_messages.view',
   'events.view',
   'events.manage',
   'gallery.view',

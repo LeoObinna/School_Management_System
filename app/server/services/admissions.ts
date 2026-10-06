@@ -54,6 +54,12 @@ import type {
   AssessmentCreate,
   AssessmentUpdate,
 } from '../../shared/schemas'
+import {
+  ADMISSION_STATUS_LABELS,
+  type AdmissionStatusQuery,
+  type AdmissionStatusResponse,
+  type PublicApplication,
+} from '../../shared/schemas/public'
 import type {
   AdmissionApplication,
   AdmissionApplicationDetail,
@@ -393,6 +399,88 @@ export async function createApplication(
 
   const id = await insertWithAppNumber({ ...values })
   return loadDetail(client, id)
+}
+
+// ---------------------------------------------------------------------------
+// Public website (Phase 18C)
+// ---------------------------------------------------------------------------
+
+/**
+ * Public application submission. The session is always the current
+ * academic session (never client-supplied) and the intended class must be
+ * active. Returns only the allocated application number — no applicant
+ * data is echoed to the unauthenticated caller.
+ */
+export async function createPublicApplication(
+  input: PublicApplication,
+): Promise<string> {
+  const client = await db()
+  const [session] = await client
+    .select({ id: academicSessions.id })
+    .from(academicSessions)
+    .where(eq(academicSessions.isCurrent, true))
+    .limit(1)
+
+  if (input.intendedClassId) {
+    const [klass] = await client
+      .select({ id: classes.id })
+      .from(classes)
+      .where(
+        and(
+          eq(classes.id, input.intendedClassId),
+          eq(classes.isActive, true),
+        ),
+      )
+      .limit(1)
+    if (!klass) throw smsFieldError('intendedClassId', 'Class not found.')
+  }
+
+  const { _website: _honeypot, ...fields } = input
+  const detail = await createApplication({
+    ...fields,
+    sessionId: session?.id ?? null,
+  })
+  return detail.applicationNumber
+}
+
+/**
+ * Public status check: exact match on application number plus the
+ * guardian email (case-insensitive) or phone used on the application.
+ * Every mismatch throws the same generic 404 so application numbers
+ * cannot be enumerated.
+ */
+export async function getPublicApplicationStatus(
+  query: AdmissionStatusQuery,
+): Promise<AdmissionStatusResponse> {
+  const client = await db()
+  const [row] = await client
+    .select()
+    .from(admissionApplications)
+    .where(
+      eq(
+        admissionApplications.applicationNumber,
+        query.applicationNumber.toUpperCase(),
+      ),
+    )
+    .limit(1)
+
+  const emailMatch =
+    query.guardianEmail !== undefined &&
+    row?.guardianEmail?.toLowerCase() === query.guardianEmail.toLowerCase()
+  const phoneMatch =
+    query.guardianPhone !== undefined &&
+    query.guardianPhone !== '' &&
+    row?.guardianPhone === query.guardianPhone
+
+  if (!row || (!emailMatch && !phoneMatch)) {
+    throw smsNotFound('No application matches those details.')
+  }
+
+  return {
+    applicationNumber: row.applicationNumber,
+    status: row.status,
+    statusLabel: ADMISSION_STATUS_LABELS[row.status] ?? row.status,
+  }
 }
 
 export async function updateApplication(

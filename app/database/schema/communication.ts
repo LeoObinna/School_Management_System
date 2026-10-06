@@ -27,6 +27,7 @@ import {
   audienceEnum,
   notificationStatusEnum,
   messageDirectionEnum,
+  contactMessageStatusEnum,
 } from './enums'
 
 // ---------------------------------------------------------------------------
@@ -170,3 +171,29 @@ export const learningResources = sqliteTable('learning_resources', {
     .$defaultFn(() => new Date().toISOString())
     .notNull(),
 })
+
+// ---------------------------------------------------------------------------
+// Contact messages (Phase 18C public contact form inbox)
+// ---------------------------------------------------------------------------
+export const contactMessages = sqliteTable(
+  'contact_messages',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    phone: text('phone'),
+    department: text('department'),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    status: contactMessageStatusEnum('status').default('new').notNull(),
+    createdAt: text('created_at')
+      .$defaultFn(() => new Date().toISOString())
+      .notNull(),
+    readAt: text('read_at'),
+  },
+  (t) => ({
+    statusIdx: index('contact_messages_status_idx').on(t.status, t.createdAt),
+  }),
+)

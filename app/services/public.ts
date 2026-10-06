@@ -20,6 +20,14 @@ import type {
   PublicSiteSettings,
   PublicStats,
 } from '~/shared/types'
+import type {
+  AdmissionStatusQuery,
+  AdmissionStatusResponse,
+  ContactMessageCreate,
+  ContactMessageResponse,
+  PublicApplication,
+  PublicApplicationResponse,
+} from '~/shared/schemas/public'
 
 export function fetchPublicSiteSettings(): Promise<PublicSiteSettings> {
   return ofetch<PublicSiteSettings>('/api/v1/public/school-settings')
@@ -76,4 +84,37 @@ export function fetchPublicAlbum(id: string): Promise<PublicAlbumDetail> {
 
 export function fetchPublicAcademics(): Promise<PublicAcademics> {
   return ofetch<PublicAcademics>('/api/v1/public/academics')
+}
+
+// --- 18C public forms --------------------------------------------------------
+
+export function submitPublicApplication(
+  body: PublicApplication,
+): Promise<PublicApplicationResponse> {
+  return ofetch<PublicApplicationResponse>(
+    '/api/v1/public/admissions/applications',
+    { method: 'POST', body },
+  )
+}
+
+export function fetchPublicApplicationStatus(
+  query: AdmissionStatusQuery,
+): Promise<AdmissionStatusResponse> {
+  const qs = new URLSearchParams(
+    Object.entries({ applicationNumber: query.applicationNumber, guardianEmail: query.guardianEmail, guardianPhone: query.guardianPhone })
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([k, v]) => [k, String(v)]),
+  ).toString()
+  return ofetch<AdmissionStatusResponse>(
+    `/api/v1/public/admissions/status?${qs}`,
+  )
+}
+
+export function sendPublicContactMessage(
+  body: ContactMessageCreate,
+): Promise<ContactMessageResponse> {
+  return ofetch<ContactMessageResponse>('/api/v1/public/contact', {
+    method: 'POST',
+    body,
+  })
 }

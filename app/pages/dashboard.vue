@@ -711,7 +711,7 @@ onMounted(() => {
       </section>
 
       <section
-        v-if="auth.can('announcements.view') || auth.can('notifications.view') || auth.can('messages.view')"
+        v-if="auth.can('announcements.view') || auth.can('notifications.view') || auth.can('messages.view') || auth.can('contact_messages.view')"
         class="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
       >
         <h3 class="text-lg font-medium text-gray-900 mb-4">
@@ -746,6 +746,16 @@ onMounted(() => {
             <p class="font-medium text-gray-900">Messages</p>
             <p class="mt-1 text-sm text-gray-500">
               Internal messaging between staff and users
+            </p>
+          </NuxtLink>
+          <NuxtLink
+            v-if="auth.can('contact_messages.view')"
+            to="/manage/contact-messages"
+            class="rounded-lg border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
+          >
+            <p class="font-medium text-gray-900">Contact inbox</p>
+            <p class="mt-1 text-sm text-gray-500">
+              Messages from the public website contact form
             </p>
           </NuxtLink>
         </div>

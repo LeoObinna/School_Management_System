@@ -1422,6 +1422,22 @@ export interface AnnouncementListItem extends Announcement {
   authorName: string | null
 }
 
+// Contact inbox (Phase 18C) — staff-facing view of public form submissions.
+export type ContactMessageStatus = 'new' | 'read' | 'archived'
+
+export interface ContactMessage {
+  id: string
+  name: string
+  email: string
+  phone: string | null
+  department: string | null
+  subject: string
+  body: string
+  status: ContactMessageStatus
+  createdAt: string
+  readAt: string | null
+}
+
 export interface Notification {
   id: string
   userId: string
@@ -1789,6 +1805,8 @@ export interface PublicAcademics {
     /** Null for classes without a level; the page labels that group. */
     name: string | null
     classes: {
+      /** Class id is exposed so the public admissions wizard can offer a class select. */
+      id: string
       name: string
       subjects: string[]
     }[]

@@ -548,7 +548,10 @@ async function loadPublicAcademicsFromDb(): Promise<PublicAcademics> {
   // ordered by their first (earliest-sequenced) class. Classes without a
   // level group under a null name.
   const levelOrder: (string | null)[] = []
-  const byLevel = new Map<string | null, { name: string; subjects: string[] }[]>()
+  const byLevel = new Map<
+    string | null,
+    { id: string; name: string; subjects: string[] }[]
+  >()
   for (const klass of classRows) {
     if (!klass.isActive) continue
     const level = klass.level || null
@@ -557,6 +560,7 @@ async function loadPublicAcademicsFromDb(): Promise<PublicAcademics> {
       levelOrder.push(level)
     }
     byLevel.get(level)!.push({
+      id: klass.id,
       name: klass.name,
       subjects: subjectsByClass.get(klass.id) ?? [],
     })

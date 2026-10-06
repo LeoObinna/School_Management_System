@@ -413,11 +413,11 @@ describe('public academics (Phase 18B)', () => {
     expect(payload.levels).toEqual([
       {
         name: 'Nursery',
-        classes: [{ name: 'Nursery 1', subjects: ['Phonics'] }],
+        classes: [{ id: UUID_A, name: 'Nursery 1', subjects: ['Phonics'] }],
       },
       {
         name: 'Primary',
-        classes: [{ name: 'Primary 1', subjects: ['Mathematics'] }],
+        classes: [{ id: UUID_B, name: 'Primary 1', subjects: ['Mathematics'] }],
       },
     ])
 

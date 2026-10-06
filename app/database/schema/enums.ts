@@ -217,3 +217,10 @@ export const inventoryStatusEnum = sqliteEnum([
   'active', // tracked and usable
   'retired', // removed from service; kept for history
 ] as const)
+
+// Contact inbox (Phase 18C) — public contact-form submissions.
+export const contactMessageStatusEnum = sqliteEnum([
+  'new',
+  'read',
+  'archived',
+] as const)
