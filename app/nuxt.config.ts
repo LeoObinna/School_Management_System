@@ -16,12 +16,12 @@ export default defineNuxtConfig({
     typeCheck: false, // run `npm run type-check` separately
   },
 
-  // Deploy to Cloudflare Workers via the Nitro cloudflare-module preset:
-  // outputs .output/server/index.mjs (Worker) + .output/public (assets),
-  // deployed manually with `wrangler deploy`. Supports R2, KV, D1,
-  // Queues, cron and Durable Object bindings via wrangler.toml.
+  // Deploy to Cloudflare Pages with a bundled Worker (cloudflare-pages preset).
+  // This generates .output/public/_worker.js which handles SSR + API routes
+  // alongside static assets. Cloudflare resource bindings (D1, R2, KV)
+  // must be configured on the Pages project.
   nitro: {
-    preset: 'cloudflare-module',
+    preset: 'cloudflare-pages',
     // Enables h3's AsyncLocalStorage event context so shared utilities
     // (e.g. the DB layer resolving the per-request D1 client) can
     // call useEvent() outside the route handler, including in Workers.

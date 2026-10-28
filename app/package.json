@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
+    "build:worker": "NITRO_PRESET=cloudflare-module nuxt build",
+    "build:pages": "NITRO_PRESET=cloudflare-pages nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
@@ -18,9 +20,11 @@
     "db:d1:migrate": "wrangler d1 migrations apply DB --local",
     "db:d1:execute": "wrangler d1 execute DB --local",
     "db:d1:seed": "tsx database/seed-d1.ts",
-    "cf:dev": "npm run build && wrangler dev",
+    "cf:dev": "npm run build:worker && wrangler dev",
     "cf:type": "wrangler types",
-    "deploy:production": "npm run build && wrangler deploy -e production"
+    "deploy:worker:production": "NITRO_PRESET=cloudflare-module nuxt build && wrangler deploy -e production",
+    "deploy:pages:preview": "NITRO_PRESET=cloudflare-pages nuxt build && wrangler pages deploy dist --project-name=vcs-school-preview --branch=main",
+    "deploy:production": "npm run deploy:worker:production"
   },
   "dependencies": {
     "@jsquash/jpeg": "^1.6.0",
